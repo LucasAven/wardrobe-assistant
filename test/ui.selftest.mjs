@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { ApiError, AuthError, NetworkError, createApi } from '../public/lib/api.js';
 import { createLimiter } from '../public/lib/limiter.js';
+import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
 import { imagePath, uploadContentType } from '../public/lib/photo.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
@@ -33,6 +34,9 @@ const PATCHABLE = [
   'notes',
   'uncertain',
 ];
+
+/** Mirrors ACCEPTED_UPLOAD_TYPES in src/worker/photos.ts. */
+const WORKER_ACCEPTS = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/gif', 'image/heic', 'image/heif'];
 
 const GARMENT = {
   id: 'a1',
@@ -240,6 +244,34 @@ test('upload content type falls back to the file name', () => {
   assert.equal(uploadContentType({ name: 'IMG_0001.HEIC', type: '' }), 'image/heic');
   assert.equal(uploadContentType({ name: 'notes.txt', type: 'text/plain' }), null);
   assert.equal(uploadContentType({ name: 'photo', type: '' }), null);
+});
+
+test('a phone photo is capped on its long edge and a small one is left alone', () => {
+  assert.deepEqual(targetSize(4032, 3024), { width: 2048, height: 1536 }, 'landscape 12MP');
+  assert.deepEqual(targetSize(3024, 4032), { width: 1536, height: 2048 }, 'portrait 12MP');
+  assert.deepEqual(targetSize(1000, 800), { width: 1000, height: 800 }, 'a small photo is never upscaled');
+  assert.deepEqual(targetSize(2048, 2048), { width: 2048, height: 2048 }, 'exactly at the cap is untouched');
+  assert.deepEqual(targetSize(4096, 4096), { width: 2048, height: 2048 });
+});
+
+test('the cutout box picks the format that keeps transparency', () => {
+  assert.equal(normalizedType(false), 'image/jpeg');
+  assert.equal(normalizedType(true), 'image/png', 'a lifted cutout has alpha and JPEG would flatten it');
+});
+
+test('the normalized blob goes up as a type the worker accepts', () => {
+  for (const alreadyCutOut of [false, true]) {
+    const type = normalizedType(alreadyCutOut);
+    assert.ok(WORKER_ACCEPTS.includes(type), `${type} is an accepted upload type`);
+    assert.equal(uploadContentType({ type }), type, 'a blob carries no name, so the type has to stand alone');
+  }
+});
+
+test('normalization that cannot run hands back the file untouched', async () => {
+  const file = { name: 'IMG_0001.HEIC', type: 'image/heic' };
+  assert.deepEqual(await normalizeForUpload(file, { cutout: false }), { body: file, normalized: false });
+  assert.deepEqual(await normalizeForUpload(file, { cutout: true }), { body: file, normalized: false });
+  assert.equal(uploadContentType(file), 'image/heic', 'the fallback still uploads as it does today');
 });
 
 test('routes parse and build', () => {

@@ -1,5 +1,6 @@
 import { button, clear, el } from '../dom.js';
 import { createLimiter } from '../limiter.js';
+import { normalizeForUpload } from '../normalize.js';
 import { createThumbnail } from '../thumb.js';
 
 const UPLOAD_CONCURRENCY = 3;
@@ -82,16 +83,22 @@ export function mountUpload(ctx) {
   function createItem(file, skipCutout) {
     const image = el('img', { class: 'shot__img', alt: '', decoding: 'async' });
     const status = el('p', { class: 'shot__status' }, 'Waiting');
+    const note = el('p', { class: 'shot__name', hidden: true });
     const retry = button('Retry', { class: 'btn btn--small' });
     retry.hidden = true;
 
     const row = el('li', { class: 'shot', dataset: { state: 'queued' } }, [
       el('div', { class: 'shot__thumb' }, image),
-      el('div', { class: 'shot__body' }, [el('p', { class: 'shot__name' }, file.name || 'photo'), status]),
+      el('div', { class: 'shot__body' }, [el('p', { class: 'shot__name' }, file.name || 'photo'), status, note]),
       retry,
     ]);
 
-    const item = { file, cutout: skipCutout, state: 'queued', node: row, release: null };
+    const item = { file, cutout: skipCutout, state: 'queued', node: row, release: null, upload: null };
+
+    item.setNote = (text) => {
+      note.textContent = text;
+      note.hidden = false;
+    };
 
     item.setState = (state, text) => {
       item.state = state;
@@ -117,11 +124,23 @@ export function mountUpload(ctx) {
     return item;
   }
 
+  /** Kept on the item so a retry does not decode the photo a second time. */
+  async function prepare(item) {
+    if (item.upload === null) {
+      const { body, normalized } = await normalizeForUpload(item.file, { cutout: item.cutout });
+      item.upload = body;
+      if (!normalized) item.setNote('Sent full size.');
+    }
+    return item.upload;
+  }
+
   function start(item) {
     item.setState('queued', 'Waiting');
-    uploads.run(() => {
+    uploads.run(async () => {
+      item.setState('uploading', 'Preparing');
+      const body = await prepare(item);
       item.setState('uploading', 'Uploading');
-      return ctx.api.uploadGarment(item.file, { cutout: item.cutout });
+      return ctx.api.uploadGarment(body, { cutout: item.cutout });
     }).then(
       (garment) => {
         ctx.store.upsert(garment);
