@@ -6,7 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && node test/ui.selftest.mjs",
     "db:local": "wrangler d1 execute wardrobe --local --file=src/db/schema.sql",
     "db:remote": "wrangler d1 execute wardrobe --remote --file=src/db/schema.sql"
   },
