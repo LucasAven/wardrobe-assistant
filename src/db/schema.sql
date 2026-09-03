@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS garment (
   water_resistant INTEGER NOT NULL DEFAULT 0,
   seasons         TEXT NOT NULL DEFAULT '[]',
   notes           TEXT,
+  -- The vision pass guesses warmth and formality. A wrong guess quietly poisons
+  -- every recommendation, so a garment stays flagged until it is confirmed by hand.
+  reviewed        INTEGER NOT NULL DEFAULT 0,
+  uncertain       TEXT NOT NULL DEFAULT '[]',
   archived        INTEGER NOT NULL DEFAULT 0,
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );

@@ -7,7 +7,8 @@
  *   formality   min(pieces) >= F  <=>  every piece >= F   distributes, filter
  *   rain        the piece must be water resistant         distributes, filter
  *   season      the piece must suit the season            distributes, filter
- *   book donts  a predicate over one garment              distributes, filter
+ *   book donts  about a garment nothing can cover         distributes, filter
+ *   book donts  about how the dressed torso reads         does not, validate
  *   warmth      a sum across worn layers                  does not, validate
  *
  * Distributive constraints are removed from the Menu, so an outfit built from
@@ -97,13 +98,14 @@ export interface BodyProfile {
 // ---------------------------------------------------------------------------
 
 /**
- * `require` is only ever one of the book's explicit donts, and only when it can
- * be tested against a single garment. Everything else is `prefer`, because a
- * preference promoted to a hard filter empties the wardrobe.
+ * `require` is only ever one of the book's explicit donts. Everything else is
+ * `prefer`, because a preference promoted to a hard filter empties the
+ * wardrobe. Where a `require` is enforced is a separate question, answered by
+ * the rule at the top of `bookRules.ts`.
  */
 export type Severity = 'require' | 'prefer';
 
-/** Testable against one garment, so it can enter the filter. */
+/** Testable against one garment, so a `require` one can be a menu filter. */
 export interface GarmentRule {
   readonly kind: 'garment';
   readonly id: string;
@@ -112,6 +114,7 @@ export interface GarmentRule {
   readonly slots: readonly Slot[];
   /** Verbatim from the book, shown to the user. Never paraphrased. */
   readonly because: string;
+  /** `true` means the garment satisfies the rule. */
   readonly test: (g: Garment) => boolean;
 }
 
@@ -120,8 +123,13 @@ export interface OutfitRule {
   readonly kind: 'outfit';
   readonly id: string;
   readonly appliesTo: BodyType | 'all';
-  readonly severity: 'prefer';
+  /**
+   * A `require` here is enforced by `certify` and never by the menu filter,
+   * because the verdict needs the assembled outfit.
+   */
+  readonly severity: Severity;
   readonly because: string;
+  /** `true` means the outfit satisfies the rule. */
   readonly test: (o: ResolvedOutfit) => boolean;
 }
 
@@ -144,6 +152,8 @@ export interface Moment {
   readonly event: EventKind;
   readonly timeOfDay: TimeOfDay;
   readonly hoursOutdoors: number;
+  /** The instant the weather describes. The season is read from it, so the two cannot disagree. */
+  readonly date: Date;
   /** Free text. Passed to the model verbatim, never parsed. */
   readonly mood?: string;
 }
@@ -184,6 +194,16 @@ export interface Constraints {
 }
 
 // ---------------------------------------------------------------------------
+// Wear log
+// ---------------------------------------------------------------------------
+
+/** One row of the wear log. Cooldown is measured from it. */
+export interface WearEvent {
+  readonly wornOn: Date;
+  readonly garmentIds: readonly string[];
+}
+
+// ---------------------------------------------------------------------------
 // Menu
 // ---------------------------------------------------------------------------
 
@@ -198,7 +218,9 @@ export interface MenuEntry {
 /**
  * The invariant everything rests on. Every entry already satisfies every
  * distributive constraint, so an outfit built only from menu entries cannot be
- * under-formal, out of season, wrong for rain, or against a book dont.
+ * under-formal, out of season, wrong for rain, or against a book dont that no
+ * other garment could cover. The donts about how a covered layer looks are
+ * `require` OutfitRules, checked by `certify`.
  */
 export interface Menu {
   readonly bySlot: Readonly<Record<Slot, readonly MenuEntry[]>>;
@@ -221,8 +243,6 @@ export interface OutfitProposal {
   readonly rationale: string;
   /** Book rule ids the model claims this outfit follows. Validated. */
   readonly citedRules: readonly string[];
-  /** Book `prefer` rules this outfit knowingly misses. Must be stated. */
-  readonly acknowledgedMisses: readonly string[];
 }
 
 /** Ids resolved against the Menu. Distributive constraints inherited. */
@@ -235,8 +255,9 @@ export interface ResolvedOutfit {
 declare const CERTIFIED: unique symbol;
 
 /**
- * Warmth checked, citations resolved. The only constructor is `certify`, so a
- * function taking this cannot be handed an unchecked outfit.
+ * Warmth checked, every `require` rule checked, citations resolved. The only
+ * constructor is `certify`, so a function taking this cannot be handed an
+ * unchecked outfit.
  */
 export interface CertifiedOutfit extends ResolvedOutfit {
   readonly [CERTIFIED]: true;
@@ -248,8 +269,10 @@ export interface CertifiedOutfit extends ResolvedOutfit {
 
 export type RejectionReason =
   | { readonly kind: 'unknown_garment'; readonly slot: Slot; readonly id: string }
+  | { readonly kind: 'duplicate_garment'; readonly id: string; readonly slots: readonly Slot[] }
   | { readonly kind: 'missing_required_slot'; readonly slot: RequiredSlot }
   | { readonly kind: 'warmth_out_of_band'; readonly band: 'core' | 'withOuter'; readonly got: number }
   | { readonly kind: 'unknown_rule'; readonly id: string }
+  | { readonly kind: 'rule_not_for_this_body'; readonly id: string }
   | { readonly kind: 'cited_violated_rule'; readonly id: string }
   | { readonly kind: 'broke_required_rule'; readonly id: string };

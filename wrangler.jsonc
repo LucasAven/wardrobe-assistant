@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "wardrobe",
+  "main": "src/worker/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application"
+  },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "wardrobe",
+      "database_id": "PLACEHOLDER_RUN_wrangler_d1_create_wardrobe"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "wardrobe-photos"
+    }
+  ],
+
+  // Background removal. `segment: "foreground"` runs BiRefNet server side, so
+  // nothing is downloaded to the phone and no third party API is involved.
+  "images": {
+    "binding": "IMAGES"
+  },
+
+  // Required by @cloudflare/workers-oauth-provider, which is the only way
+  // Claude will connect a custom connector. There is no shared-token path.
+  "kv_namespaces": [
+    {
+      "binding": "OAUTH_KV",
+      "id": "PLACEHOLDER_RUN_wrangler_kv_namespace_create_OAUTH_KV"
+    }
+  ],
+
+  "observability": { "enabled": true }
+}
