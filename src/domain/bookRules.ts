@@ -107,6 +107,14 @@ export function lightness(colors: readonly string[]): Lightness {
 }
 
 const TORSO_SLOTS: readonly Slot[] = ['base', 'top', 'mid', 'outer'];
+/**
+ * How far the book's "tops" reach. A line that names a top, a tee or a tank top
+ * stops before the coat, for the reason in `onOutermostTop`. A line about a
+ * garment in general, or about volume, color placement, layering or one
+ * palette, keeps `outer`, because there the coat is part of what the book is
+ * talking about.
+ */
+const TOP_SLOTS: readonly Slot[] = ['base', 'top', 'mid'];
 const BOTTOM_SLOT: readonly Slot[] = ['bottom'];
 const CLOTHING_SLOTS: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom'];
 
@@ -117,6 +125,10 @@ const TORSO_BY_VISIBILITY: readonly Slot[] = ['outer', 'mid', 'top', 'base'];
 
 function torsoLayers(o: ResolvedOutfit): readonly Garment[] {
   return TORSO_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
+}
+
+function topLayers(o: ResolvedOutfit): readonly Garment[] {
+  return TOP_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
 }
 
 /** Outer, then mid, then top, then base. The layer that actually reads to someone looking at you. */
@@ -175,7 +187,7 @@ function hasVolumeBelow(o: ResolvedOutfit): boolean {
 }
 
 function hasTightTankTop(o: ResolvedOutfit): boolean {
-  return torsoLayers(o).some((g) => g.fit === 'tight' && g.sleeves === 'none');
+  return topLayers(o).some((g) => g.fit === 'tight' && g.sleeves === 'none');
 }
 
 function hasStraightLegBottom(o: ResolvedOutfit): boolean {
@@ -231,7 +243,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'rect-03',
     appliesTo: 'rectangle',
     severity: 'prefer',
-    slots: TORSO_SLOTS,
+    slots: TOP_SLOTS,
     because: 'Wider shoulders plus hem volume near the hip read as a marked waist and a dynamic figure.',
     test: (g) => g.shoulderBulk || g.neckline === 'v' || g.hem === 'hip',
   },
@@ -367,7 +379,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     because: 'A tight top tucked into tight trousers highlights hip width.',
     // Tucking is a way of wearing a garment and no field records it, so the
     // pairing of the two tight pieces is what gets tested.
-    test: (o) => !(torsoLayers(o).some((g) => g.fit === 'tight') && o.pieces.bottom?.fit === 'tight'),
+    test: (o) => !(topLayers(o).some((g) => g.fit === 'tight') && o.pieces.bottom?.fit === 'tight'),
   },
   {
     kind: 'outfit',
@@ -411,9 +423,12 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'inv-02',
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
-    slots: TORSO_SLOTS,
+    slots: TOP_SLOTS,
     because:
       'The top already has plenty of volume, and padded jackets, bulky sweaters and shoulder pads amplify what is already there.',
+    // The avoid half of this line does name a jacket, and inv-08a and inv-08b
+    // carry that half over the outer slot as a dont. What stops at `mid` is the
+    // prefer half, which asks a shirt or a tee to be structured and plain.
     test: (g) => g.structured && g.pattern === 'solid' && !g.shoulderBulk,
   },
   {
@@ -424,7 +439,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     because:
       'The fitted top flatters this type only when the lower half compensates, and the open neckline adds verticality.',
     test: (o) => {
-      const fitted = torsoLayers(o).filter((g) => g.fit === 'fitted');
+      const fitted = topLayers(o).filter((g) => g.fit === 'fitted');
       if (fitted.length === 0) return true;
       return hasVolumeBelow(o) && fitted.every((g) => g.neckline === 'open');
     },
@@ -439,7 +454,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     // `thinLegs` lives on the body profile, which a rule test never sees. The
     // predicate holds for every inverted triangle, which is where inv-03
     // already puts it, so nothing here is stricter than the book.
-    test: (o) => !(torsoLayers(o).some((g) => g.fit === 'fitted') && o.pieces.bottom?.fit === 'tight'),
+    test: (o) => !(topLayers(o).some((g) => g.fit === 'fitted') && o.pieces.bottom?.fit === 'tight'),
   },
   {
     kind: 'garment',
@@ -503,7 +518,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-02',
     appliesTo: 'circular',
     severity: 'prefer',
-    slots: TORSO_SLOTS,
+    slots: TOP_SLOTS,
     because:
       'Tops that cling to the torso or fall past the waistline wrap the midsection and make the body look wider than it is.',
     test: (g) =>

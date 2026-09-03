@@ -4,11 +4,17 @@ import { certify, resolveOutfit } from '../src/domain/certify';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu } from '../src/domain/menu';
 import type {
+  BodyType,
   CertifiedOutfit,
   Constraints,
+  Garment,
+  GarmentRule,
   Menu,
+  OutfitProposal,
+  OutfitRule,
   RejectionReason,
   ResolvedOutfit,
+  Slot,
 } from '../src/domain/types';
 import {
   AUTUMN_DAY,
@@ -17,6 +23,7 @@ import {
   SUMMER_DAY,
   WARDROBE,
   garmentById,
+  makeGarment,
   proposal,
 } from './fixtures';
 
@@ -51,6 +58,34 @@ function certified(result: CertifiedOutfit | RejectionReason[]): CertifiedOutfit
 function certifyRejected(result: CertifiedOutfit | RejectionReason[]): readonly RejectionReason[] {
   if (!Array.isArray(result)) throw new Error('expected a rejection');
   return result;
+}
+
+function garmentRule(id: string): GarmentRule {
+  const rule = RULES_BY_ID.get(id);
+  if (rule === undefined || rule.kind !== 'garment') throw new Error(`no garment rule ${id}`);
+  return rule;
+}
+
+function outfitRule(id: string): OutfitRule {
+  const rule = RULES_BY_ID.get(id);
+  if (rule === undefined || rule.kind !== 'outfit') throw new Error(`no outfit rule ${id}`);
+  return rule;
+}
+
+/** Enough of an outfit to run one rule against. Never certified, so warmth is free. */
+function wearing(pieces: Readonly<Partial<Record<Slot, Garment>>>): ResolvedOutfit {
+  return { pieces, accessories: [], proposal: proposal({ citedRules: [] }) };
+}
+
+function missedFor(
+  outfit: OutfitProposal,
+  menu: Menu,
+  constraints: Constraints,
+  bodyType: BodyType,
+): readonly string[] {
+  return certified(certify(resolved(resolveOutfit(outfit, menu)), constraints, bodyType)).missed.map(
+    (rule) => rule.id,
+  );
 }
 
 describe('resolveOutfit', () => {
@@ -371,5 +406,178 @@ describe('require rules that need the assembled outfit', () => {
     expect(garmentById('rain-jacket-black').hem).toBe('hip');
     expect(coated.pieces.top?.id).toBe('oxford-blue');
     expect(outermostTorso(coated)?.id).toBe('rain-jacket-black');
+  });
+});
+
+describe('prefer rules and outerwear', () => {
+  const COOL: Constraints = deriveConstraints({ ...MILD_ERRANDS, feelsLikeC: 8, hoursOutdoors: 1 });
+  const MILD: Constraints = deriveConstraints({ ...MILD_ERRANDS, feelsLikeC: 12, hoursOutdoors: 1 });
+
+  const COATED = proposal({
+    base: 'henley-navy',
+    outer: 'wool-coat-camel',
+    bottom: 'trousers-wool-charcoal',
+    shoes: 'chelsea-boots-black',
+    citedRules: [],
+  });
+
+  const SHELLED = proposal({
+    base: 'tee-merino-white',
+    outer: 'rain-jacket-black',
+    bottom: 'trousers-wool-charcoal',
+    shoes: 'chelsea-boots-black',
+    citedRules: [],
+  });
+
+  it('does not judge a coat by the circular rule about tops', () => {
+    const menu = buildMenu(WARDROBE, COOL, [], 'circular', AUTUMN_DAY);
+
+    expect(garmentById('wool-coat-camel').hem).toBe('below_hip');
+    expect(garmentRule('circ-02').test(garmentById('wool-coat-camel'))).toBe(false);
+    expect(missedFor(COATED, menu, COOL, 'circular')).not.toContain('circ-02');
+    expect(garmentRule('circ-02').slots).toEqual(['base', 'top', 'mid']);
+  });
+
+  it('still trips the circular tops rule on a shirt under that coat', () => {
+    const menu = buildMenu(WARDROBE, COOL, [], 'circular', AUTUMN_DAY);
+    const shirted = proposal({ ...COATED, top: 'flannel-check' });
+
+    expect(garmentById('flannel-check').hem).toBe('hip');
+    expect(missedFor(shirted, menu, COOL, 'circular')).toContain('circ-02');
+  });
+
+  it('does not judge a coat by the rectangle rule about tops', () => {
+    const menu = buildMenu(WARDROBE, COOL, [], 'rectangle', AUTUMN_DAY);
+
+    expect(garmentById('henley-navy').neckline).toBe('v');
+    expect(garmentRule('rect-03').test(garmentById('wool-coat-camel'))).toBe(false);
+    expect(missedFor(COATED, menu, COOL, 'rectangle')).not.toContain('rect-03');
+    expect(garmentRule('rect-03').slots).toEqual(['base', 'top', 'mid']);
+  });
+
+  it('still trips the rectangle tops rule on a polo under that coat', () => {
+    const menu = buildMenu(WARDROBE, COOL, [], 'rectangle', AUTUMN_DAY);
+    const poloed = proposal({ ...COATED, top: 'polo-navy' });
+
+    expect(garmentById('polo-navy').hem).toBe('at_waist');
+    expect(missedFor(poloed, menu, COOL, 'rectangle')).toContain('rect-03');
+  });
+
+  it('does not judge a coat by the inverted triangle rule about plain tops', () => {
+    const menu = buildMenu(WARDROBE, MILD, [], 'inverted_triangle', AUTUMN_DAY);
+
+    expect(garmentById('rain-jacket-black').structured).toBe(false);
+    expect(garmentRule('inv-02').test(garmentById('rain-jacket-black'))).toBe(false);
+    expect(missedFor(SHELLED, menu, MILD, 'inverted_triangle')).not.toContain('inv-02');
+    expect(garmentRule('inv-02').slots).toEqual(['base', 'top', 'mid']);
+  });
+
+  it('still trips the plain tops rule on a polo under that shell', () => {
+    const menu = buildMenu(WARDROBE, MILD, [], 'inverted_triangle', AUTUMN_DAY);
+    const poloed = proposal({ ...SHELLED, top: 'polo-navy' });
+
+    expect(garmentById('polo-navy').structured).toBe(false);
+    expect(missedFor(poloed, menu, MILD, 'inverted_triangle')).toContain('inv-02');
+  });
+
+  it('reads a fitted coat as outerwear and a fitted tee as a top', () => {
+    const bomber = makeGarment({
+      id: 'bomber-fitted',
+      slot: 'outer',
+      subtype: 'bomber jacket',
+      fit: 'fitted',
+      neckline: 'high',
+      sleeves: 'long',
+      hem: 'at_waist',
+    });
+    const volumeBelow = { bottom: garmentById('trousers-wool-charcoal') };
+
+    expect(garmentById('trousers-wool-charcoal').leg).toBe('wide');
+    expect(garmentById('tee-white').fit).toBe('fitted');
+    expect(
+      outfitRule('inv-03').test(wearing({ ...volumeBelow, base: garmentById('henley-navy'), outer: bomber })),
+    ).toBe(true);
+    expect(outfitRule('inv-03').test(wearing({ ...volumeBelow, base: garmentById('tee-white') }))).toBe(
+      false,
+    );
+
+    const skinny = { bottom: garmentById('jeans-black-skinny') };
+    expect(garmentById('jeans-black-skinny').fit).toBe('tight');
+    expect(outfitRule('inv-04').test(wearing({ ...skinny, outer: bomber }))).toBe(true);
+    expect(outfitRule('inv-04').test(wearing({ ...skinny, base: garmentById('tee-white') }))).toBe(false);
+  });
+
+  it('reads a tight or sleeveless coat as outerwear and a tank as a top', () => {
+    const vest = makeGarment({
+      id: 'vest-tight',
+      slot: 'outer',
+      subtype: 'quilted vest',
+      fit: 'tight',
+      sleeves: 'none',
+      hem: 'at_waist',
+    });
+    const tank = garmentById('tank-gray');
+    const straight = { bottom: garmentById('jeans-indigo') };
+    const tight = { bottom: garmentById('jeans-black-skinny') };
+
+    expect(tank.fit).toBe('tight');
+    expect(tank.sleeves).toBe('none');
+    expect(garmentById('jeans-indigo').leg).toBe('straight');
+
+    expect(outfitRule('rect-07').test(wearing({ ...straight, outer: vest }))).toBe(true);
+    expect(outfitRule('rect-07').test(wearing({ ...straight, base: tank }))).toBe(false);
+    expect(outfitRule('circ-09').test(wearing({ ...straight, outer: vest }))).toBe(true);
+    expect(outfitRule('circ-09').test(wearing({ ...straight, base: tank }))).toBe(false);
+    expect(outfitRule('tri-07').test(wearing({ ...tight, outer: vest }))).toBe(true);
+    expect(outfitRule('tri-07').test(wearing({ ...tight, base: tank }))).toBe(false);
+  });
+
+  it('still judges a coat for structure and for the dark vertical line', () => {
+    expect(garmentRule('rect-02').slots).toContain('outer');
+    expect(garmentRule('rect-02').test(garmentById('rain-jacket-black'))).toBe(false);
+    expect(garmentRule('rect-02').test(garmentById('wool-coat-camel'))).toBe(true);
+
+    expect(garmentRule('circ-01').slots).toContain('outer');
+    expect(garmentRule('circ-01').test(garmentById('wool-coat-camel'))).toBe(false);
+    expect(garmentRule('circ-01').test(garmentById('trench-navy'))).toBe(true);
+  });
+
+  it('lets a coat satisfy the layering and shoulder color rules', () => {
+    const tee = garmentById('tee-white');
+    const shell = garmentById('rain-jacket-black');
+
+    expect(shell.neckline).toBe('high');
+    expect(outfitRule('rect-01').test(wearing({ base: tee }))).toBe(false);
+    expect(outfitRule('rect-01').test(wearing({ base: tee, outer: shell }))).toBe(true);
+
+    const creamCoat = makeGarment({
+      id: 'coat-cream',
+      slot: 'outer',
+      subtype: 'wool coat',
+      colors: ['cream'],
+      fit: 'regular',
+      hem: 'below_hip',
+    });
+    const darkBelow = { bottom: garmentById('trousers-wool-charcoal') };
+    const navyBase = garmentById('henley-navy');
+
+    expect(outfitRule('tri-01').test(wearing({ ...darkBelow, base: navyBase }))).toBe(false);
+    expect(outfitRule('tri-01').test(wearing({ ...darkBelow, base: navyBase, outer: creamCoat }))).toBe(
+      true,
+    );
+
+    expect(outfitRule('tri-03').test(wearing({ base: tee }))).toBe(false);
+    expect(outfitRule('tri-03').test(wearing({ base: tee, outer: garmentById('trench-navy') }))).toBe(
+      true,
+    );
+  });
+
+  it('counts a coat in the one color check', () => {
+    const navy = { base: garmentById('henley-navy'), top: garmentById('polo-navy') };
+
+    expect(outfitRule('circ-03').test(wearing(navy))).toBe(true);
+    expect(outfitRule('circ-03').test(wearing({ ...navy, outer: garmentById('wool-coat-camel') }))).toBe(
+      false,
+    );
   });
 });

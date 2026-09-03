@@ -34,6 +34,12 @@ function garment(spec: GarmentSpec): Garment {
   return { ...DEFAULTS, ...spec, id: spec.id as GarmentId };
 }
 
+/**
+ * For a garment shape the wardrobe has none of. Adding one to `WARDROBE` would
+ * move the menu counts every other test reads.
+ */
+export const makeGarment = garment;
+
 /** A wardrobe with the thin spots a real one has: one wide-leg trouser, one waterproof boot. */
 export const WARDROBE: readonly Garment[] = [
   garment({

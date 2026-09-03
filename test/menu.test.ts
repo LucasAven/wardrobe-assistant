@@ -148,6 +148,24 @@ describe('donts a later layer could cover', () => {
     expect(idsIn(menu, 'mid')).toContain('knit-cream-heavy');
   });
 
+  it('still refuses a padded jacket, which is the half of inv-02 that reaches a coat', () => {
+    const menu = buildMenu(
+      WARDROBE,
+      deriveConstraints({ ...MILD_ERRANDS, date: WINTER_DAY }),
+      [],
+      'inverted_triangle',
+      WINTER_DAY,
+    );
+
+    const plainTops = RULES_BY_ID.get('inv-02');
+    if (plainTops?.kind !== 'garment') throw new Error('inv-02 should be a garment rule');
+
+    expect(plainTops.slots).not.toContain('outer');
+    expect(RULES_BY_ID.get('inv-08a')?.severity).toBe('require');
+    expect(garmentById('puffer-navy').shoulderBulk).toBe(true);
+    expect(idsIn(menu, 'outer')).not.toContain('puffer-navy');
+  });
+
   it('has no require garment rule over a slot another layer can cover', () => {
     const coverable: readonly Slot[] = ['base', 'top', 'mid'];
     const filters = BOOK_RULES.filter(
