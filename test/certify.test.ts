@@ -256,7 +256,7 @@ describe('require rules that need the assembled outfit', () => {
     expect(garmentById('tank-gray').sleeves).toBe('none');
     expect(
       certifyRejected(certify(resolved(resolveOutfit(bare, TRIANGLE_MENU)), SUMMER, 'triangle')),
-    ).toEqual([{ kind: 'broke_required_rule', id: 'tri-08b' }]);
+    ).toEqual([{ kind: 'broke_required_rule', id: 'tri-08' }]);
   });
 
   it('accepts the same tank once a shirt covers it', () => {
@@ -276,6 +276,45 @@ describe('require rules that need the assembled outfit', () => {
     expect(outermostTorso(outfit)?.id).toBe('polo-navy');
   });
 
+  it('accepts a tank under a long sleeve shirt', () => {
+    const covered = proposal({
+      base: 'tank-gray',
+      top: 'linen-shirt-beige',
+      bottom: 'jeans-indigo',
+      shoes: 'sneakers-white',
+      citedRules: [],
+    });
+
+    expect(garmentById('linen-shirt-beige').sleeves).toBe('long');
+
+    const outfit = certified(
+      certify(resolved(resolveOutfit(covered, TRIANGLE_MENU)), SUMMER, 'triangle'),
+    );
+
+    expect(outfit.pieces.base?.id).toBe('tank-gray');
+    expect(outermostTorso(outfit)?.id).toBe('linen-shirt-beige');
+  });
+
+  it('accepts a sleeveless gilet over a long sleeve tee', () => {
+    const autumnMenu = buildMenu(WARDROBE, CONSTRAINTS, [], 'triangle', AUTUMN_DAY);
+    const gileted = proposal({
+      base: 'henley-navy',
+      outer: 'gilet-olive',
+      bottom: 'jeans-indigo',
+      shoes: 'sneakers-white',
+      citedRules: [],
+    });
+
+    expect(garmentById('gilet-olive').sleeves).toBe('none');
+    expect(garmentById('henley-navy').sleeves).toBe('long');
+
+    const outfit = certified(
+      certify(resolved(resolveOutfit(gileted, autumnMenu)), CONSTRAINTS, 'triangle'),
+    );
+
+    expect(outermostTorso(outfit)?.id).toBe('gilet-olive');
+  });
+
   it('judges a past-waist shirt only while it is the layer on show', () => {
     const warm = deriveConstraints({ ...MILD_ERRANDS, feelsLikeC: 20 });
     const warmMenu = buildMenu(WARDROBE, warm, [], 'circular', AUTUMN_DAY);
@@ -290,7 +329,7 @@ describe('require rules that need the assembled outfit', () => {
     expect(garmentById('oxford-blue').hem).toBe('past_waist');
     expect(
       certifyRejected(certify(resolved(resolveOutfit(onShow, warmMenu)), warm, 'circular')),
-    ).toEqual([{ kind: 'broke_required_rule', id: 'circ-06b' }]);
+    ).toEqual([{ kind: 'broke_required_rule', id: 'circ-06' }]);
 
     const cool = deriveConstraints({ ...MILD_ERRANDS, feelsLikeC: 8, hoursOutdoors: 1 });
     const coolMenu = buildMenu(WARDROBE, cool, [], 'circular', AUTUMN_DAY);
@@ -304,5 +343,33 @@ describe('require rules that need the assembled outfit', () => {
 
     expect(outfit.pieces.top?.id).toBe('oxford-blue');
     expect(outermostTorso(outfit)?.id).toBe('cardigan-gray');
+  });
+
+  it('stops judging a past-waist shirt once a coat is the layer on show', () => {
+    const warm = deriveConstraints({ ...MILD_ERRANDS, feelsLikeC: 20 });
+    const warmMenu = buildMenu(WARDROBE, warm, [], 'circular', AUTUMN_DAY);
+    const onShow = proposal({
+      base: 'tee-white',
+      top: 'oxford-blue',
+      bottom: 'chinos-stone',
+      shoes: 'sneakers-white',
+      citedRules: [],
+    });
+
+    expect(
+      certifyRejected(certify(resolved(resolveOutfit(onShow, warmMenu)), warm, 'circular')),
+    ).toEqual([{ kind: 'broke_required_rule', id: 'circ-06' }]);
+
+    const coated = certified(
+      certify(
+        resolved(resolveOutfit(proposal({ ...onShow, outer: 'rain-jacket-black' }), warmMenu)),
+        warm,
+        'circular',
+      ),
+    );
+
+    expect(garmentById('rain-jacket-black').hem).toBe('hip');
+    expect(coated.pieces.top?.id).toBe('oxford-blue');
+    expect(outermostTorso(coated)?.id).toBe('rain-jacket-black');
   });
 });

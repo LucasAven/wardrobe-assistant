@@ -141,6 +141,20 @@ function onOutermostTorso(test: (g: Garment) => boolean): (o: ResolvedOutfit) =>
   };
 }
 
+/**
+ * The same reading as `onOutermostTorso`, minus the coat. The book's "tops" are
+ * the tee, shirt and sweater layers, and it never asks anyone to avoid
+ * outerwear, so a coat on top means the rule is not talking about what is being
+ * worn.
+ */
+function onOutermostTop(test: (g: Garment) => boolean): (o: ResolvedOutfit) => boolean {
+  return (o) => {
+    if (o.pieces.outer !== undefined) return true;
+    const visible = outermostTorso(o);
+    return visible === null || test(visible);
+  };
+}
+
 function clothing(o: ResolvedOutfit): readonly Garment[] {
   return CLOTHING_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
 }
@@ -233,6 +247,9 @@ export const BOOK_RULES: readonly BookRule[] = [
   // Every `a`/`b` pair below is one book line split in two: the `a` half filters
   // the slots nothing can cover, the `b` half judges the layer that ends up
   // visible. Both halves carry the book's sentence, because both are shown.
+  // circ-05, circ-06, circ-07 and tri-08 were split this way and have been
+  // rejoined, so a stored citation of `circ-05a` or `tri-08b` resolves to
+  // nothing.
   {
     kind: 'garment',
     id: 'rect-05a',
@@ -353,21 +370,19 @@ export const BOOK_RULES: readonly BookRule[] = [
     test: (o) => !(torsoLayers(o).some((g) => g.fit === 'tight') && o.pieces.bottom?.fit === 'tight'),
   },
   {
-    kind: 'garment',
-    id: 'tri-08a',
-    appliesTo: 'triangle',
-    severity: 'require',
-    slots: OUTER_SLOT,
-    because: 'Sleeveless tops leave the shoulders bare and unbalance the figure further.',
-    test: (g) => g.sleeves !== 'none',
-  },
-  {
     kind: 'outfit',
-    id: 'tri-08b',
+    id: 'tri-08',
     appliesTo: 'triangle',
     severity: 'require',
     because: 'Sleeveless tops leave the shoulders bare and unbalance the figure further.',
-    test: onOutermostTorso((g) => g.sleeves !== 'none'),
+    // `sleeves: 'none'` cannot tell a tank top apart from a gilet, so only a
+    // sleeved layer counts as cover: a gilet over a long sleeve tee passes on
+    // the tee, and a gilet over a tank is refused even though the gilet covers
+    // the shoulders.
+    test: (o) => {
+      const torso = torsoLayers(o);
+      return torso.length === 0 || torso.some((g) => g.sleeves !== 'none');
+    },
   },
   {
     kind: 'garment',
@@ -522,55 +537,28 @@ export const BOOK_RULES: readonly BookRule[] = [
     test: (g) => g.leg === 'wide',
   },
   {
-    kind: 'garment',
-    id: 'circ-05a',
-    appliesTo: 'circular',
-    severity: 'require',
-    slots: OUTER_SLOT,
-    because: 'Tops that cling to the torso wrap the midsection and make the body look wider than it is.',
-    test: (g) => g.fit !== 'tight',
-  },
-  {
     kind: 'outfit',
-    id: 'circ-05b',
+    id: 'circ-05',
     appliesTo: 'circular',
     severity: 'require',
     because: 'Tops that cling to the torso wrap the midsection and make the body look wider than it is.',
-    test: onOutermostTorso((g) => g.fit !== 'tight'),
-  },
-  {
-    kind: 'garment',
-    id: 'circ-06a',
-    appliesTo: 'circular',
-    severity: 'require',
-    slots: OUTER_SLOT,
-    because: 'Tops that fall past the waistline wrap the midsection and make the body look wider than it is.',
-    test: (g) => g.hem !== 'past_waist' && g.hem !== 'hip' && g.hem !== 'below_hip',
+    test: onOutermostTop((g) => g.fit !== 'tight'),
   },
   {
     kind: 'outfit',
-    id: 'circ-06b',
+    id: 'circ-06',
     appliesTo: 'circular',
     severity: 'require',
     because: 'Tops that fall past the waistline wrap the midsection and make the body look wider than it is.',
-    test: onOutermostTorso((g) => g.hem !== 'past_waist' && g.hem !== 'hip' && g.hem !== 'below_hip'),
-  },
-  {
-    kind: 'garment',
-    id: 'circ-07a',
-    appliesTo: 'circular',
-    severity: 'require',
-    slots: OUTER_SLOT,
-    because: 'Tight tank tops shrink the shoulders and emphasize the abdomen.',
-    test: (g) => !(g.fit === 'tight' && g.sleeves === 'none'),
+    test: onOutermostTop((g) => g.hem !== 'past_waist' && g.hem !== 'hip' && g.hem !== 'below_hip'),
   },
   {
     kind: 'outfit',
-    id: 'circ-07b',
+    id: 'circ-07',
     appliesTo: 'circular',
     severity: 'require',
     because: 'Tight tank tops shrink the shoulders and emphasize the abdomen.',
-    test: onOutermostTorso((g) => !(g.fit === 'tight' && g.sleeves === 'none')),
+    test: onOutermostTop((g) => !(g.fit === 'tight' && g.sleeves === 'none')),
   },
   {
     kind: 'garment',

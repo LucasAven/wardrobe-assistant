@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { RULES_BY_ID } from '../src/domain/bookRules';
+import { BOOK_RULES, RULES_BY_ID } from '../src/domain/bookRules';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu, rankSlot } from '../src/domain/menu';
 import { resolveOutfit } from '../src/domain/certify';
-import type { Menu, MenuEntry, Slot, WearEvent } from '../src/domain/types';
+import type { GarmentRule, Menu, MenuEntry, Slot, WearEvent } from '../src/domain/types';
 import {
   AUTUMN_DAY,
   COOL_FORMAL,
@@ -123,6 +123,17 @@ describe('donts a later layer could cover', () => {
     expect(idsIn(menu, 'base')).toContain('tank-gray');
   });
 
+  it('keeps every coat for a circular body, because the tops rules are not about outerwear', () => {
+    const menu = buildMenu(WARDROBE, deriveConstraints(MILD_ERRANDS), [], 'circular', AUTUMN_DAY);
+
+    expect(RULES_BY_ID.get('circ-06')?.kind).toBe('outfit');
+    expect(garmentById('wool-coat-camel').hem).toBe('below_hip');
+    expect(garmentById('trench-navy').hem).toBe('below_hip');
+    expect(idsIn(menu, 'outer')).toContain('wool-coat-camel');
+    expect(idsIn(menu, 'outer')).toContain('trench-navy');
+    expect(idsIn(menu, 'outer')).toContain('rain-jacket-black');
+  });
+
   it('still filters a garment nothing can cover', () => {
     const menu = buildMenu(
       WARDROBE,
@@ -135,6 +146,20 @@ describe('donts a later layer could cover', () => {
     expect(garmentById('puffer-navy').shoulderBulk).toBe(true);
     expect(idsIn(menu, 'outer')).not.toContain('puffer-navy');
     expect(idsIn(menu, 'mid')).toContain('knit-cream-heavy');
+  });
+
+  it('has no require garment rule over a slot another layer can cover', () => {
+    const coverable: readonly Slot[] = ['base', 'top', 'mid'];
+    const filters = BOOK_RULES.filter(
+      (rule): rule is GarmentRule => rule.kind === 'garment' && rule.severity === 'require',
+    );
+
+    expect(filters.length).toBeGreaterThan(0);
+    expect(
+      filters
+        .filter((rule) => rule.slots.some((slot) => coverable.includes(slot)))
+        .map((rule) => rule.id),
+    ).toEqual([]);
   });
 });
 
