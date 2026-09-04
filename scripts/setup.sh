@@ -19,11 +19,18 @@ if ! wr whoami >/dev/null 2>&1; then
 fi
 
 echo "==> D1"
-if ! wr d1 info "$D1_NAME" >/dev/null 2>&1; then
+# Look the database up by name via `d1 list`. `d1 info <name>` resolves the name
+# through the binding in wrangler.jsonc, so while the id there is still a
+# placeholder it queries the placeholder and fails no matter what exists.
+d1_id() {
+  wr d1 list --json 2>/dev/null | node -e \
+    'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{let j=[];try{j=JSON.parse(s)}catch{};const m=j.find(d=>d.name===process.argv[1]);console.log(m?m.uuid:"")})' "$D1_NAME"
+}
+D1_ID=$(d1_id)
+if [ -z "$D1_ID" ]; then
   wr d1 create "$D1_NAME" >/dev/null
+  D1_ID=$(d1_id)
 fi
-D1_ID=$(wr d1 info "$D1_NAME" --json | node -e \
-  'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.uuid??j.database_id??j.d1?.uuid??"")})')
 [ -n "$D1_ID" ] || { echo "could not read the D1 id"; exit 1; }
 echo "    $D1_ID"
 
