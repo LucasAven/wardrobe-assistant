@@ -3,6 +3,9 @@ import { login, requireSession } from './auth';
 import type { Env } from './env';
 import { cutKey, origKey } from './photos';
 import { garments } from './routes/garments';
+import { profile } from './routes/profile';
+import { currentWeather, recommend } from './routes/recommend';
+import { wear } from './routes/wear';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -14,6 +17,10 @@ app.use('/api/*', requireSession);
 app.use('/img/*', requireSession);
 
 app.route('/api/garments', garments);
+app.route('/api/profile', profile);
+app.route('/api/recommend', recommend);
+app.route('/api/wear', wear);
+app.get('/api/weather', currentWeather);
 
 app.get('/img/:kind/:id', async (c) => {
   const kind = c.req.param('kind');
