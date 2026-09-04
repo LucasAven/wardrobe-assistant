@@ -142,7 +142,7 @@ export type BookRule = GarmentRule | OutfitRule;
 export type EventKind = 'home' | 'errands' | 'work' | 'social' | 'dinner' | 'formal' | 'active';
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening';
 
-/** Only produced by `parseMoment`. Every field required and in range. */
+/** Only produced by `momentFrom` in `worker/routes/recommend.ts`. Every field required and in range. */
 export interface Moment {
   readonly tempC: number;
   readonly feelsLikeC: number;

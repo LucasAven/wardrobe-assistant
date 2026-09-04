@@ -132,11 +132,76 @@ const LANGUAGE_NAMES: Readonly<Record<BodyProfile['language'], string>> = {
   en: 'English',
 };
 
+const SLOT_WORDS: Readonly<Record<Slot, string>> = {
+  base: 'tops',
+  top: 'tops',
+  mid: 'tops',
+  outer: 'coats',
+  bottom: 'trousers',
+  shoes: 'shoes',
+  accessory: 'accessories',
+};
+
+/**
+ * On its own `outer` can carry its longer name. Inside a list it stays one
+ * word, so `and` keeps separating the groups instead of joining two of them.
+ */
+const OUTER_ALONE = 'coats and jackets';
+const WHOLE_OUTFIT = 'the whole outfit';
+
+/**
+ * What each outfit rule reads. Only the rule's own test knows, and a test is
+ * not readable back out of a function, so each one is written down here against
+ * an id the book rules never renumber.
+ */
+const OUTFIT_SCOPES: Readonly<Record<string, string>> = {
+  'all-01': WHOLE_OUTFIT,
+  'all-02': WHOLE_OUTFIT,
+  'rect-01': 'every torso layer',
+  'rect-05b': 'the layer on show',
+  'rect-06b': 'the layer on show',
+  'rect-07': 'the tops with the trousers',
+  'tri-01': 'the torso layers with the trousers',
+  'tri-03': 'the layers and accessories at the shoulders',
+  'tri-05': 'the accessories',
+  'tri-07': 'the tops with the trousers',
+  'tri-08': 'every torso layer',
+  'inv-03': 'the tops with the trousers',
+  'inv-04': 'the tops with the trousers',
+  'inv-06': 'the accessories',
+  'inv-08b': 'the layer on show',
+  'circ-03': 'the tops, coats and trousers together',
+  'circ-05': 'the top on show when no coat is worn',
+  'circ-06': 'the top on show when no coat is worn',
+  'circ-07': 'the top on show when no coat is worn',
+  'circ-09': 'the tops with the trousers',
+};
+
+function joinScope(words: readonly string[]): string {
+  const last = words[words.length - 1];
+  if (last === undefined) return WHOLE_OUTFIT;
+  if (words.length === 1) return last === SLOT_WORDS.outer ? OUTER_ALONE : last;
+  return `${words.slice(0, -1).join(', ')} and ${last}`;
+}
+
+/**
+ * Plain words for what the rule is judged over. Some book lines are split into
+ * a garment half and an outfit half that share the book's sentence, so without
+ * this the prompt carries the same line twice and the model cannot tell which
+ * id to cite.
+ */
+export function ruleScope(rule: BookRule): string {
+  if (rule.kind === 'outfit') return OUTFIT_SCOPES[rule.id] ?? WHOLE_OUTFIT;
+  return joinScope([...new Set(rule.slots.map((slot) => SLOT_WORDS[slot]))]);
+}
+
+export function ruleLine(rule: BookRule): string {
+  return `  ${rule.id} (${ruleScope(rule)}): ${rule.because}`;
+}
+
 export function systemPrompt(profile: BodyProfile): string {
   const bodyType = profile.bodyType;
-  const rules = rulesFor(bodyType)
-    .map((rule) => `  ${rule.id}: ${rule.because}`)
-    .join('\n');
+  const rules = rulesFor(bodyType).map(ruleLine).join('\n');
 
   return `You dress one person from the clothes they already own. A men's styling guide supplies every claim you make about their body shape, and you supply the taste.
 
@@ -144,7 +209,7 @@ THE BODY
 ${TYPE_NAMES[bodyType]}. ${BODY_TYPE_MEANING[bodyType]}
 
 THE GUIDE
-These are the guide's rules for this body, and the only rules that exist. Each line is an id and then the guide's own reason for it.
+These are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it.
 
 ${rules}
 

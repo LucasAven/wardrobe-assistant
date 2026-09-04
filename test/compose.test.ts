@@ -9,11 +9,19 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }));
 
+import { rulesFor } from '../src/domain/bookRules';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu } from '../src/domain/menu';
-import type { BodyProfile, Constraints, Menu } from '../src/domain/types';
+import type { BodyProfile, BodyType, BookRule, Constraints, Menu } from '../src/domain/types';
 import type { ComposeInput, RawProposal } from '../src/worker/compose';
-import { calibrationAnchors, compose, systemPrompt, userMessage } from '../src/worker/compose';
+import {
+  calibrationAnchors,
+  compose,
+  ruleLine,
+  ruleScope,
+  systemPrompt,
+  userMessage,
+} from '../src/worker/compose';
 import type { Env } from '../src/worker/env';
 import { AUTUMN_DAY, MILD_ERRANDS, WARDROBE } from './fixtures';
 
@@ -271,6 +279,82 @@ describe('the system prompt', () => {
     };
     expect(call.model).toBe('claude-opus-5');
     expect(call.system[0]?.cache_control).toEqual({ type: 'ephemeral' });
+  });
+});
+
+describe('the rule lines the prompt carries', () => {
+  const BODY_TYPES: readonly BodyType[] = ['rectangle', 'triangle', 'inverted_triangle', 'circular'];
+
+  function ruleById(bodyType: BodyType, id: string): BookRule {
+    const rule = rulesFor(bodyType).find((candidate) => candidate.id === id);
+    if (rule === undefined) throw new Error(`${id} is not a rule for ${bodyType}`);
+    return rule;
+  }
+
+  it('renders no two rules the same way, for any body', () => {
+    for (const bodyType of BODY_TYPES) {
+      const lines = rulesFor(bodyType).map(ruleLine);
+      const byMeaning = new Map<string, string[]>();
+      for (const rule of rulesFor(bodyType)) {
+        // Ids are unique already, so what one line shares with another is
+        // everything after the id: the scope and the book's sentence.
+        const rest = ruleLine(rule).slice(`  ${rule.id}`.length);
+        byMeaning.set(rest, [...(byMeaning.get(rest) ?? []), rule.id]);
+      }
+      const collisions = [...byMeaning.values()].filter((ids) => ids.length > 1);
+
+      expect({ bodyType, collisions }).toEqual({ bodyType, collisions: [] });
+      expect(new Set(lines).size).toBe(lines.length);
+    }
+  });
+
+  it('gives every line its id and a scope', () => {
+    for (const bodyType of BODY_TYPES) {
+      const prompt = systemPrompt({ ...RECTANGLE, bodyType });
+      for (const rule of rulesFor(bodyType)) {
+        const scope = ruleScope(rule);
+
+        expect(scope.trim()).toBe(scope);
+        expect(scope).not.toBe('');
+        expect(ruleLine(rule)).toBe(`  ${rule.id} (${scope}): ${rule.because}`);
+        expect(prompt).toContain(ruleLine(rule));
+      }
+    }
+  });
+
+  it('tells the two halves of one book line apart by what each one reads', () => {
+    const halves = [
+      ['rectangle', 'rect-05a', 'rect-05b'],
+      ['rectangle', 'rect-06a', 'rect-06b'],
+      ['inverted_triangle', 'inv-08a', 'inv-08b'],
+    ] as const;
+
+    for (const [bodyType, a, b] of halves) {
+      expect(ruleById(bodyType, a).because).toBe(ruleById(bodyType, b).because);
+      expect(ruleScope(ruleById(bodyType, a))).not.toBe(ruleScope(ruleById(bodyType, b)));
+    }
+  });
+
+  it('names one slot in plain words rather than as a list of one', () => {
+    expect(ruleScope(ruleById('rectangle', 'rect-04'))).toBe('trousers');
+    expect(ruleScope(ruleById('inverted_triangle', 'inv-08a'))).toBe('coats and jackets');
+    expect(ruleScope(ruleById('rectangle', 'rect-03'))).toBe('tops');
+  });
+
+  it('joins several slots as a sentence and never as a fragment', () => {
+    expect(ruleScope(ruleById('rectangle', 'rect-05a'))).toBe('trousers and coats');
+    expect(ruleScope(ruleById('rectangle', 'rect-02'))).toBe('tops, coats and trousers');
+
+    for (const bodyType of BODY_TYPES) {
+      for (const rule of rulesFor(bodyType)) {
+        const scope = ruleScope(rule);
+
+        expect(scope).not.toContain(', and');
+        expect(scope.startsWith('and ')).toBe(false);
+        expect(scope.endsWith(' and')).toBe(false);
+        if (rule.kind === 'garment' && scope.includes(',')) expect(scope).toContain(' and ');
+      }
+    }
   });
 });
 
