@@ -282,6 +282,83 @@ describe('the system prompt', () => {
   });
 });
 
+describe('the body the prompt describes', () => {
+  const SHOULDER_WORDS: Readonly<Record<BodyProfile['shouldersVsHips'], string>> = {
+    wider: 'the shoulders are wider than the hips',
+    narrower: 'the shoulders are narrower than the hips',
+    equal: 'the shoulders and the hips are about the same width',
+  };
+  const VOLUME_WORDS: Readonly<Record<BodyProfile['volume'], string>> = {
+    top: 'the volume sits up top',
+    bottom: 'the volume sits low',
+    center: 'the volume sits in the center',
+    even: 'the volume is spread evenly',
+  };
+  const LINE_WORDS: Readonly<Record<BodyProfile['line'], string>> = {
+    straight: 'The line of the body is straight, with little marked volume.',
+    curved: 'The line of the body is curved.',
+  };
+  const waistWords = (widest: boolean): string =>
+    widest ? 'the waist is the widest part of the body' : 'the waist is not the widest part of the body';
+  const legWords = (thin: boolean): string => (thin ? 'The legs are thin.' : 'The legs are not thin.');
+
+  const LINES: readonly BodyProfile['line'][] = ['straight', 'curved'];
+  const THIN_LEGS: readonly boolean[] = [true, false];
+  const THIN_LEG_NOTE = 'inv-04 is the rule that says so';
+
+  it('carries all five mirror answers, whatever the line and the legs are', () => {
+    for (const line of LINES) {
+      for (const thinLegs of THIN_LEGS) {
+        const prompt = systemPrompt({ ...RECTANGLE, line, thinLegs });
+
+        expect(prompt).toContain(SHOULDER_WORDS[RECTANGLE.shouldersVsHips]);
+        expect(prompt).toContain(waistWords(RECTANGLE.waistIsWidest));
+        expect(prompt).toContain(VOLUME_WORDS[RECTANGLE.volume]);
+        expect(prompt).toContain(LINE_WORDS[line]);
+        expect(prompt).toContain(legWords(thinLegs));
+      }
+    }
+  });
+
+  it('says which way each of the three deciding answers went', () => {
+    for (const shouldersVsHips of Object.keys(SHOULDER_WORDS) as BodyProfile['shouldersVsHips'][]) {
+      expect(systemPrompt({ ...RECTANGLE, shouldersVsHips })).toContain(SHOULDER_WORDS[shouldersVsHips]);
+    }
+    for (const volume of Object.keys(VOLUME_WORDS) as BodyProfile['volume'][]) {
+      expect(systemPrompt({ ...RECTANGLE, volume })).toContain(VOLUME_WORDS[volume]);
+    }
+    for (const waistIsWidest of [true, false]) {
+      expect(systemPrompt({ ...RECTANGLE, waistIsWidest })).toContain(waistWords(waistIsWidest));
+    }
+  });
+
+  it('says the line and the legs did not decide the type', () => {
+    for (const line of LINES) {
+      for (const thinLegs of THIN_LEGS) {
+        expect(systemPrompt({ ...RECTANGLE, line, thinLegs })).toContain('did not decide the type');
+      }
+    }
+  });
+
+  it('asks for more trouser volume only for an inverted triangle with thin legs', () => {
+    const inverted = { ...RECTANGLE, bodyType: 'inverted_triangle' as const };
+
+    expect(systemPrompt({ ...inverted, thinLegs: true })).toContain(THIN_LEG_NOTE);
+    expect(systemPrompt({ ...inverted, thinLegs: false })).not.toContain(THIN_LEG_NOTE);
+
+    for (const bodyType of ['rectangle', 'triangle', 'circular'] as const) {
+      expect(systemPrompt({ ...RECTANGLE, bodyType, thinLegs: true })).not.toContain(THIN_LEG_NOTE);
+    }
+  });
+
+  it('leaves the rule text to the rule block rather than repeating it', () => {
+    const inv04 = rulesFor('inverted_triangle').find((rule) => rule.id === 'inv-04');
+    const prompt = systemPrompt({ ...RECTANGLE, bodyType: 'inverted_triangle', thinLegs: true });
+
+    expect(prompt.split(inv04?.because ?? 'missing').length).toBe(2);
+  });
+});
+
 describe('the rule lines the prompt carries', () => {
   const BODY_TYPES: readonly BodyType[] = ['rectangle', 'triangle', 'inverted_triangle', 'circular'];
 
@@ -332,6 +409,25 @@ describe('the rule lines the prompt carries', () => {
     for (const [bodyType, a, b] of halves) {
       expect(ruleById(bodyType, a).because).toBe(ruleById(bodyType, b).because);
       expect(ruleScope(ruleById(bodyType, a))).not.toBe(ruleScope(ruleById(bodyType, b)));
+    }
+  });
+
+  it('lets all-01 and all-02 claim a principle instead of a verdict they never give', () => {
+    const PRINCIPLE = 'a principle to work from, not a check';
+
+    for (const id of ['all-01', 'all-02']) {
+      const rule = ruleById('rectangle', id);
+
+      expect(ruleScope(rule)).toBe(PRINCIPLE);
+      expect(ruleScope(rule)).not.toBe('the whole outfit');
+      expect(ruleLine(rule)).toBe(`  ${id} (${PRINCIPLE}): ${rule.because}`);
+    }
+
+    for (const bodyType of BODY_TYPES) {
+      for (const rule of rulesFor(bodyType)) {
+        if (rule.id.startsWith('all-')) continue;
+        expect(ruleScope(rule)).not.toBe(PRINCIPLE);
+      }
     }
   });
 
@@ -446,3 +542,4 @@ describe('the certified outfit that comes back', () => {
     }
   });
 });
+

@@ -3,13 +3,20 @@
  * observations in `docs/book/rules.md` under "Body profile inputs the book
  * needs".
  *
- * The order of the checks is the book's own. A waist that is the widest point of
- * the body is the circular type's defining clause, so it is read before the
- * shoulder-to-hip comparison that separates the other three. After that the
- * width comparison decides, because "hips and thighs wider than shoulders" and
- * "shoulders notably wider than hips" are what the book says triangle and
- * inverted triangle are. Volume only breaks the tie the width comparison leaves,
- * which is the case the book's protocol asks the volume question for.
+ * The order of the checks follows the book's own definitions, with the one
+ * exception noted below. A waist that is the widest point of the body is the
+ * circular type's defining clause, so it is read before the shoulder-to-hip
+ * comparison that separates the other three. After that the width comparison
+ * decides, because "hips and thighs wider than shoulders" and "shoulders notably
+ * wider than hips" are what the book says triangle and inverted triangle are.
+ * Volume only breaks the tie the width comparison leaves, which is the case the
+ * book's protocol asks the volume question for.
+ *
+ * The exception: a widest waist and hips wider than the shoulders satisfy the
+ * circular clause and the triangle clause at the same time, and the book never
+ * says which one wins. Reading the waist first picks circular. That precedence
+ * is a decision this file makes, not a line in `docs/book/rules.md`, so a reader
+ * will not find it there.
  *
  * `line` and `thinLegs` are stored but never classify. The book uses `line` to
  * describe the rectangle rather than to find it, and says outright that leg

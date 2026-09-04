@@ -150,13 +150,20 @@ const OUTER_ALONE = 'coats and jackets';
 const WHOLE_OUTFIT = 'the whole outfit';
 
 /**
+ * `all-01` and `all-02` hold `test: () => true`, because which zone gains and
+ * which one loses is per body type. Naming a scope for them would promise a
+ * verdict that never comes.
+ */
+const PRINCIPLE = 'a principle to work from, not a check';
+
+/**
  * What each outfit rule reads. Only the rule's own test knows, and a test is
  * not readable back out of a function, so each one is written down here against
  * an id the book rules never renumber.
  */
 const OUTFIT_SCOPES: Readonly<Record<string, string>> = {
-  'all-01': WHOLE_OUTFIT,
-  'all-02': WHOLE_OUTFIT,
+  'all-01': PRINCIPLE,
+  'all-02': PRINCIPLE,
   'rect-01': 'every torso layer',
   'rect-05b': 'the layer on show',
   'rect-06b': 'the layer on show',
@@ -199,6 +206,51 @@ export function ruleLine(rule: BookRule): string {
   return `  ${rule.id} (${ruleScope(rule)}): ${rule.because}`;
 }
 
+const SHOULDERS_SEEN: Readonly<Record<BodyProfile['shouldersVsHips'], string>> = {
+  wider: 'the shoulders are wider than the hips',
+  narrower: 'the shoulders are narrower than the hips',
+  equal: 'the shoulders and the hips are about the same width',
+};
+
+const VOLUME_SEEN: Readonly<Record<BodyProfile['volume'], string>> = {
+  top: 'the volume sits up top',
+  bottom: 'the volume sits low',
+  center: 'the volume sits in the center',
+  even: 'the volume is spread evenly',
+};
+
+const LINE_SEEN: Readonly<Record<BodyProfile['line'], string>> = {
+  straight: 'The line of the body is straight, with little marked volume.',
+  curved: 'The line of the body is curved.',
+};
+
+/**
+ * All five mirror answers, because a rule test is handed an outfit and never the
+ * profile. `line` and `thinLegs` reach no predicate at all, so the model reading
+ * this is the only place they can change an outfit.
+ */
+function bodyText(profile: BodyProfile): string {
+  const waist = profile.waistIsWidest
+    ? 'the waist is the widest part of the body'
+    : 'the waist is not the widest part of the body';
+  const legs = profile.thinLegs ? 'The legs are thin.' : 'The legs are not thin.';
+
+  const lines = [
+    `${TYPE_NAMES[profile.bodyType]}. ${BODY_TYPE_MEANING[profile.bodyType]}`,
+    `This person saw in the mirror that ${SHOULDERS_SEEN[profile.shouldersVsHips]}, that ${waist}, and that ${VOLUME_SEEN[profile.volume]}.`,
+    `${LINE_SEEN[profile.line]} ${legs}`,
+    'The line and the legs describe the body but did not decide the type, so do not read them as evidence for it.',
+  ];
+
+  if (profile.bodyType === 'inverted_triangle' && profile.thinLegs) {
+    lines.push(
+      'Thin legs are the case where the guide asks for more volume in the trousers, and inv-04 is the rule that says so.',
+    );
+  }
+
+  return lines.join('\n');
+}
+
 export function systemPrompt(profile: BodyProfile): string {
   const bodyType = profile.bodyType;
   const rules = rulesFor(bodyType).map(ruleLine).join('\n');
@@ -206,10 +258,10 @@ export function systemPrompt(profile: BodyProfile): string {
   return `You dress one person from the clothes they already own. A men's styling guide supplies every claim you make about their body shape, and you supply the taste.
 
 THE BODY
-${TYPE_NAMES[bodyType]}. ${BODY_TYPE_MEANING[bodyType]}
+${bodyText(profile)}
 
 THE GUIDE
-These are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it.
+These are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule covers, and then the guide's own reason for it.
 
 ${rules}
 
