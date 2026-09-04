@@ -15,7 +15,7 @@
     {
       "binding": "DB",
       "database_name": "wardrobe",
-      "database_id": "PLACEHOLDER_RUN_wrangler_d1_create_wardrobe"
+      "database_id": "4efa0c17-184d-43b7-b87e-2085a74d92c8"
     }
   ],
 
@@ -37,7 +37,7 @@
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "PLACEHOLDER_RUN_wrangler_kv_namespace_create_OAUTH_KV"
+      "id": "49fba797c18544849fc8ce29755eb3a4"
     }
   ],
 
