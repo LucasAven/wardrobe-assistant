@@ -131,7 +131,7 @@ p {
 
 .tabbar {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: var(--surface);
   border-top: 1px solid var(--line);
   padding-bottom: env(safe-area-inset-bottom);
@@ -842,4 +842,341 @@ p {
   .control--select {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236d645a' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
   }
+}
+
+/* --- Today, Profile and Outfits ------------------------------------------ */
+
+.banner:empty {
+  display: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.card__title {
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.card__line {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.protocol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.protocol__step {
+  padding-left: 2px;
+}
+
+.question {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.question__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.question__label {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.result {
+  gap: 8px;
+}
+
+.result__body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result__type {
+  font-size: 24px;
+  font-weight: 650;
+}
+
+.result__description {
+  font-size: 15px;
+}
+
+.result__creed {
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+}
+
+.note {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--flag-line);
+  background: var(--flag-wash);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.note__text {
+  font-size: 13px;
+  color: var(--flag);
+}
+
+.field--quiet {
+  border-bottom: 0;
+  padding: 0;
+  gap: 6px;
+}
+
+.field--quiet .field__label {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.temp {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.temp__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.control--temp {
+  max-width: 120px;
+}
+
+.temp__unit {
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.moment {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 4px 0 8px;
+  background: var(--bg);
+}
+
+.outfit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 14px;
+}
+
+.outfit__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.outfit__title {
+  font-size: 18px;
+  font-weight: 650;
+}
+
+.outfit__warmth {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.looks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.piece {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.piece__frame {
+  position: relative;
+  aspect-ratio: 3 / 4;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.piece__img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.piece__slot {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.piece__name {
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.piece__frame[data-failed="true"]::after {
+  content: "tap to load the photo again";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.accessories {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rationale {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rationale__text {
+  font-size: 15px;
+}
+
+/* Where a sentence came from is a promise the app makes, so the label sits with
+   the text it labels rather than in a legend somewhere else. */
+.source {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.source--model {
+  color: var(--edited);
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.section__title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--accent);
+}
+
+.section--missed .section__title {
+  color: var(--muted);
+}
+
+.rules {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule {
+  border-left: 2px solid var(--accent);
+  padding-left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rule__because {
+  font-size: 14px;
+}
+
+.rule__id {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rules--missed .rule {
+  border-left-color: var(--line);
+}
+
+.rules--missed .rule__because {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.reasons {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reasons__item {
+  font-size: 13px;
+  color: var(--muted);
+  border-left: 2px solid var(--line);
+  padding-left: 10px;
+}
+
+.card__weather {
+  font-size: 20px;
+  font-weight: 600;
 }

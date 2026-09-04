@@ -2,10 +2,37 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { ApiError, AuthError, NetworkError, createApi } from '../public/lib/api.js';
+import {
+  BODY_TYPES,
+  BODY_TYPE_BY_VALUE,
+  MIRROR_QUESTIONS,
+  OBSERVATION_NAMES,
+  deriveBodyType,
+  emptyObservations,
+  isComplete,
+  profileBody,
+  readProfile,
+  sameObservations,
+  unanswered,
+} from '../public/lib/body.js';
 import { createLimiter } from '../public/lib/limiter.js';
+import {
+  RAIN_PROBABILITY,
+  buildRecommendRequest,
+  defaultTimeOfDay,
+  locatedWeather,
+  parseTemperature,
+  readWeather,
+  typedWeather,
+  weatherFields,
+  weatherLine,
+  weatherReady,
+} from '../public/lib/moment.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
+import { emptyReport, garmentIds, momentChips, orderPieces, splitRules, warmthLine } from '../public/lib/outfits.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
 import { imagePath, uploadContentType } from '../public/lib/photo.js';
+import { forgetPref, readChoice, readNumberChoice, readPref, writePref } from '../public/lib/prefs.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
 import { FIELDS, isRelevant, relevantFields } from '../public/lib/vocab.js';
 
@@ -464,4 +491,360 @@ test('a file the worker would reject never leaves the phone', async () => {
     return true;
   });
   assert.equal(served, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Profile, Today and Outfits
+// ---------------------------------------------------------------------------
+
+const MIRROR = {
+  rectangle: { shouldersVsHips: 'equal', waistIsWidest: false, volume: 'even', line: 'straight', thinLegs: false },
+  triangle: { shouldersVsHips: 'narrower', waistIsWidest: false, volume: 'bottom', line: 'curved', thinLegs: false },
+  inverted_triangle: { shouldersVsHips: 'wider', waistIsWidest: false, volume: 'top', line: 'straight', thinLegs: true },
+  circular: { shouldersVsHips: 'equal', waistIsWidest: true, volume: 'center', line: 'curved', thinLegs: false },
+};
+
+/** Every value the contract's BodyObservations allows. */
+const OBSERVATION_VALUES = {
+  shouldersVsHips: ['wider', 'narrower', 'equal'],
+  waistIsWidest: [true, false],
+  volume: ['top', 'bottom', 'center', 'even'],
+  line: ['straight', 'curved'],
+  thinLegs: [true, false],
+};
+
+test('the five mirror answers land on the book type they describe', () => {
+  for (const [expected, answers] of Object.entries(MIRROR)) {
+    assert.equal(deriveBodyType(answers), expected, `${expected} is what the book calls this silhouette`);
+  }
+});
+
+test('the questions the app asks are the ones the contract carries', () => {
+  assert.deepEqual(OBSERVATION_NAMES, ['shouldersVsHips', 'waistIsWidest', 'volume', 'line', 'thinLegs']);
+  for (const question of MIRROR_QUESTIONS) {
+    const allowed = OBSERVATION_VALUES[question.name].map(String);
+    assert.deepEqual(
+      question.options.map((option) => option.value),
+      allowed,
+      `${question.name} offers exactly the values the contract allows`,
+    );
+  }
+});
+
+test('the waist question outranks the rest, and thin legs never move the type', () => {
+  for (const shouldersVsHips of OBSERVATION_VALUES.shouldersVsHips) {
+    for (const volume of OBSERVATION_VALUES.volume) {
+      assert.equal(
+        deriveBodyType({ ...MIRROR.rectangle, waistIsWidest: true, shouldersVsHips, volume }),
+        'circular',
+        'the book asks about the waist to catch this one, before it compares anything else',
+      );
+    }
+  }
+
+  assert.equal(
+    deriveBodyType({ ...MIRROR.triangle, volume: 'top' }),
+    'triangle',
+    'the shoulder to hip comparison beats volume when the two disagree',
+  );
+  assert.equal(deriveBodyType({ ...MIRROR.inverted_triangle, volume: 'center' }), 'inverted_triangle');
+
+  for (const answers of Object.values(MIRROR)) {
+    assert.equal(
+      deriveBodyType({ ...answers, thinLegs: true }),
+      deriveBodyType({ ...answers, thinLegs: false }),
+      'the book uses thin legs to harden one rule, not to classify',
+    );
+  }
+});
+
+test('volume decides when the shoulders and hips read equal', () => {
+  const equal = { shouldersVsHips: 'equal', waistIsWidest: false, line: 'straight', thinLegs: false };
+  assert.equal(deriveBodyType({ ...equal, volume: 'top' }), 'inverted_triangle');
+  assert.equal(deriveBodyType({ ...equal, volume: 'bottom' }), 'triangle');
+  assert.equal(deriveBodyType({ ...equal, volume: 'center' }), 'circular');
+  assert.equal(deriveBodyType({ ...equal, volume: 'even' }), 'rectangle');
+});
+
+test('an unfinished mirror walk has no type yet', () => {
+  assert.equal(deriveBodyType(emptyObservations()), null);
+  assert.equal(deriveBodyType({ ...MIRROR.rectangle, volume: null }), null);
+  assert.deepEqual(unanswered({ ...MIRROR.rectangle, volume: null, line: null }), ['volume', 'line']);
+  assert.deepEqual(unanswered(MIRROR.rectangle), []);
+  assert.ok(isComplete(MIRROR.rectangle));
+  assert.ok(!isComplete(emptyObservations()));
+});
+
+test('every body type the app can derive has the book description to show', () => {
+  for (const value of Object.keys(MIRROR)) {
+    const type = BODY_TYPE_BY_VALUE.get(value);
+    assert.ok(type !== undefined, `${value} is offered`);
+    assert.ok(type.description.length > 0, `${value} carries the book's own description`);
+  }
+  assert.equal(BODY_TYPES.length, 4, 'the book has four types and no more');
+});
+
+test('the stored type and the suggested one are read apart', () => {
+  assert.deepEqual(readProfile({ profile: null, suggestedType: null }), { profile: null, suggestedType: null });
+  assert.deepEqual(readProfile(null), { profile: null, suggestedType: null });
+
+  const stored = { ...MIRROR.rectangle, bodyType: 'circular', language: 'es' };
+  const overridden = readProfile({ profile: stored, suggestedType: 'rectangle' });
+  assert.equal(overridden.profile.bodyType, 'circular', 'the hand correction is what the app stores');
+  assert.equal(overridden.suggestedType, 'rectangle', 'and the answers still say what they say');
+  assert.notEqual(overridden.profile.bodyType, overridden.suggestedType, 'which is when the screen shows the note');
+
+  const bare = readProfile(stored);
+  assert.equal(bare.profile.bodyType, 'circular', 'a PUT answering with the profile alone still lands');
+  assert.equal(bare.suggestedType, 'rectangle', 'and the suggestion is derived rather than shown as missing');
+});
+
+test('the profile PUT carries the observations, the type and the language', () => {
+  assert.deepEqual(profileBody(MIRROR.triangle, 'rectangle', 'en'), {
+    shouldersVsHips: 'narrower',
+    waistIsWidest: false,
+    volume: 'bottom',
+    line: 'curved',
+    thinLegs: false,
+    bodyType: 'rectangle',
+    language: 'en',
+  });
+});
+
+test('answers count as unchanged only while all five match', () => {
+  assert.ok(sameObservations(MIRROR.rectangle, { ...MIRROR.rectangle, bodyType: 'circular' }), 'the type is not an answer');
+  assert.ok(!sameObservations(MIRROR.rectangle, { ...MIRROR.rectangle, thinLegs: true }));
+  assert.ok(!sameObservations(MIRROR.rectangle, null));
+});
+
+test('a recommend request goes up with a location when the phone gave one', () => {
+  const position = { coords: { latitude: -34.9011, longitude: -56.1645 } };
+  assert.deepEqual(
+    buildRecommendRequest({
+      event: 'work',
+      timeOfDay: 'morning',
+      hoursOutdoors: 1,
+      mood: '   ',
+      weather: locatedWeather(position),
+    }),
+    { event: 'work', timeOfDay: 'morning', hoursOutdoors: 1, lat: -34.9011, lon: -56.1645 },
+    'the Worker fetches the weather, and an empty mood is not a mood',
+  );
+});
+
+test('a recommend request goes up with the numbers when they were typed', () => {
+  assert.deepEqual(
+    buildRecommendRequest({
+      event: 'dinner',
+      timeOfDay: 'evening',
+      hoursOutdoors: 0,
+      mood: 'tired',
+      weather: typedWeather(12, true),
+    }),
+    {
+      event: 'dinner',
+      timeOfDay: 'evening',
+      hoursOutdoors: 0,
+      tempC: 12,
+      feelsLikeC: 12,
+      precipProbability: RAIN_PROBABILITY,
+      windKph: 0,
+      mood: 'tired',
+    },
+    'one typed number answers both temperatures, and the toggle answers the rain',
+  );
+
+  assert.equal(weatherFields(typedWeather(12, false)).precipProbability, 0, 'the toggle off means no rain');
+  assert.ok(RAIN_PROBABILITY > 0.4, 'the engine treats anything over 0.4 as rain');
+});
+
+test('a declined location with nothing typed is not ready to send', () => {
+  assert.ok(weatherReady(typedWeather(-3, false)));
+  assert.ok(weatherReady(locatedWeather({ coords: { latitude: 0, longitude: 0 } })));
+  assert.ok(!weatherReady(typedWeather(null, true)), 'the button has to ask for a temperature first');
+  assert.ok(!weatherReady(null), 'and the location ask has not come back yet');
+  assert.deepEqual(buildRecommendRequest({ event: 'home', timeOfDay: 'morning', hoursOutdoors: 0, weather: null }), {
+    event: 'home',
+    timeOfDay: 'morning',
+    hoursOutdoors: 0,
+  });
+});
+
+test('a typed temperature is read the way a phone keyboard offers it', () => {
+  assert.equal(parseTemperature('18'), 18);
+  assert.equal(parseTemperature(' -3 '), -3);
+  assert.equal(parseTemperature('12,5'), 12.5, 'the comma key is the first one a Spanish keyboard shows');
+  assert.equal(parseTemperature(''), null);
+  assert.equal(parseTemperature('warm'), null);
+  assert.equal(parseTemperature('900'), null, 'a slip on the keypad is not a temperature');
+});
+
+test('the time of day follows the clock', () => {
+  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 7, 30)), 'morning');
+  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 13, 0)), 'afternoon');
+  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 21, 0)), 'evening');
+});
+
+test('a weather read is only shown when all four numbers came back', () => {
+  assert.deepEqual(readWeather({ tempC: 14, feelsLikeC: 12.4, precipProbability: 0.3, windKph: 9 }), {
+    tempC: 14,
+    feelsLikeC: 12.4,
+    precipProbability: 0.3,
+    windKph: 9,
+  });
+  assert.equal(readWeather({ tempC: 14, feelsLikeC: 12 }), null, 'a shape the app does not know is not shown');
+  assert.equal(readWeather(null), null);
+  assert.equal(
+    weatherLine({ tempC: 14.2, feelsLikeC: 12, precipProbability: 0.6, windKph: 4 }),
+    '14°, feels like 12°, 60% rain',
+  );
+  assert.equal(weatherLine({ tempC: -1.4, feelsLikeC: -6, precipProbability: 0, windKph: 40 }), '-1°, feels like -6°');
+});
+
+test('preferences survive a browser that has no storage at all', () => {
+  assert.equal(globalThis.localStorage, undefined, 'node has none, which is the private browsing case');
+  assert.equal(readPref('event', 'work'), 'work');
+  assert.equal(readChoice('event', ['work', 'social'], 'work'), 'work');
+  assert.equal(readNumberChoice('hours', [0, 1, 3, 6], 1), 1);
+  writePref('event', 'social');
+  forgetPref('event');
+  assert.equal(readPref('event', 'work'), 'work', 'writing where nothing can be written is not an error');
+});
+
+const RULE_TIGHT = { id: 'rect-02', because: 'with no curve to mark, tight fabric only highlights the flatness.' };
+const RULE_LAYERS = { id: 'rect-01', because: 'layers and V-necks add depth and volume so the torso reads as having shape.' };
+const RULE_LEGS = { id: 'rect-04', because: 'straight fitted legs add no volume at the hip.' };
+
+function garment(id, subtype) {
+  return { ...GARMENT, id, subtype, imageCutout: null, imageOriginal: `orig/${id}` };
+}
+
+const OUTFIT = {
+  pieces: [
+    { slot: 'shoes', garment: garment('s1', 'white sneaker') },
+    { slot: 'base', garment: garment('b1', 'navy tee') },
+    { slot: 'bottom', garment: garment('p1', 'wide chino') },
+    { slot: 'mid', garment: garment('m1', 'grey overshirt') },
+  ],
+  accessories: [garment('a2', 'leather belt')],
+  rationale: 'The overshirt gives the torso a second layer.',
+  cited: [RULE_LAYERS, RULE_TIGHT],
+  missed: [RULE_LEGS],
+  warmthCore: 5,
+  warmthWithOuter: 5,
+};
+
+test('the pieces come out in the order they are worn', () => {
+  assert.deepEqual(
+    orderPieces(OUTFIT.pieces).map((piece) => piece.slot),
+    ['base', 'mid', 'bottom', 'shoes'],
+    'base through shoes, whatever order they arrived in',
+  );
+  assert.deepEqual(orderPieces([]), []);
+});
+
+test('a cited rule is never also a missed one', () => {
+  const both = {
+    ...OUTFIT,
+    cited: [RULE_LAYERS, RULE_LAYERS, RULE_TIGHT],
+    missed: [RULE_TIGHT, RULE_LEGS, RULE_LEGS],
+  };
+  const { cited, missed } = splitRules(both);
+
+  assert.deepEqual(cited.map((rule) => rule.id), ['rect-01', 'rect-02'], 'each cited rule shows once');
+  assert.deepEqual(missed.map((rule) => rule.id), ['rect-04'], 'a rule the outfit follows is not also missed');
+  for (const rule of missed) {
+    assert.ok(!cited.some((entry) => entry.id === rule.id), `${rule.id} is on one side only`);
+  }
+  for (const rule of [...cited, ...missed]) {
+    assert.ok(rule.because.length > 0, "every rule shown carries the book's own sentence");
+  }
+
+  const nothing = splitRules({ pieces: [], accessories: [], rationale: '' });
+  assert.deepEqual(nothing, { cited: [], missed: [] }, 'an outfit with no rules is not an error');
+});
+
+test('every garment in an outfit reaches the wear log once', () => {
+  assert.deepEqual(garmentIds(OUTFIT), ['s1', 'b1', 'p1', 'm1', 'a2'], 'the accessories are worn too');
+  assert.deepEqual(garmentIds({ pieces: [], accessories: [] }), []);
+});
+
+const EMPTY_ANSWER = {
+  outfits: [],
+  weather: { tempC: 6, feelsLikeC: 3, precipProbability: 0.7, windKph: 30, label: 'rain' },
+  season: 'winter',
+  minFormality: 4,
+  warmthLabel: 'cold',
+  starved: ['base', 'shoes'],
+  rejected: ['warmth_out_of_band core 3', 'broke_required_rule circ-02'],
+};
+
+test('an empty answer says what went wrong instead of showing nothing', () => {
+  const report = emptyReport(EMPTY_ANSWER);
+  assert.match(report.title, /base and shoes/, 'the starved slots are named');
+  assert.match(report.detail, /dressy/, 'and so is the formality floor it filtered on');
+  assert.match(report.detail, /winter/);
+  assert.deepEqual(report.reasons, EMPTY_ANSWER.rejected, 'the rejections are shown, not swallowed');
+
+  const dropped = emptyReport({ ...EMPTY_ANSWER, starved: [] });
+  assert.match(dropped.title, /dropped/);
+  assert.match(dropped.detail, /^2 did not pass/);
+
+  const silent = emptyReport({ outfits: [], starved: [], rejected: [], season: 'spring', minFormality: 2 });
+  assert.deepEqual(silent.reasons, []);
+
+  for (const report of [emptyReport(EMPTY_ANSWER), dropped, silent, emptyReport({}), emptyReport(null)]) {
+    assert.ok(report.title.length > 0, 'a blank screen is the one outcome worth avoiding');
+    assert.ok(report.detail.length > 0);
+  }
+
+  assert.match(emptyReport({ ...EMPTY_ANSWER, starved: ['shoes'] }).title, /the shoes slot\./, 'one slot reads as one');
+});
+
+test('the moment it decided against is shown small', () => {
+  const chips = momentChips(EMPTY_ANSWER);
+  assert.deepEqual(chips, ['6°, feels like 3°', '70% rain', 'wind 30 km/h', 'cold', 'winter', 'dressy and up']);
+  assert.deepEqual(momentChips({ season: 'summer', minFormality: 1, warmthLabel: 'hot' }), [
+    'hot',
+    'summer',
+    'gym and loungewear and up',
+  ]);
+});
+
+test('an outfit says how warm it is with and without the outer layer', () => {
+  assert.equal(warmthLine(OUTFIT), 'warmth 5');
+  assert.equal(warmthLine({ ...OUTFIT, warmthWithOuter: 9 }), 'warmth 5, 9 with the outer layer');
+});
+
+test('the new screens hit the routes the worker registers', async () => {
+  const calls = [];
+  const api = createApi({
+    fetchImpl: async (path, init) => {
+      calls.push({ path, method: init.method ?? 'GET', body: init.body });
+      return fakeResponse(200, { ok: true });
+    },
+  });
+
+  await api.getProfile();
+  await api.saveProfile(profileBody(MIRROR.circular, 'circular', 'es'));
+  await api.getWeather(-34.9011, -56.1645);
+  await api.recommend({ event: 'work', timeOfDay: 'morning', hoursOutdoors: 1, lat: -34.9011, lon: -56.1645 });
+  await api.wear({ garmentIds: garmentIds(OUTFIT), event: 'work' });
+
+  assert.deepEqual(
+    calls.map((call) => `${call.method} ${call.path}`),
+    [
+      'GET /api/profile',
+      'PUT /api/profile',
+      'GET /api/weather?lat=-34.9011&lon=-56.1645',
+      'POST /api/recommend',
+      'POST /api/wear',
+    ],
+  );
+  assert.equal(
+    calls[1].body,
+    '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',
+  );
+  assert.equal(calls[3].body, '{"event":"work","timeOfDay":"morning","hoursOutdoors":1,"lat":-34.9011,"lon":-56.1645}');
+  assert.equal(calls[4].body, '{"garmentIds":["s1","b1","p1","m1","a2"],"event":"work"}');
 });

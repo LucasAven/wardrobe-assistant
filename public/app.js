@@ -1,8 +1,12 @@
 import { createApi } from './lib/api.js';
-import { clear } from './lib/dom.js';
+import { readProfile } from './lib/body.js';
+import { clear, el } from './lib/dom.js';
 import { parseRoute } from './lib/router.js';
 import { createAuthGate } from './lib/screens/login.js';
+import { mountOutfits } from './lib/screens/outfits.js';
+import { mountProfile } from './lib/screens/profile.js';
 import { mountReview } from './lib/screens/review.js';
+import { mountToday } from './lib/screens/today.js';
 import { mountUpload } from './lib/screens/upload.js';
 import { mountWardrobe } from './lib/screens/wardrobe.js';
 
@@ -69,6 +73,93 @@ function createStore() {
 
 const store = createStore();
 
+/** One record, read once a session. Two screens ask for it and neither should wait twice. */
+function createProfileStore() {
+  let data = { profile: null, suggestedType: null };
+  let loaded = false;
+  let inFlight = null;
+
+  function refresh() {
+    if (inFlight === null) {
+      inFlight = api
+        .getProfile()
+        .then((body) => {
+          data = readProfile(body);
+          loaded = true;
+          return data;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    }
+    return inFlight;
+  }
+
+  return {
+    get profile() {
+      return data.profile;
+    },
+    get suggestedType() {
+      return data.suggestedType;
+    },
+    refresh,
+    ensure: () => (loaded ? Promise.resolve(data) : refresh()),
+    set(next) {
+      data = next;
+      loaded = true;
+    },
+  };
+}
+
+/**
+ * The question Today asked and the answer it got. It lives outside the screens
+ * so leaving the outfits and coming back does not spend another model call.
+ */
+function createMomentStore() {
+  let request = null;
+  let response = null;
+  let inFlight = null;
+  let worn = new Set();
+
+  function ask() {
+    if (response !== null) return Promise.resolve(response);
+    if (inFlight === null) {
+      inFlight = api
+        .recommend(request)
+        .then((answer) => {
+          response = answer;
+          return answer;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+    }
+    return inFlight;
+  }
+
+  return {
+    get request() {
+      return request;
+    },
+    set(next) {
+      request = next;
+      response = null;
+      worn = new Set();
+    },
+    ask,
+    again() {
+      response = null;
+      worn = new Set();
+      return ask();
+    },
+    isWorn: (index) => worn.has(index),
+    markWorn: (index) => worn.add(index),
+  };
+}
+
+const profiles = createProfileStore();
+const moment = createMomentStore();
+
 let toastTimer = null;
 function toast(message, kind = 'info') {
   shell.toast.textContent = message;
@@ -91,7 +182,17 @@ function go(hash) {
   else location.hash = hash;
 }
 
-const SCREENS = { upload: mountUpload, review: mountReview, wardrobe: mountWardrobe };
+const SCREENS = {
+  today: mountToday,
+  outfits: mountOutfits,
+  profile: mountProfile,
+  upload: mountUpload,
+  review: mountReview,
+  wardrobe: mountWardrobe,
+};
+
+/** The outfits are what Today asked for, so the tab the user tapped stays lit. */
+const TAB_FOR_ROUTE = { outfits: 'today' };
 
 let backTarget = null;
 shell.back.addEventListener('click', () => {
@@ -104,6 +205,8 @@ shell.refresh.addEventListener('click', () => refreshHandler?.());
 const ctx = {
   api,
   store,
+  profile: profiles,
+  moment,
   go,
   toast,
   refreshBadge,
@@ -132,8 +235,9 @@ function render() {
   ctx.onRefresh(null);
   ctx.setTitle('Wardrobe', '');
 
+  const lit = TAB_FOR_ROUTE[route.name] ?? route.name;
   for (const tab of shell.tabs) {
-    if (tab.dataset.route === route.name) tab.setAttribute('aria-current', 'page');
+    if (tab.dataset.route === lit) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
   }
 
@@ -144,7 +248,29 @@ function render() {
 
 window.addEventListener('hashchange', render);
 
-render();
+/**
+ * The app opens on the morning question, unless there is no body type yet, in
+ * which case nothing downstream can run and the setup is the only useful
+ * screen. A profile that fails to load still lands on Today, which says so.
+ */
+function boot() {
+  if (location.hash !== '' && location.hash !== '#' && location.hash !== '#/') {
+    render();
+    return;
+  }
+
+  shell.screen.append(el('div', { class: 'empty' }, el('p', { class: 'empty__text' }, 'Opening.')));
+  profiles
+    .ensure()
+    .catch(() => null)
+    .then(() => {
+      const landing = profiles.profile === null ? '#/profile' : '#/today';
+      if (location.hash === landing) render();
+      else location.hash = landing;
+    });
+}
+
+boot();
 store
   .ensure()
   .then(refreshBadge)

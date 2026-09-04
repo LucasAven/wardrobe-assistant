@@ -35,6 +35,11 @@ export function clear(node) {
   node.replaceChildren();
 }
 
+/** `Node.append` turns a null child into the text "null". This drops it, the way `el` does. */
+export function append(node, ...children) {
+  for (const child of children) appendChild(node, child);
+}
+
 export function button(label, props = {}) {
   return el('button', { type: 'button', ...props }, label);
 }

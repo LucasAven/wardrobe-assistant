@@ -219,3 +219,13 @@ export function isRelevant(field, slot) {
 export function relevantFields(slot) {
   return FIELDS.filter((field) => isRelevant(field.name, slot)).map((field) => field.name);
 }
+
+/**
+ * The word the tagger's own scale uses for a formality step, so the outfit
+ * screen names the floor it decided against with the same word the garment was
+ * graded with.
+ */
+export function formalityLabel(value) {
+  const step = ANCHORS.formality.steps.find((entry) => entry.value === value);
+  return step === undefined ? `formality ${value}` : step.text.split(':')[0];
+}
