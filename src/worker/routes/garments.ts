@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { missingConfig } from '../auth';
 import type { Env } from '../env';
 import { makeCutout, normalizeImageType, origKey, smallImageFor, storeOriginal } from '../photos';
 import {
@@ -27,6 +28,12 @@ garments.post('/', async (c) => {
   const body = c.req.raw.body;
   if (body === null) return c.json({ error: 'empty body' }, 400);
 
+  // The photo is the expensive part, so an unset key costs the tagging and not
+  // the upload. It is still a configuration error and not a photo the model
+  // could not read, so the answer names it rather than handing back a row of
+  // uncertain fields with no reason for them.
+  const fault = missingConfig(c.env, ['ANTHROPIC_API_KEY']);
+
   const id = crypto.randomUUID();
   const imageOriginal = await storeOriginal(c.env, id, body, contentType);
 
@@ -36,11 +43,15 @@ garments.post('/', async (c) => {
     c.req.query('cutout') === 'skip' ? null : await makeCutout(c.env, id);
 
   let draft: GarmentDraft;
-  try {
-    draft = await tagFromStoredImage(c.env, imageCutout ?? origKey(id));
-  } catch (error) {
-    console.error('vision tagging failed', { id, error });
+  if (fault !== null) {
     draft = blankDraft();
+  } else {
+    try {
+      draft = await tagFromStoredImage(c.env, imageCutout ?? origKey(id));
+    } catch (error) {
+      console.error('vision tagging failed', { id, error });
+      draft = blankDraft();
+    }
   }
 
   const stored = await insertGarment(c.env.DB, {
@@ -50,10 +61,18 @@ garments.post('/', async (c) => {
     tags: draftToTags(draft),
     uncertain: draft.uncertain,
   });
-  return c.json(toJson(stored), 201);
+
+  const row = toJson(stored);
+  return c.json(
+    fault === null ? row : { ...row, taggingError: fault.error, missing: fault.missing },
+    201,
+  );
 });
 
 garments.post('/:id/retag', async (c) => {
+  const fault = missingConfig(c.env, ['ANTHROPIC_API_KEY']);
+  if (fault !== null) return c.json(fault, 503);
+
   const id = c.req.param('id');
   const existing = await getGarment(c.env.DB, id);
   if (existing === null) return c.json({ error: 'not found' }, 404);

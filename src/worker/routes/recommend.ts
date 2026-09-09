@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { deriveConstraints } from '../../domain/constraints';
 import { buildMenu } from '../../domain/menu';
 import type { Moment } from '../../domain/types';
+import { missingConfig } from '../auth';
 import { compose } from '../compose';
 import type { RecommendResponse, WeatherResponse } from '../contract';
 import type { Env } from '../env';
@@ -66,6 +67,9 @@ function momentFrom(request: RecommendInput, weather: WeatherResponse, now: Date
 export const recommend = new Hono<{ Bindings: Env }>();
 
 recommend.post('/', async (c) => {
+  const fault = missingConfig(c.env, ['ANTHROPIC_API_KEY']);
+  if (fault !== null) return c.json(fault, 503);
+
   const body: unknown = await c.req.json().catch(() => null);
   const parsed = RecommendRequestSchema.safeParse(body);
   if (!parsed.success) {

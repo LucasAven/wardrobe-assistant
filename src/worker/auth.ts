@@ -8,6 +8,48 @@ const SESSION_SECONDS = 30 * 24 * 60 * 60;
 
 const encoder = new TextEncoder();
 
+/** Spelled the way `wrangler secret put` spells them, because the message says to run it. */
+export type SecretName = 'APP_PASSWORD' | 'SESSION_SECRET' | 'ANTHROPIC_API_KEY';
+
+export interface ConfigFault {
+  readonly error: string;
+  readonly missing: readonly SecretName[];
+}
+
+function nameList(names: readonly SecretName[]): string {
+  const last = names[names.length - 1];
+  if (last === undefined) return '';
+  if (names.length === 1) return last;
+  return `${names.slice(0, -1).join(', ')} and ${last}`;
+}
+
+/**
+ * Every name a handler needs is checked in one pass and reported together. An
+ * operator who is told one name per deploy spends the afternoon finding the
+ * next one.
+ */
+export function missingConfig(env: Env, needed: readonly SecretName[]): ConfigFault | null {
+  const missing = needed.filter((name) => {
+    const value: unknown = env[name];
+    return typeof value !== 'string' || value.trim() === '';
+  });
+  if (missing.length === 0) return null;
+
+  const commands = missing.map((name) => `npx wrangler secret put ${name}`).join(', then ');
+  const verb = missing.length === 1 ? 'is' : 'are';
+  return {
+    error: `${nameList(missing)} ${verb} not set on this Worker. Run: ${commands}`,
+    missing,
+  };
+}
+
+/**
+ * Both names, on the guard as well as on login. A cookie only ever comes from a
+ * login that reads the password, so a deployment missing one of the two cannot
+ * let anybody in whatever the other one holds.
+ */
+const PASSWORD_GATE = ['APP_PASSWORD', 'SESSION_SECRET'] as const satisfies readonly SecretName[];
+
 async function sign(secret: string, message: string): Promise<ArrayBuffer> {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -65,6 +107,9 @@ export async function verifyToken(env: Env, token: string): Promise<boolean> {
 const LoginSchema = z.object({ password: z.string() });
 
 export async function login(c: Context<{ Bindings: Env }>): Promise<Response> {
+  const fault = missingConfig(c.env, PASSWORD_GATE);
+  if (fault !== null) return c.json(fault, 503);
+
   const body: unknown = await c.req.json().catch(() => null);
   const parsed = LoginSchema.safeParse(body);
   if (!parsed.success) return c.json({ error: 'password required' }, 400);
@@ -83,6 +128,9 @@ export async function login(c: Context<{ Bindings: Env }>): Promise<Response> {
 }
 
 export const requireSession: MiddlewareHandler<{ Bindings: Env }> = async (c, next) => {
+  const fault = missingConfig(c.env, PASSWORD_GATE);
+  if (fault !== null) return c.json(fault, 503);
+
   const token = getCookie(c, COOKIE);
   if (token === undefined || !(await verifyToken(c.env, token))) {
     return c.json({ error: 'unauthorized' }, 401);
