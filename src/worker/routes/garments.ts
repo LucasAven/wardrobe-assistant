@@ -1,7 +1,16 @@
 import { Hono } from 'hono';
 import { missingConfig } from '../auth';
 import type { Env } from '../env';
-import { makeCutout, normalizeImageType, origKey, smallImageFor, storeOriginal } from '../photos';
+import type { SetupFault } from '../photos';
+import {
+  ImagesUnusableError,
+  NO_CUTOUT,
+  makeCutout,
+  normalizeImageType,
+  origKey,
+  smallImageFor,
+  storeOriginal,
+} from '../photos';
 import {
   GarmentPatchSchema,
   archiveGarment,
@@ -39,16 +48,21 @@ garments.post('/', async (c) => {
 
   // `?cutout=skip` means the phone already lifted the subject, so the original
   // is the transparent PNG and there is nothing to store under `cut/`.
-  const imageCutout =
-    c.req.query('cutout') === 'skip' ? null : await makeCutout(c.env, id);
+  const cutout = c.req.query('cutout') === 'skip' ? NO_CUTOUT : await makeCutout(c.env, id);
+
+  // Both the cutout and the downscale before tagging run on Images, so an
+  // account with it switched off gets one answer covering both, and not a
+  // missing cutout and blank tags that read as two unrelated problems.
+  let setup: SetupFault | null = cutout.fault;
 
   let draft: GarmentDraft;
   if (fault !== null) {
     draft = blankDraft();
   } else {
     try {
-      draft = await tagFromStoredImage(c.env, imageCutout ?? origKey(id));
+      draft = await tagFromStoredImage(c.env, cutout.key ?? origKey(id));
     } catch (error) {
+      if (error instanceof ImagesUnusableError) setup = error.fault;
       console.error('vision tagging failed', { id, error });
       draft = blankDraft();
     }
@@ -57,14 +71,18 @@ garments.post('/', async (c) => {
   const stored = await insertGarment(c.env.DB, {
     id,
     imageOriginal,
-    imageCutout,
+    imageCutout: cutout.key,
     tags: draftToTags(draft),
     uncertain: draft.uncertain,
   });
 
   const row = toJson(stored);
   return c.json(
-    fault === null ? row : { ...row, taggingError: fault.error, missing: fault.missing },
+    {
+      ...row,
+      ...(fault === null ? {} : { taggingError: fault.error, missing: fault.missing }),
+      ...(setup === null ? {} : { imagesError: setup.error, needsSetup: setup.needsSetup }),
+    },
     201,
   );
 });
@@ -81,6 +99,7 @@ garments.post('/:id/retag', async (c) => {
   try {
     draft = await tagFromStoredImage(c.env, existing.garment.imageCutout ?? existing.garment.imageOriginal);
   } catch (error) {
+    if (error instanceof ImagesUnusableError) return c.json(error.fault, 503);
     // Unlike the upload path there is nothing to protect here, so a failed call
     // leaves the tags the row already has rather than blanking them.
     console.error('retag failed', { id, error });
