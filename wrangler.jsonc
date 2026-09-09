@@ -1,45 +1,45 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "wardrobe",
-  "main": "src/worker/index.ts",
-  "compatibility_date": "2026-09-01",
-  "compatibility_flags": ["nodejs_compat"],
-
-  "assets": {
-    "directory": "./public",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application"
-  },
-
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "wardrobe",
-      "database_id": "4efa0c17-184d-43b7-b87e-2085a74d92c8"
-    }
-  ],
-
-  "r2_buckets": [
-    {
-      "binding": "PHOTOS",
-      "bucket_name": "wardrobe-photos"
-    }
-  ],
-
-  // Background removal. `segment: "foreground"` runs BiRefNet server side, so
-  // nothing is downloaded to the phone and no third party API is involved.
-  "images": {
-    "binding": "IMAGES"
-  },
-
-  // Required by @cloudflare/workers-oauth-provider, which is the only way
-  // Claude will connect a custom connector. There is no shared-token path.
-  "kv_namespaces": [
-    {
-      "binding": "OAUTH_KV",
-      "id": "49fba797c18544849fc8ce29755eb3a4"
-    }
-  ],
-
-  "observability": { "enabled": true }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wardrobe",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2026-09-01",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"preview_urls": false,
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "wardrobe",
+			"database_id": "4efa0c17-184d-43b7-b87e-2085a74d92c8"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "PHOTOS",
+			"bucket_name": "wardrobe-photos"
+		}
+	],
+	// Background removal. `segment: "foreground"` runs BiRefNet server side, so
+	// nothing is downloaded to the phone and no third party API is involved.
+	"images": {
+		"binding": "IMAGES"
+	},
+	// Required by @cloudflare/workers-oauth-provider, which is the only way
+	// Claude will connect a custom connector. There is no shared-token path.
+	"kv_namespaces": [
+		{
+			"binding": "OAUTH_KV",
+			"id": "49fba797c18544849fc8ce29755eb3a4"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
 }
