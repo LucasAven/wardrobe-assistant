@@ -1,19 +1,24 @@
 /**
- * Reading a RecommendResponse.
+ * Reading a SavedOutfit.
  *
- * Two promises live here. Book rules are shown with the book's own `because`
- * sentence and never mixed with the model's prose, and an answer with no
- * outfits still says something, because a blank screen is the one outcome that
- * makes the app feel broken.
+ * Claude composes in the chat and saves the result, so this reads what came
+ * back rather than what the app asked for. Two promises live here. Book rules
+ * are shown with the book's own `because` sentence and never mixed with the
+ * model's prose, and nothing saved still says something, because a blank screen
+ * is the one outcome that makes the app feel broken.
  */
-import { formalityLabel } from './vocab.js';
 
 /** Base to shoes, the order the pieces are worn in. */
 export const LAYER_ORDER = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes'];
 
-const WINDY_KPH = 25;
+/** What Today says when Claude has not saved anything yet. */
+export const NOTHING_SAVED = {
+  title: 'No outfit saved for today.',
+  detail:
+    'Ask Claude on your phone to pick one. It reads this wardrobe through the connector, and what you agree on lands here.',
+};
 
-/** The contract already orders the pieces. Sorting again costs nothing and the screen stops depending on it. */
+/** The server already orders the pieces. Sorting again costs nothing and the screen stops depending on it. */
 export function orderPieces(pieces) {
   const rank = (piece) => {
     const at = LAYER_ORDER.indexOf(piece.slot);
@@ -49,68 +54,82 @@ export function garmentIds(outfit) {
   return [...pieces, ...accessories];
 }
 
-export function warmthLine(outfit) {
-  if (outfit.warmthWithOuter > outfit.warmthCore) {
-    return `warmth ${outfit.warmthCore}, ${outfit.warmthWithOuter} with the outer layer`;
-  }
-  return `warmth ${outfit.warmthCore}`;
+const isObject = (value) => value !== null && typeof value === 'object';
+const asArray = (value) => (Array.isArray(value) ? value : []);
+const asText = (value) => (typeof value === 'string' ? value : '');
+
+function readRules(value) {
+  return asArray(value)
+    .filter((rule) => isObject(rule) && typeof rule.id === 'string' && typeof rule.because === 'string')
+    .map((rule) => ({ id: rule.id, because: rule.because }));
 }
 
-/** What the moment resolved to, small, so the user can see why the answer looks the way it does. */
-export function momentChips(response) {
-  const chips = [];
-  const weather = response?.weather ?? null;
-
-  if (weather !== null) {
-    // `label` is skipped: it spells the temperature out in words, and the chip beside it is the same fact.
-    chips.push(`${Math.round(weather.tempC)}°, feels like ${Math.round(weather.feelsLikeC)}°`);
-    if (weather.precipProbability > 0) chips.push(`${Math.round(weather.precipProbability * 100)}% rain`);
-    if (weather.windKph >= WINDY_KPH) chips.push(`wind ${Math.round(weather.windKph)} km/h`);
-  }
-
-  if (typeof response?.warmthLabel === 'string' && response.warmthLabel !== '') chips.push(response.warmthLabel);
-  if (typeof response?.season === 'string') chips.push(response.season);
-  if (Number.isFinite(response?.minFormality)) chips.push(`${formalityLabel(response.minFormality)} and up`);
-  return chips;
-}
-
-function joinWords(words) {
-  if (words.length <= 1) return words.join('');
-  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`;
+function readPieces(value) {
+  return asArray(value).filter((piece) => isObject(piece) && typeof piece.slot === 'string' && isObject(piece.garment));
 }
 
 /**
- * An empty answer, explained. "Nothing you own is formal enough for this" is a
- * useful screen. A blank one is not.
+ * A SavedOutfit the screen can draw, or null. The tags now come from a chat
+ * rather than from a validated structured call, so a row that arrives without
+ * pieces is not an outfit and Today says so instead of drawing an empty card.
  */
-export function emptyReport(response) {
-  const starved = [...(response?.starved ?? [])];
-  const reasons = [...(response?.rejected ?? [])];
-  const floor = Number.isFinite(response?.minFormality) ? formalityLabel(response.minFormality) : 'formal enough';
-  const season = typeof response?.season === 'string' ? response.season : 'the season';
-
-  if (starved.length > 0) {
-    return {
-      title: `Nothing you own fits the ${joinWords(starved)} slot${starved.length === 1 ? '' : 's'}.`,
-      detail: `Every piece has to be ${floor} or dressier and right for ${season}. Nothing there clears both.`,
-      reasons,
-    };
-  }
-
-  if (reasons.length > 0) {
-    return {
-      title: 'Outfits were put together, then dropped.',
-      detail:
-        reasons.length === 1
-          ? 'One did not pass. Here is what went wrong.'
-          : `${reasons.length} did not pass. Here is what went wrong.`,
-      reasons,
-    };
-  }
+export function readOutfit(value) {
+  if (!isObject(value)) return null;
+  const pieces = readPieces(value.pieces);
+  if (pieces.length === 0) return null;
 
   return {
-    title: 'No outfits came back.',
-    detail: 'The server sent no reason with it. Ask again, or change the moment.',
-    reasons: [],
+    id: asText(value.id),
+    createdAt: asText(value.createdAt),
+    pieces,
+    accessories: asArray(value.accessories).filter(isObject),
+    rationale: asText(value.rationale),
+    cited: readRules(value.cited),
+    missed: readRules(value.missed),
+    worn: value.worn === true,
   };
+}
+
+function savedAt(outfit) {
+  const time = Date.parse(outfit.createdAt);
+  return Number.isNaN(time) ? 0 : time;
+}
+
+/** The history, newest first. The server sorts too, and a second sort keeps the screen honest. */
+export function readOutfits(body) {
+  const outfits = asArray(body?.outfits)
+    .map(readOutfit)
+    .filter((outfit) => outfit !== null);
+  return outfits.sort((left, right) => savedAt(right) - savedAt(left));
+}
+
+/** What Today shows: the outfit that was saved, or the sentence that says how to get one. */
+export function todayView(body) {
+  const outfit = readOutfit(body?.outfit);
+  if (outfit === null) return { kind: 'empty', ...NOTHING_SAVED };
+  return { kind: 'outfit', outfit };
+}
+
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const pad = (value) => String(value).padStart(2, '0');
+const midnight = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The clock on the phone, not the server's. Every date here is read by one person in one place. */
+export function savedClock(createdAt) {
+  const at = new Date(createdAt);
+  if (Number.isNaN(at.getTime())) return '';
+  return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+}
+
+export function savedLine(createdAt, now = new Date()) {
+  const at = new Date(createdAt);
+  if (Number.isNaN(at.getTime())) return 'Saved';
+
+  const days = Math.round((midnight(now) - midnight(at)) / DAY_MS);
+  if (days === 0) return `Today, ${savedClock(createdAt)}`;
+  if (days === 1) return `Yesterday, ${savedClock(createdAt)}`;
+  return `${DAY_NAMES[at.getDay()]} ${at.getDate()} ${MONTH_NAMES[at.getMonth()]}`;
 }

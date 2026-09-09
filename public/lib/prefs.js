@@ -1,5 +1,5 @@
 /**
- * The two or three answers the Today screen should not ask for twice.
+ * The one or two answers a screen should not ask for twice.
  *
  * Private browsing throws on the first read of `localStorage`, and the app is
  * still usable with no memory at all, so every path here falls back to the
@@ -43,14 +43,5 @@ export function forgetPref(key) {
 /** A stored value only counts when it is still one of the choices on screen. */
 export function readChoice(key, allowed, fallback) {
   const value = readPref(key, null);
-  return allowed.includes(value) ? value : fallback;
-}
-
-export function readNumberChoice(key, allowed, fallback) {
-  // `Number(null)` and `Number('')` are both 0, which is a real choice here, so
-  // nothing stored has to be answered before the conversion.
-  const stored = readPref(key, null);
-  if (stored === null || stored.trim() === '') return fallback;
-  const value = Number(stored);
   return allowed.includes(value) ? value : fallback;
 }

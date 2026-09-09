@@ -4,9 +4,6 @@ import { uploadContentType } from './photo.js';
  * connection that died mid switch from wifi to cellular frees its upload slot. */
 const UPLOAD_TIMEOUT_MS = 120000;
 
-/** Composing outfits runs a model request too, so it gets the same generous cap. */
-const RECOMMEND_TIMEOUT_MS = 120000;
-
 export class NetworkError extends Error {
   constructor(message = 'No connection. The request never left the phone.') {
     super(message);
@@ -158,12 +155,12 @@ export function createApi(options = {}) {
       return json(`/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
     },
 
-    recommend(request) {
-      return json('/api/recommend', {
-        method: 'POST',
-        ...jsonBody(request),
-        signal: AbortSignal.timeout(RECOMMEND_TIMEOUT_MS),
-      });
+    getTodayOutfit() {
+      return json('/api/outfits/today');
+    },
+
+    listOutfits(limit) {
+      return json(`/api/outfits?limit=${encodeURIComponent(limit)}`);
     },
 
     wear(entry) {

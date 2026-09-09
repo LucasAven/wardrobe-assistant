@@ -665,6 +665,10 @@ p {
   }
 }
 
+.shot[data-tagged="no"] .shot__status {
+  color: var(--flag);
+}
+
 .batch {
   display: flex;
   flex-direction: column;
@@ -746,6 +750,12 @@ p {
   border-radius: 50%;
   background: var(--flag);
   box-shadow: 0 0 0 2px var(--surface-2);
+}
+
+/* Hollow waits on Claude, filled waits on the user. */
+.tile__dot--untagged {
+  background: transparent;
+  border: 2px solid var(--flag);
 }
 
 .tile__name {
@@ -846,8 +856,20 @@ p {
 
 /* --- Today, Profile and Outfits ------------------------------------------ */
 
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .banner:empty {
   display: none;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .card {
@@ -949,47 +971,6 @@ p {
   color: var(--flag);
 }
 
-.field--quiet {
-  border-bottom: 0;
-  padding: 0;
-  gap: 6px;
-}
-
-.field--quiet .field__label {
-  color: var(--muted);
-  font-weight: 500;
-}
-
-.temp {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.temp__row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.control--temp {
-  max-width: 120px;
-}
-
-.temp__unit {
-  font-size: 15px;
-  color: var(--muted);
-}
-
-.moment {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 4px 0 8px;
-  background: var(--bg);
-}
-
 .outfit {
   display: flex;
   flex-direction: column;
@@ -1011,7 +992,7 @@ p {
   font-weight: 650;
 }
 
-.outfit__warmth {
+.outfit__meta {
   margin-left: auto;
   font-size: 12px;
   color: var(--muted);
@@ -1160,23 +1141,65 @@ p {
   color: var(--muted);
 }
 
-.reasons {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.reasons__item {
-  font-size: 13px;
-  color: var(--muted);
-  border-left: 2px solid var(--line);
-  padding-left: 10px;
-}
-
 .card__weather {
   font-size: 20px;
   font-weight: 600;
+}
+
+/* --- Saved outfits, one per row ------------------------------------------ */
+
+.entry {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  padding: 0 14px;
+}
+
+.entry[open] {
+  padding-bottom: 14px;
+}
+
+.entry__summary {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: default;
+}
+
+.entry__summary::-webkit-details-marker {
+  display: none;
+}
+
+.entry__when {
+  font-weight: 600;
+}
+
+.entry__meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.entry__summary::after {
+  content: "";
+  margin-left: 4px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.entry[open] .entry__summary::after {
+  transform: rotate(-135deg);
+}
+
+/* The row is already a card, so the outfit inside it drops its own frame. */
+.entry .outfit {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
 }

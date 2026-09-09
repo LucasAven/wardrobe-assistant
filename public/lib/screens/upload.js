@@ -1,4 +1,5 @@
 import { button, clear, el } from '../dom.js';
+import { uploadStatus } from '../garments.js';
 import { createLimiter } from '../limiter.js';
 import { normalizeForUpload } from '../normalize.js';
 import { createThumbnail } from '../thumb.js';
@@ -8,12 +9,6 @@ const THUMBNAIL_CONCURRENCY = 2;
 
 function pickerInput(id, extra) {
   return el('input', { type: 'file', accept: 'image/*', class: 'picker__input', id, ...extra });
-}
-
-function describe(garment) {
-  const flagged = garment.uncertain.length;
-  const base = `Tagged as ${garment.subtype}`;
-  return flagged === 0 ? `${base}. Nothing flagged.` : `${base}. ${flagged} field${flagged === 1 ? '' : 's'} to check.`;
 }
 
 export function mountUpload(ctx) {
@@ -59,11 +54,18 @@ export function mountUpload(ctx) {
     const total = items.length;
     const done = items.filter((item) => item.state === 'done').length;
     const failed = items.filter((item) => item.state === 'failed').length;
-    return { total, done, failed, left: total - done - failed };
+    const untagged = items.filter((item) => item.state === 'done' && !item.tagged).length;
+    return { total, done, failed, untagged, left: total - done - failed };
+  }
+
+  function finishedLine(total, done, failed, untagged) {
+    if (failed > 0) return `${done} saved, ${failed} failed. Retry them above.`;
+    if (untagged === 0) return `All ${total} uploaded and tagged.`;
+    return `All ${total} saved. ${untagged} still waiting on tags.`;
   }
 
   function refreshBatch() {
-    const { total, done, failed, left } = counts();
+    const { total, done, failed, untagged, left } = counts();
     if (total === 0) {
       summary.textContent = 'Pick photos of one garment each.';
       reviewButton.hidden = true;
@@ -74,8 +76,7 @@ export function mountUpload(ctx) {
       reviewButton.hidden = true;
       return;
     }
-    summary.textContent =
-      failed === 0 ? `All ${total} uploaded and tagged.` : `${done} uploaded, ${failed} failed. Retry them above.`;
+    summary.textContent = finishedLine(total, done, failed, untagged);
     reviewButton.textContent = done === 1 ? 'Review 1 garment' : `Review ${done} garments`;
     reviewButton.hidden = done === 0;
   }
@@ -93,11 +94,16 @@ export function mountUpload(ctx) {
       retry,
     ]);
 
-    const item = { file, cutout: skipCutout, state: 'queued', node: row, release: null, upload: null };
+    const item = { file, cutout: skipCutout, state: 'queued', tagged: true, node: row, release: null, upload: null };
 
     item.setNote = (text) => {
       note.textContent = text;
       note.hidden = false;
+    };
+
+    item.setTagged = (tagged) => {
+      item.tagged = tagged;
+      row.dataset.tagged = tagged ? 'yes' : 'no';
     };
 
     item.setState = (state, text) => {
@@ -145,7 +151,12 @@ export function mountUpload(ctx) {
       (garment) => {
         ctx.store.upsert(garment);
         ctx.refreshBadge();
-        item.setState('done', describe(garment));
+        // An upload with nothing to tag it is the normal one now, so the row
+        // reports where the tags come from instead of reading as a failure.
+        const status = uploadStatus(garment);
+        item.setTagged(status.tagged);
+        if (status.note !== null) item.setNote(status.note);
+        item.setState('done', status.status);
       },
       (error) => item.setState('failed', error.message),
     );

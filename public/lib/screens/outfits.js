@@ -1,34 +1,9 @@
-import { button, clear, el } from '../dom.js';
-import { emptyReport, garmentIds, momentChips, orderPieces, splitRules, warmthLine } from '../outfits.js';
-import { imagePath, watchImage } from '../photo.js';
+import { append, button, clear, el } from '../dom.js';
+import { outfitCard } from '../outfitcard.js';
+import { readOutfits, savedLine } from '../outfits.js';
 
-function pieceTile(slot, garment) {
-  const image = el('img', {
-    class: 'piece__img',
-    src: imagePath(garment),
-    alt: garment.subtype,
-    decoding: 'async',
-  });
-
-  const frame = el('div', { class: 'piece__frame' }, image);
-  watchImage(frame, image, { retry: true });
-
-  return el('li', { class: 'piece' }, [
-    frame,
-    el('span', { class: 'piece__slot' }, slot),
-    el('span', { class: 'piece__name' }, garment.subtype),
-  ]);
-}
-
-function ruleList(rules, modifier) {
-  return el(
-    'ul',
-    { class: modifier === null ? 'rules' : `rules ${modifier}` },
-    rules.map((rule) =>
-      el('li', { class: 'rule' }, [el('p', { class: 'rule__because' }, rule.because), el('span', { class: 'rule__id' }, rule.id)]),
-    ),
-  );
-}
+/** Enough to scroll a couple of weeks back on a phone without paging. */
+const HISTORY_LIMIT = 20;
 
 export function mountOutfits(ctx) {
   const node = el('section', { class: 'screen__body' });
@@ -36,159 +11,84 @@ export function mountOutfits(ctx) {
 
   function show(...children) {
     clear(node);
-    node.append(...children.filter((child) => child !== null));
+    append(node, ...children);
   }
 
-  function showMessage(text, action = null) {
-    show(el('div', { class: 'empty' }, [el('p', { class: 'empty__text' }, text), action]));
+  function summaryLine(outfit) {
+    const count = outfit.pieces.length + outfit.accessories.length;
+    const pieces = count === 1 ? '1 piece' : `${count} pieces`;
+    return outfit.worn ? `${pieces}, worn` : pieces;
   }
 
-  function wearButton(outfit, index) {
-    const worn = ctx.moment.isWorn(index);
-    const control = button(worn ? 'Worn today' : 'Wore this', {
-      class: 'btn btn--wide',
-      disabled: worn,
-    });
-    if (!worn) control.classList.add('btn--primary');
-
-    control.addEventListener('click', async () => {
-      if (control.disabled) return;
-      control.disabled = true;
-      control.textContent = 'Saving';
-      try {
-        await ctx.api.wear({ garmentIds: garmentIds(outfit), event: ctx.moment.request?.event });
-        ctx.moment.markWorn(index);
-        control.classList.remove('btn--primary');
-        control.textContent = 'Worn today';
-      } catch (error) {
-        control.disabled = false;
-        control.textContent = 'Wore this';
-        ctx.toast(error.message, 'error');
-      }
-    });
-
-    return control;
-  }
-
-  function outfitCard(outfit, index) {
-    const pieces = orderPieces(outfit.pieces);
-    const { cited, missed } = splitRules(outfit);
-
-    const accessories =
-      outfit.accessories.length === 0
-        ? null
-        : el('div', { class: 'accessories' }, [
-            el('h4', { class: 'section__title' }, 'With'),
-            el(
-              'ul',
-              { class: 'tags' },
-              outfit.accessories.map((garment) => el('li', { class: 'tag' }, garment.subtype)),
-            ),
-          ]);
-
-    return el('section', { class: 'outfit' }, [
-      el('div', { class: 'outfit__head' }, [
-        el('h2', { class: 'outfit__title' }, `Option ${index + 1}`),
-        el('span', { class: 'outfit__warmth' }, warmthLine(outfit)),
+  /** The card is built on the first open: twenty outfits is a hundred photos. */
+  function entry(outfit, index) {
+    const box = el('details', { class: 'entry' }, [
+      el('summary', { class: 'entry__summary' }, [
+        el('span', { class: 'entry__when' }, savedLine(outfit.createdAt)),
+        el('span', { class: 'entry__meta' }, summaryLine(outfit)),
       ]),
-      el(
-        'ul',
-        { class: 'looks' },
-        pieces.map((piece) => pieceTile(piece.slot, piece.garment)),
-      ),
-      accessories,
-      el('div', { class: 'rationale' }, [
-        el('p', { class: 'rationale__text' }, outfit.rationale),
-        el('p', { class: 'source source--model' }, 'The assistant wrote this. It is not from the book.'),
-      ]),
-      cited.length === 0
-        ? null
-        : el('section', { class: 'section' }, [
-            el('h3', { class: 'section__title' }, 'From the book'),
-            ruleList(cited, null),
-          ]),
-      missed.length === 0
-        ? null
-        : el('section', { class: 'section section--missed' }, [
-            el('h3', { class: 'section__title' }, 'From the book, and missed here'),
-            el('p', { class: 'source' }, 'This outfit breaks these on purpose.'),
-            ruleList(missed, 'rules--missed'),
-          ]),
-      wearButton(outfit, index),
     ]);
+
+    let built = false;
+    const build = () => {
+      if (built) return;
+      built = true;
+      box.append(outfitCard(ctx, outfit));
+    };
+
+    box.addEventListener('toggle', () => {
+      if (box.open) build();
+    });
+
+    if (index === 0) {
+      box.open = true;
+      build();
+    }
+    return box;
   }
 
-  function renderEmpty(response) {
-    const report = emptyReport(response);
-    show(
-      momentBar(response),
-      el('div', { class: 'card' }, [
-        el('h2', { class: 'card__title' }, report.title),
-        el('p', { class: 'card__line' }, report.detail),
-        report.reasons.length === 0
-          ? null
-          : el('div', { class: 'section' }, [
-              el('h3', { class: 'section__title' }, 'What it tried'),
-              el(
-                'ul',
-                { class: 'reasons' },
-                report.reasons.map((reason) => el('li', { class: 'reasons__item' }, reason)),
-              ),
-            ]),
-      ]),
-      el('div', { class: 'actionbar' }, [
-        button('Change the moment', { class: 'btn btn--primary btn--wide', onclick: () => ctx.go('#/today') }),
-        button('Open the wardrobe', { class: 'btn btn--ghost btn--wide', onclick: () => ctx.go('#/wardrobe') }),
-      ]),
-    );
-  }
-
-  function momentBar(response) {
-    return el(
-      'ul',
-      { class: 'tags moment' },
-      momentChips(response).map((text) => el('li', { class: 'tag' }, text)),
-    );
-  }
-
-  function render(response) {
-    const outfits = response?.outfits ?? [];
-    ctx.setTitle('Outfits', outfits.length === 0 ? '' : `${outfits.length} to pick from`);
+  function render(outfits) {
+    ctx.setTitle('Outfits', outfits.length === 0 ? '' : `${outfits.length} saved`);
 
     if (outfits.length === 0) {
-      renderEmpty(response);
+      show(
+        el('section', { class: 'card' }, [
+          el('h2', { class: 'card__title' }, 'Nothing saved yet.'),
+          el(
+            'p',
+            { class: 'card__line' },
+            'Every outfit Claude saves stays here. Ask on your phone, and the first one shows up after that.',
+          ),
+          button('Back to today', { class: 'btn btn--wide', onclick: () => ctx.go('#/today') }),
+        ]),
+      );
       return;
     }
-    show(momentBar(response), ...outfits.map(outfitCard));
+
+    show(...outfits.map(entry));
   }
 
-  async function load(again) {
-    if (ctx.moment.request === null) {
-      showMessage('Nothing asked yet.', button('Open Today', { class: 'btn btn--primary', onclick: () => ctx.go('#/today') }));
-      return;
-    }
-
-    showMessage('Putting outfits together.');
+  async function load() {
+    show(el('div', { class: 'empty' }, el('p', { class: 'empty__text' }, 'Reading what Claude saved.')));
     try {
-      const response = await (again ? ctx.moment.again() : ctx.moment.ask());
+      const outfits = readOutfits(await ctx.api.listOutfits(HISTORY_LIMIT));
       if (gone) return;
-      render(response);
+      render(outfits);
     } catch (error) {
       if (gone) return;
-      // The engine refuses to guess a body type, so a conflict here is almost
-      // always the profile. The server's own message is shown either way.
-      const actions = [button('Try again', { class: 'btn btn--primary', onclick: () => load(true) })];
-      if (error.status === 409) {
-        actions.unshift(button('Set up the profile', { class: 'btn btn--ghost', onclick: () => ctx.go('#/profile') }));
-      }
-      showMessage(error.message, actions);
+      show(
+        el('div', { class: 'empty' }, [
+          el('p', { class: 'empty__text' }, error.message),
+          button('Try again', { class: 'btn btn--primary', onclick: load }),
+        ]),
+      );
     }
   }
 
   ctx.setTitle('Outfits', '');
   ctx.setBack('#/today');
-  ctx.onRefresh(() => load(true));
-  load(false);
+  ctx.onRefresh(load);
+  load();
 
   return {
     node,

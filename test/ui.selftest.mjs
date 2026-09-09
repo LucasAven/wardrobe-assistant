@@ -15,26 +15,32 @@ import {
   sameObservations,
   unanswered,
 } from '../public/lib/body.js';
-import { createLimiter } from '../public/lib/limiter.js';
 import {
-  RAIN_PROBABILITY,
-  buildRecommendRequest,
-  defaultTimeOfDay,
-  locatedWeather,
-  parseTemperature,
-  readWeather,
-  typedWeather,
-  weatherFields,
-  weatherLine,
-  weatherReady,
-} from '../public/lib/moment.js';
+  countTagStates,
+  isUntagged,
+  tagState,
+  taggingPending,
+  uploadStatus,
+} from '../public/lib/garments.js';
+import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { emptyReport, garmentIds, momentChips, orderPieces, splitRules, warmthLine } from '../public/lib/outfits.js';
+import {
+  NOTHING_SAVED,
+  garmentIds,
+  orderPieces,
+  readOutfit,
+  readOutfits,
+  savedClock,
+  savedLine,
+  splitRules,
+  todayView,
+} from '../public/lib/outfits.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
 import { imagePath, uploadContentType } from '../public/lib/photo.js';
-import { forgetPref, readChoice, readNumberChoice, readPref, writePref } from '../public/lib/prefs.js';
+import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
 import { FIELDS, isRelevant, relevantFields } from '../public/lib/vocab.js';
+import { locatedWeather, readWeather, weatherLine } from '../public/lib/weather.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -617,72 +623,9 @@ test('answers count as unchanged only while all five match', () => {
   assert.ok(!sameObservations(MIRROR.rectangle, null));
 });
 
-test('a recommend request goes up with a location when the phone gave one', () => {
+test('the location the phone gives is read into a lat and a lon', () => {
   const position = { coords: { latitude: -34.9011, longitude: -56.1645 } };
-  assert.deepEqual(
-    buildRecommendRequest({
-      event: 'work',
-      timeOfDay: 'morning',
-      hoursOutdoors: 1,
-      mood: '   ',
-      weather: locatedWeather(position),
-    }),
-    { event: 'work', timeOfDay: 'morning', hoursOutdoors: 1, lat: -34.9011, lon: -56.1645 },
-    'the Worker fetches the weather, and an empty mood is not a mood',
-  );
-});
-
-test('a recommend request goes up with the numbers when they were typed', () => {
-  assert.deepEqual(
-    buildRecommendRequest({
-      event: 'dinner',
-      timeOfDay: 'evening',
-      hoursOutdoors: 0,
-      mood: 'tired',
-      weather: typedWeather(12, true),
-    }),
-    {
-      event: 'dinner',
-      timeOfDay: 'evening',
-      hoursOutdoors: 0,
-      tempC: 12,
-      feelsLikeC: 12,
-      precipProbability: RAIN_PROBABILITY,
-      windKph: 0,
-      mood: 'tired',
-    },
-    'one typed number answers both temperatures, and the toggle answers the rain',
-  );
-
-  assert.equal(weatherFields(typedWeather(12, false)).precipProbability, 0, 'the toggle off means no rain');
-  assert.ok(RAIN_PROBABILITY > 0.4, 'the engine treats anything over 0.4 as rain');
-});
-
-test('a declined location with nothing typed is not ready to send', () => {
-  assert.ok(weatherReady(typedWeather(-3, false)));
-  assert.ok(weatherReady(locatedWeather({ coords: { latitude: 0, longitude: 0 } })));
-  assert.ok(!weatherReady(typedWeather(null, true)), 'the button has to ask for a temperature first');
-  assert.ok(!weatherReady(null), 'and the location ask has not come back yet');
-  assert.deepEqual(buildRecommendRequest({ event: 'home', timeOfDay: 'morning', hoursOutdoors: 0, weather: null }), {
-    event: 'home',
-    timeOfDay: 'morning',
-    hoursOutdoors: 0,
-  });
-});
-
-test('a typed temperature is read the way a phone keyboard offers it', () => {
-  assert.equal(parseTemperature('18'), 18);
-  assert.equal(parseTemperature(' -3 '), -3);
-  assert.equal(parseTemperature('12,5'), 12.5, 'the comma key is the first one a Spanish keyboard shows');
-  assert.equal(parseTemperature(''), null);
-  assert.equal(parseTemperature('warm'), null);
-  assert.equal(parseTemperature('900'), null, 'a slip on the keypad is not a temperature');
-});
-
-test('the time of day follows the clock', () => {
-  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 7, 30)), 'morning');
-  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 13, 0)), 'afternoon');
-  assert.equal(defaultTimeOfDay(new Date(2026, 8, 4, 21, 0)), 'evening');
+  assert.deepEqual(locatedWeather(position), { source: 'location', lat: -34.9011, lon: -56.1645 });
 });
 
 test('a weather read is only shown when all four numbers came back', () => {
@@ -703,13 +646,98 @@ test('a weather read is only shown when all four numbers came back', () => {
 
 test('preferences survive a browser that has no storage at all', () => {
   assert.equal(globalThis.localStorage, undefined, 'node has none, which is the private browsing case');
-  assert.equal(readPref('event', 'work'), 'work');
-  assert.equal(readChoice('event', ['work', 'social'], 'work'), 'work');
-  assert.equal(readNumberChoice('hours', [0, 1, 3, 6], 1), 1);
-  writePref('event', 'social');
-  forgetPref('event');
-  assert.equal(readPref('event', 'work'), 'work', 'writing where nothing can be written is not an error');
+  assert.equal(readPref('location', 'ask'), 'ask');
+  assert.equal(readChoice('location', ['off'], null), null);
+  writePref('location', 'off');
+  forgetPref('location');
+  assert.equal(readPref('location', 'ask'), 'ask', 'writing where nothing can be written is not an error');
 });
+
+// ---------------------------------------------------------------------------
+// Tag state
+// ---------------------------------------------------------------------------
+
+/** Mirrors TAGGED_FIELDS in src/worker/vision.ts: every field `blankDraft` flags. */
+const TAGGED_FIELDS = [
+  'slot',
+  'subtype',
+  'colors',
+  'colorRole',
+  'pattern',
+  'fabric',
+  'warmth',
+  'formality',
+  'fit',
+  'structured',
+  'rise',
+  'leg',
+  'hem',
+  'neckline',
+  'sleeves',
+  'shoulderBulk',
+  'waterResistant',
+  'seasons',
+  'notes',
+];
+
+const UNTAGGED = { ...GARMENT, id: 'u1', subtype: 'untagged item', uncertain: [...TAGGED_FIELDS] };
+
+test('the app reads an untagged row off the same field list the tagger fills', () => {
+  assert.deepEqual(
+    [...FIELDS.map((field) => field.name)].sort(),
+    [...TAGGED_FIELDS].sort(),
+    'a field missing here would make a fresh upload read as tagged',
+  );
+  assert.ok(isUntagged(UNTAGGED));
+  assert.ok(!isUntagged({ ...UNTAGGED, uncertain: TAGGED_FIELDS.slice(1) }), 'one sure field is not an untagged row');
+  assert.ok(!isUntagged(GARMENT));
+});
+
+test('never tagged and tagged but unconfirmed are counted apart', () => {
+  assert.equal(tagState(UNTAGGED), 'untagged', 'nothing has looked at this photo yet');
+  assert.equal(tagState(GARMENT), 'unconfirmed', 'the tagger guessed and nobody has confirmed it');
+  assert.equal(tagState({ ...GARMENT, reviewed: true }), 'reviewed');
+  assert.equal(tagState({ ...UNTAGGED, reviewed: true }), 'reviewed', 'a hand-filled row is done either way');
+
+  assert.deepEqual(countTagStates([UNTAGGED, GARMENT, { ...GARMENT, id: 'r1', reviewed: true }]), {
+    untagged: 1,
+    unconfirmed: 1,
+    reviewed: 1,
+  });
+  assert.deepEqual(countTagStates([]), { untagged: 0, unconfirmed: 0, reviewed: 0 });
+});
+
+test('an upload the tagger never saw reads as saved, not as failed', () => {
+  const answer = {
+    ...UNTAGGED,
+    taggingError: 'ANTHROPIC_API_KEY is not set on this Worker. Run: npx wrangler secret put ANTHROPIC_API_KEY',
+    missing: ['ANTHROPIC_API_KEY'],
+  };
+
+  const status = uploadStatus(answer);
+  assert.equal(status.tagged, false);
+  assert.match(status.status, /^Saved/, 'the photo did land, and the row says so first');
+  assert.doesNotMatch(status.status, /fail|error|could not/i, 'untagged is the normal state of a fresh upload');
+  assert.match(status.note, /Claude/, 'and the note points at who tags it');
+
+  assert.ok(taggingPending({ missing: ['ANTHROPIC_API_KEY'] }), 'either field alone means no tagger ran');
+  assert.ok(taggingPending({ taggingError: 'no key' }));
+  assert.ok(!taggingPending(GARMENT));
+  assert.ok(!taggingPending({ missing: [] }));
+  assert.ok(!taggingPending(null));
+
+  assert.deepEqual(uploadStatus(GARMENT), {
+    tagged: true,
+    status: 'Tagged as oxford shirt. 2 fields to check.',
+    note: null,
+  });
+  assert.equal(uploadStatus({ ...GARMENT, uncertain: [] }).status, 'Tagged as oxford shirt. Nothing flagged.');
+  assert.equal(uploadStatus({ ...GARMENT, uncertain: ['warmth'] }).status, 'Tagged as oxford shirt. 1 field to check.');
+});
+
+// ---------------------------------------------------------------------------
+// Saved outfits
+// ---------------------------------------------------------------------------
 
 const RULE_TIGHT = { id: 'rect-02', because: 'with no curve to mark, tight fabric only highlights the flatness.' };
 const RULE_LAYERS = { id: 'rect-01', because: 'layers and V-necks add depth and volume so the torso reads as having shape.' };
@@ -719,7 +747,10 @@ function garment(id, subtype) {
   return { ...GARMENT, id, subtype, imageCutout: null, imageOriginal: `orig/${id}` };
 }
 
-const OUTFIT = {
+/** No trailing Z: every date here is read on the phone that saved it. */
+const SAVED = {
+  id: 'o1',
+  createdAt: '2026-09-03T08:12:00',
   pieces: [
     { slot: 'shoes', garment: garment('s1', 'white sneaker') },
     { slot: 'base', garment: garment('b1', 'navy tee') },
@@ -730,26 +761,45 @@ const OUTFIT = {
   rationale: 'The overshirt gives the torso a second layer.',
   cited: [RULE_LAYERS, RULE_TIGHT],
   missed: [RULE_LEGS],
-  warmthCore: 5,
-  warmthWithOuter: 5,
+  worn: false,
 };
 
-test('the pieces come out in the order they are worn', () => {
+test('a saved outfit comes out in the order the pieces are worn', () => {
+  const outfit = readOutfit(SAVED);
   assert.deepEqual(
-    orderPieces(OUTFIT.pieces).map((piece) => piece.slot),
+    orderPieces(outfit.pieces).map((piece) => piece.slot),
     ['base', 'mid', 'bottom', 'shoes'],
     'base through shoes, whatever order they arrived in',
+  );
+  assert.deepEqual(
+    orderPieces([{ slot: 'hat' }, { slot: 'base' }]).map((piece) => piece.slot),
+    ['base', 'hat'],
+    'a slot the app does not know sinks to the end instead of disappearing',
   );
   assert.deepEqual(orderPieces([]), []);
 });
 
+test('an outfit with no pieces is not drawn as an empty card', () => {
+  assert.equal(readOutfit({ ...SAVED, pieces: [] }), null);
+  assert.equal(readOutfit({ ...SAVED, pieces: [{ slot: 'base' }] }), null, 'a piece with no garment has no photo');
+  assert.equal(readOutfit(null), null);
+  assert.equal(readOutfit('outfit'), null);
+
+  const loose = readOutfit({ pieces: SAVED.pieces });
+  assert.deepEqual(
+    { id: loose.id, rationale: loose.rationale, cited: loose.cited, missed: loose.missed, worn: loose.worn },
+    { id: '', rationale: '', cited: [], missed: [], worn: false },
+    'the fields a chat can leave out read as empty, never as undefined on screen',
+  );
+});
+
 test('a cited rule is never also a missed one', () => {
   const both = {
-    ...OUTFIT,
+    ...SAVED,
     cited: [RULE_LAYERS, RULE_LAYERS, RULE_TIGHT],
     missed: [RULE_TIGHT, RULE_LEGS, RULE_LEGS],
   };
-  const { cited, missed } = splitRules(both);
+  const { cited, missed } = splitRules(readOutfit(both));
 
   assert.deepEqual(cited.map((rule) => rule.id), ['rect-01', 'rect-02'], 'each cited rule shows once');
   assert.deepEqual(missed.map((rule) => rule.id), ['rect-04'], 'a rule the outfit follows is not also missed');
@@ -760,63 +810,55 @@ test('a cited rule is never also a missed one', () => {
     assert.ok(rule.because.length > 0, "every rule shown carries the book's own sentence");
   }
 
-  const nothing = splitRules({ pieces: [], accessories: [], rationale: '' });
-  assert.deepEqual(nothing, { cited: [], missed: [] }, 'an outfit with no rules is not an error');
+  const halves = readOutfit({ ...SAVED, cited: [{ id: 'rect-01' }, RULE_LAYERS], missed: ['rect-04'] });
+  assert.deepEqual(halves.cited, [RULE_LAYERS], 'a rule with no sentence is not a rule the app can show');
+  assert.deepEqual(halves.missed, []);
+
+  assert.deepEqual(splitRules(readOutfit({ ...SAVED, cited: [], missed: [] })), { cited: [], missed: [] });
 });
 
-test('every garment in an outfit reaches the wear log once', () => {
-  assert.deepEqual(garmentIds(OUTFIT), ['s1', 'b1', 'p1', 'm1', 'a2'], 'the accessories are worn too');
+test('every garment in a saved outfit reaches the wear log once', () => {
+  assert.deepEqual(garmentIds(readOutfit(SAVED)), ['s1', 'b1', 'p1', 'm1', 'a2'], 'the accessories are worn too');
   assert.deepEqual(garmentIds({ pieces: [], accessories: [] }), []);
 });
 
-const EMPTY_ANSWER = {
-  outfits: [],
-  weather: { tempC: 6, feelsLikeC: 3, precipProbability: 0.7, windKph: 30, label: 'rain' },
-  season: 'winter',
-  minFormality: 4,
-  warmthLabel: 'cold',
-  starved: ['base', 'shoes'],
-  rejected: ['warmth_out_of_band core 3', 'broke_required_rule circ-02'],
-};
-
-test('an empty answer says what went wrong instead of showing nothing', () => {
-  const report = emptyReport(EMPTY_ANSWER);
-  assert.match(report.title, /base and shoes/, 'the starved slots are named');
-  assert.match(report.detail, /dressy/, 'and so is the formality floor it filtered on');
-  assert.match(report.detail, /winter/);
-  assert.deepEqual(report.reasons, EMPTY_ANSWER.rejected, 'the rejections are shown, not swallowed');
-
-  const dropped = emptyReport({ ...EMPTY_ANSWER, starved: [] });
-  assert.match(dropped.title, /dropped/);
-  assert.match(dropped.detail, /^2 did not pass/);
-
-  const silent = emptyReport({ outfits: [], starved: [], rejected: [], season: 'spring', minFormality: 2 });
-  assert.deepEqual(silent.reasons, []);
-
-  for (const report of [emptyReport(EMPTY_ANSWER), dropped, silent, emptyReport({}), emptyReport(null)]) {
-    assert.ok(report.title.length > 0, 'a blank screen is the one outcome worth avoiding');
-    assert.ok(report.detail.length > 0);
+test('nothing saved for today is a sentence, not a blank screen', () => {
+  for (const body of [{ outfit: null }, {}, null, { outfit: { pieces: [] } }]) {
+    const view = todayView(body);
+    assert.equal(view.kind, 'empty');
+    assert.equal(view.title, NOTHING_SAVED.title);
+    assert.ok(view.title.length > 0, 'a blank screen is the one outcome worth avoiding');
+    assert.match(view.detail, /Claude/, 'and it says who saves one, since the app cannot');
   }
 
-  assert.match(emptyReport({ ...EMPTY_ANSWER, starved: ['shoes'] }).title, /the shoes slot\./, 'one slot reads as one');
+  const view = todayView({ outfit: SAVED });
+  assert.equal(view.kind, 'outfit');
+  assert.equal(view.outfit.id, 'o1');
+  assert.equal(view.outfit.pieces.length, 4);
 });
 
-test('the moment it decided against is shown small', () => {
-  const chips = momentChips(EMPTY_ANSWER);
-  assert.deepEqual(chips, ['6°, feels like 3°', '70% rain', 'wind 30 km/h', 'cold', 'winter', 'dressy and up']);
-  assert.deepEqual(momentChips({ season: 'summer', minFormality: 1, warmthLabel: 'hot' }), [
-    'hot',
-    'summer',
-    'gym and loungewear and up',
-  ]);
+test('the history reads newest first, and drops what it cannot draw', () => {
+  const older = { ...SAVED, id: 'o0', createdAt: '2026-09-01T19:40:00', worn: true };
+  const newer = { ...SAVED, id: 'o2', createdAt: '2026-09-03T21:05:00' };
+
+  const outfits = readOutfits({ outfits: [older, newer, SAVED, { id: 'o3', pieces: [] }, null] });
+  assert.deepEqual(outfits.map((outfit) => outfit.id), ['o2', 'o1', 'o0']);
+  assert.equal(outfits[2].worn, true, 'a day already logged says so');
+  assert.deepEqual(readOutfits({}), []);
+  assert.deepEqual(readOutfits(null), []);
 });
 
-test('an outfit says how warm it is with and without the outer layer', () => {
-  assert.equal(warmthLine(OUTFIT), 'warmth 5');
-  assert.equal(warmthLine({ ...OUTFIT, warmthWithOuter: 9 }), 'warmth 5, 9 with the outer layer');
+test('a saved outfit says when it was saved', () => {
+  const now = new Date('2026-09-03T22:00:00');
+  assert.equal(savedLine('2026-09-03T08:12:00', now), 'Today, 08:12');
+  assert.equal(savedLine('2026-09-02T19:40:00', now), 'Yesterday, 19:40');
+  assert.equal(savedLine('2026-09-01T19:40:00', now), 'Tue 1 Sep');
+  assert.equal(savedLine('nope', now), 'Saved', 'a date the app cannot read is not a crash');
+  assert.equal(savedClock('2026-09-03T08:12:00'), '08:12');
+  assert.equal(savedClock(''), '');
 });
 
-test('the new screens hit the routes the worker registers', async () => {
+test('the screens hit the routes the worker registers', async () => {
   const calls = [];
   const api = createApi({
     fetchImpl: async (path, init) => {
@@ -828,8 +870,9 @@ test('the new screens hit the routes the worker registers', async () => {
   await api.getProfile();
   await api.saveProfile(profileBody(MIRROR.circular, 'circular', 'es'));
   await api.getWeather(-34.9011, -56.1645);
-  await api.recommend({ event: 'work', timeOfDay: 'morning', hoursOutdoors: 1, lat: -34.9011, lon: -56.1645 });
-  await api.wear({ garmentIds: garmentIds(OUTFIT), event: 'work' });
+  await api.getTodayOutfit();
+  await api.listOutfits(20);
+  await api.wear({ garmentIds: garmentIds(readOutfit(SAVED)) });
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}`),
@@ -837,7 +880,8 @@ test('the new screens hit the routes the worker registers', async () => {
       'GET /api/profile',
       'PUT /api/profile',
       'GET /api/weather?lat=-34.9011&lon=-56.1645',
-      'POST /api/recommend',
+      'GET /api/outfits/today',
+      'GET /api/outfits?limit=20',
       'POST /api/wear',
     ],
   );
@@ -845,6 +889,5 @@ test('the new screens hit the routes the worker registers', async () => {
     calls[1].body,
     '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',
   );
-  assert.equal(calls[3].body, '{"event":"work","timeOfDay":"morning","hoursOutdoors":1,"lat":-34.9011,"lon":-56.1645}');
-  assert.equal(calls[4].body, '{"garmentIds":["s1","b1","p1","m1","a2"],"event":"work"}');
+  assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
 });

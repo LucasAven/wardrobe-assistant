@@ -1,5 +1,6 @@
 import { button, clear, el } from '../dom.js';
 import { createField, summaryChips } from '../fields.js';
+import { isUntagged } from '../garments.js';
 import { buildPatch, confirmPatch } from '../patch.js';
 import { imagePath, watchImage } from '../photo.js';
 import { FIELDS, FIELD_BY_NAME, isRelevant } from '../vocab.js';
@@ -205,9 +206,15 @@ export function mountReview(ctx, route) {
 
     refreshActions();
 
+    // Every field is flagged on a garment nothing ever looked at, so the head
+    // says why rather than leaving the user to read nineteen warnings.
+    const source = isUntagged(garment)
+      ? el('p', { class: 'source' }, 'Never tagged. Every field below is a placeholder.')
+      : null;
+
     show(
       frame,
-      el('div', { class: 'review__head' }, [el('h2', { class: 'review__title' }, garment.subtype), chips]),
+      el('div', { class: 'review__head' }, [el('h2', { class: 'review__title' }, garment.subtype), source, chips]),
       flaggedGroup,
       details,
       el('div', { class: 'actionbar' }, [count, el('div', { class: 'actionbar__buttons' }, [skip, primary])]),

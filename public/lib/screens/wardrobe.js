@@ -1,4 +1,5 @@
 import { button, clear, el } from '../dom.js';
+import { countTagStates, tagState } from '../garments.js';
 import { imagePath, watchImage } from '../photo.js';
 import { routeHash } from '../router.js';
 import { SLOTS } from '../vocab.js';
@@ -21,8 +22,12 @@ export function mountWardrobe(ctx) {
       decoding: 'async',
     });
 
+    // Two different jobs, so two different dots: a hollow one waits on Claude,
+    // a filled one waits on the user.
+    const state = tagState(garment);
     const marks = [];
-    if (!garment.reviewed) marks.push(el('span', { class: 'tile__dot', title: 'not reviewed yet' }));
+    if (state === 'untagged') marks.push(el('span', { class: 'tile__dot tile__dot--untagged', title: 'not tagged yet' }));
+    if (state === 'unconfirmed') marks.push(el('span', { class: 'tile__dot', title: 'tagged, not confirmed' }));
 
     const frame = el('div', { class: 'tile__frame' }, [image, ...marks]);
     watchImage(frame, image);
@@ -72,14 +77,32 @@ export function mountWardrobe(ctx) {
 
   function renderBanner() {
     clear(banner);
-    const left = ctx.store.unreviewed.length;
-    if (left === 0) return;
-    banner.append(
-      button(left === 1 ? '1 garment to review' : `${left} garments to review`, {
-        class: 'btn btn--primary btn--wide',
-        onclick: () => ctx.go('#/review'),
-      }),
-    );
+    const { untagged, unconfirmed } = countTagStates(ctx.store.garments);
+
+    if (untagged > 0) {
+      const line =
+        untagged === 1
+          ? '1 garment has no tags. Ask Claude to tag it through the connector.'
+          : `${untagged} garments have no tags. Ask Claude to tag them through the connector.`;
+      banner.append(
+        el('div', { class: 'note' }, [
+          el('p', { class: 'note__text' }, line),
+          button(untagged === 1 ? 'Tag it by hand' : 'Tag them by hand', {
+            class: 'btn btn--small btn--ghost',
+            onclick: () => ctx.go('#/review'),
+          }),
+        ]),
+      );
+    }
+
+    if (unconfirmed > 0) {
+      banner.append(
+        button(unconfirmed === 1 ? '1 garment to confirm' : `${unconfirmed} garments to confirm`, {
+          class: 'btn btn--primary btn--wide',
+          onclick: () => ctx.go('#/review'),
+        }),
+      );
+    }
   }
 
   function renderAll() {

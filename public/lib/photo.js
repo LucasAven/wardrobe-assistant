@@ -40,7 +40,11 @@ export function uploadContentType(file) {
  * the key from the bare id, so the extension has to come back off.
  */
 export function imagePath(garment) {
-  const key = garment.imageCutout ?? garment.imageOriginal;
+  // A saved outfit is composed in a chat, so a piece can arrive with no photo
+  // at all. That is a frame with nothing in it, never a screen that throws.
+  const key = garment?.imageCutout ?? garment?.imageOriginal ?? null;
+  if (typeof key !== 'string') return null;
+
   const slash = key.indexOf('/');
   if (slash < 0) return null;
 

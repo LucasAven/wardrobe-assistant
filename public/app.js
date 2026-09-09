@@ -112,53 +112,20 @@ function createProfileStore() {
 }
 
 /**
- * The question Today asked and the answer it got. It lives outside the screens
- * so leaving the outfits and coming back does not spend another model call.
+ * Which outfits were logged as worn this session. Whether the Worker flips the
+ * outfit's own flag is its business, so the tap is remembered here as well and
+ * the same day is never offered twice.
  */
-function createMomentStore() {
-  let request = null;
-  let response = null;
-  let inFlight = null;
-  let worn = new Set();
-
-  function ask() {
-    if (response !== null) return Promise.resolve(response);
-    if (inFlight === null) {
-      inFlight = api
-        .recommend(request)
-        .then((answer) => {
-          response = answer;
-          return answer;
-        })
-        .finally(() => {
-          inFlight = null;
-        });
-    }
-    return inFlight;
-  }
-
+function createWearLog() {
+  const worn = new Set();
   return {
-    get request() {
-      return request;
-    },
-    set(next) {
-      request = next;
-      response = null;
-      worn = new Set();
-    },
-    ask,
-    again() {
-      response = null;
-      worn = new Set();
-      return ask();
-    },
-    isWorn: (index) => worn.has(index),
-    markWorn: (index) => worn.add(index),
+    isWorn: (id) => worn.has(id),
+    markWorn: (id) => worn.add(id),
   };
 }
 
 const profiles = createProfileStore();
-const moment = createMomentStore();
+const worn = createWearLog();
 
 let toastTimer = null;
 function toast(message, kind = 'info') {
@@ -191,7 +158,7 @@ const SCREENS = {
   wardrobe: mountWardrobe,
 };
 
-/** The outfits are what Today asked for, so the tab the user tapped stays lit. */
+/** The history hangs off Today, so the tab the user tapped stays lit. */
 const TAB_FOR_ROUTE = { outfits: 'today' };
 
 let backTarget = null;
@@ -206,7 +173,7 @@ const ctx = {
   api,
   store,
   profile: profiles,
-  moment,
+  worn,
   go,
   toast,
   refreshBadge,
@@ -249,9 +216,9 @@ function render() {
 window.addEventListener('hashchange', render);
 
 /**
- * The app opens on the morning question, unless there is no body type yet, in
- * which case nothing downstream can run and the setup is the only useful
- * screen. A profile that fails to load still lands on Today, which says so.
+ * The app opens on what Claude saved for today, unless there is no body type
+ * yet, in which case nothing downstream can run and the setup is the only
+ * useful screen. A profile that fails to load still lands on Today.
  */
 function boot() {
   if (location.hash !== '' && location.hash !== '#' && location.hash !== '#/') {
