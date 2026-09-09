@@ -1,6 +1,10 @@
+import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
 import { Hono } from 'hono';
 import { login, requireSession } from './auth';
 import type { Env } from './env';
+import { mcp } from './mcp/server';
+import { approveAuthorization, authorizePage } from './oauth';
+import { MAX_OUTFITS, recentOutfits, todayOutfit } from './outfits';
 import { cutKey, origKey } from './photos';
 import { garments } from './routes/garments';
 import { profile } from './routes/profile';
@@ -16,11 +20,28 @@ app.post('/api/login', login);
 app.use('/api/*', requireSession);
 app.use('/img/*', requireSession);
 
+app.get('/authorize', authorizePage);
+app.post('/authorize', approveAuthorization);
+
 app.route('/api/garments', garments);
 app.route('/api/profile', profile);
 app.route('/api/recommend', recommend);
 app.route('/api/wear', wear);
 app.get('/api/weather', currentWeather);
+
+/**
+ * `null` rather than a 404: nothing saved today is a normal state the app has a
+ * screen for, and a 404 would read as a broken request instead.
+ */
+app.get('/api/outfits/today', async (c) => {
+  return c.json({ outfit: await todayOutfit(c.env.DB, new Date()) });
+});
+
+app.get('/api/outfits', async (c) => {
+  const asked = Number(c.req.query('limit') ?? MAX_OUTFITS);
+  const limit = Number.isFinite(asked) && asked > 0 ? asked : MAX_OUTFITS;
+  return c.json({ outfits: await recentOutfits(c.env.DB, limit) });
+});
 
 app.get('/img/:kind/:id', async (c) => {
   const kind = c.req.param('kind');
@@ -41,4 +62,25 @@ app.get('/img/:kind/:id', async (c) => {
 
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export default app;
+/**
+ * The Hono app is the default handler, so the web app and its cookie session
+ * are untouched by any of this. Only `/mcp` sits behind an access token, which
+ * is what Claude's connector negotiates for itself.
+ */
+const oauth = new OAuthProvider<Env>({
+  apiRoute: '/mcp',
+  apiHandler: mcp,
+  defaultHandler: app,
+  authorizeEndpoint: '/authorize',
+  tokenEndpoint: '/oauth/token',
+  clientRegistrationEndpoint: '/oauth/register',
+});
+
+export default {
+  // `ctx` is optional because the runtime always supplies one and a caller
+  // driving `fetch` by hand does not. The provider reads it only on the `/mcp`
+  // path, which needs a token no such caller has.
+  fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+    return oauth.fetch(request, env, ctx as ExecutionContext);
+  },
+};

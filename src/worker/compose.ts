@@ -127,7 +127,7 @@ const TYPE_NAMES: Readonly<Record<BodyType, string>> = {
   circular: 'circular',
 };
 
-const LANGUAGE_NAMES: Readonly<Record<BodyProfile['language'], string>> = {
+export const LANGUAGE_NAMES: Readonly<Record<BodyProfile['language'], string>> = {
   es: 'Spanish',
   en: 'English',
 };
@@ -229,7 +229,7 @@ const LINE_SEEN: Readonly<Record<BodyProfile['line'], string>> = {
  * profile. `line` and `thinLegs` reach no predicate at all, so the model reading
  * this is the only place they can change an outfit.
  */
-function bodyText(profile: BodyProfile): string {
+export function bodyText(profile: BodyProfile): string {
   const waist = profile.waistIsWidest
     ? 'the waist is the widest part of the body'
     : 'the waist is not the widest part of the body';
@@ -374,7 +374,7 @@ ${failures.map((failure) => `  ${failure}`).join('\n')}
 Compose ${OUTFITS_ASKED_FOR} outfits again from the menu above, and write new rationales for them. Do not hand back a corrected version of what you just sent: a rationale written about different clothes describes something this person is not wearing.`;
 }
 
-function reasonText(reason: RejectionReason, constraints: Constraints): string {
+export function reasonText(reason: RejectionReason, constraints: Constraints): string {
   switch (reason.kind) {
     case 'unknown_garment':
       return `${reason.id} is not in the ${reason.slot} menu`;
@@ -398,7 +398,7 @@ function reasonText(reason: RejectionReason, constraints: Constraints): string {
   }
 }
 
-const ruleView = (rule: BookRule): RuleView => ({ id: rule.id, because: rule.because });
+export const ruleView = (rule: BookRule): RuleView => ({ id: rule.id, because: rule.because });
 
 function toView(outfit: CertifiedOutfit): OutfitView {
   return {

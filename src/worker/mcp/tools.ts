@@ -1,0 +1,627 @@
+/**
+ * The six tools the connector exposes, and their descriptions.
+ *
+ * The descriptions are the interface. Nothing else reaches the model: there is
+ * no system prompt on this path, so a fact left out of a description or a
+ * result is a fact the composer does not have.
+ *
+ * Every renderer here is borrowed from `compose.ts`, which already writes the
+ * menu, the constraints, the body and the book rules for the model that used to
+ * do this work behind an API key. A second renderer would be a second thing to
+ * keep true.
+ */
+
+import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
+import { z } from 'zod';
+import { certify, resolveOutfit } from '../../domain/certify';
+import { rulesFor } from '../../domain/bookRules';
+import type {
+  BookRule,
+  CertifiedOutfit,
+  OutfitProposal,
+  RejectionReason,
+  Slot,
+} from '../../domain/types';
+import {
+  LANGUAGE_NAMES,
+  bodyText,
+  calibrationAnchors,
+  reasonText,
+  ruleLine,
+  userMessage,
+} from '../compose';
+import type { Env } from '../env';
+import type { OutfitPiece } from '../outfits';
+import { homeLocation, insertOutfit } from '../outfits';
+import { ImagesUnusableError, smallImageFor } from '../photos';
+import type { SmallImage } from '../vision';
+import { getProfile } from '../profile';
+import { GarmentPatchSchema, getGarment, listGarments, patchGarment } from '../repo';
+import type { StoredGarment } from '../repo';
+import { recordWear } from '../routes/wear';
+import { VOCABULARIES } from '../vision';
+import { EVENTS, TIMES_OF_DAY, buildPlan, planFailed, readPlan, savePlan } from './plan';
+import type { PlanRequest } from './plan';
+
+export interface ToolContext {
+  readonly env: Env;
+  /** Scopes the KV plan keys. One grant can never read another grant's plan. */
+  readonly userId: string;
+  /** Where the link handed back by `save_outfit` points. */
+  readonly origin: string;
+  readonly now: () => Date;
+}
+
+export interface ToolSpec {
+  readonly name: string;
+  readonly title: string;
+  readonly description: string;
+  readonly inputSchema: z.ZodType;
+  /** Parses the arguments the way the transport does, then runs the tool. */
+  readonly call: (args: unknown) => Promise<CallToolResult>;
+  readonly register: (server: McpServer) => void;
+}
+
+function defineTool<Shape extends z.ZodRawShape>(
+  spec: {
+    readonly name: string;
+    readonly title: string;
+    readonly description: string;
+    readonly inputSchema: z.ZodObject<Shape>;
+  },
+  run: (args: z.infer<z.ZodObject<Shape>>) => Promise<CallToolResult>,
+): ToolSpec {
+  const config = {
+    title: spec.title,
+    description: spec.description,
+    inputSchema: spec.inputSchema,
+  };
+  return {
+    ...spec,
+    call: async (args) => {
+      const parsed = spec.inputSchema.safeParse(args);
+      if (!parsed.success) {
+        return said(
+          true,
+          `${spec.name} was called with arguments it cannot read.`,
+          ...parsed.error.issues.map((issue) => `- ${issue.path.join('.')}: ${issue.message}`),
+        );
+      }
+      return run(parsed.data);
+    },
+    register: (server) => {
+      server.registerTool(spec.name, config, (args) => run(args));
+    },
+  };
+}
+
+function said(isError: boolean, ...lines: readonly string[]): CallToolResult {
+  return { content: [{ type: 'text', text: lines.join('\n') }], isError };
+}
+
+const ok = (...lines: readonly string[]): CallToolResult => said(false, ...lines);
+const failed = (...lines: readonly string[]): CallToolResult => said(true, ...lines);
+
+const words = (vocabulary: { readonly values: readonly string[] }): string =>
+  vocabulary.values.join(', ');
+
+// ---------------------------------------------------------------------------
+// wardrobe_status
+// ---------------------------------------------------------------------------
+
+const SLOT_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];
+
+const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other five tools can do anything yet.
+
+It answers four questions.
+  - How many garments are stored, and how they split across the slots an outfit is built from.
+  - How many are still untagged. An untagged garment is a photo nobody has described yet, so it cannot appear in any outfit. next_untagged works through them.
+  - Whether a body profile exists and which of the four body types it holds. Every styling rule this app knows is written against a body type, so plan_outfit cannot run without one.
+  - Whether a home location is stored, which is what lets plan_outfit look up the weather by itself instead of being handed it.`;
+
+function statusTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'wardrobe_status',
+      title: 'Wardrobe status',
+      description: STATUS_DESCRIPTION,
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const [stored, profile, home] = await Promise.all([
+        listGarments(context.env.DB, {}),
+        getProfile(context.env.DB),
+        homeLocation(context.env.DB),
+      ]);
+
+      const untagged = stored.filter((row) => !row.reviewed).length;
+      const counts = SLOT_ORDER.map(
+        (slot) => `${slot} ${stored.filter((row) => row.garment.slot === slot).length}`,
+      ).join(' | ');
+
+      const lines = [
+        stored.length === 0
+          ? 'Wardrobe: empty. Photos are added from the web app, not from here.'
+          : `Wardrobe: ${stored.length} garments.\n  ${counts}`,
+        untagged === 0
+          ? 'Untagged: none. Every garment has been described.'
+          : `Untagged: ${untagged}. Call next_untagged to look at the first one.`,
+        profile === null
+          ? 'Body profile: not set. The owner answers five mirror questions on the Profile screen of the web app. plan_outfit refuses to run until then, because a body type is what every rule keys on.'
+          : `Body profile: set. Body type ${profile.bodyType}. Rationales are written in ${LANGUAGE_NAMES[profile.language]}.`,
+        home === null
+          ? 'Home location: not set, so plan_outfit needs the weather passed to it.'
+          : 'Home location: set, so plan_outfit reads the weather by itself.',
+      ];
+      return ok(...lines);
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// next_untagged
+// ---------------------------------------------------------------------------
+
+const NEXT_DESCRIPTION = `Hands you the photo of one garment nobody has described yet, so you can look at it and say what it is. This is how the wardrobe gets catalogued: the app stores photos, you supply the words.
+
+Takes no arguments. Returns the garment's id, the placeholder fields the app is currently holding for it, and the photo itself as an image.
+
+Look at the photo, then call set_garment_tags with that same id. The loop is: next_untagged, look, set_garment_tags, repeat. The same garment comes back until it is tagged, and set_garment_tags reports how many are left, so you never have to ask whether to keep going.
+
+When nothing is left it says so and returns no image.`;
+
+/** The stored row in the exact shape `set_garment_tags` takes back. */
+function currentTags(stored: StoredGarment): Record<string, unknown> {
+  const { id, imageOriginal, imageCutout, ...tags } = stored.garment;
+  return { ...tags, uncertain: stored.uncertain };
+}
+
+function nextUntaggedTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'next_untagged',
+      title: 'Next untagged garment',
+      description: NEXT_DESCRIPTION,
+      inputSchema: z.object({}),
+    },
+    async () => {
+      const waiting = await listGarments(context.env.DB, { reviewed: false });
+      // Oldest first, so the queue drains in the order the photos arrived.
+      const stored = waiting[waiting.length - 1];
+      if (stored === undefined) {
+        return ok(
+          'Nothing is untagged. Every garment in this wardrobe has been described, so there is no photo to look at.',
+        );
+      }
+
+      const key = stored.garment.imageCutout ?? stored.garment.imageOriginal;
+      let image: SmallImage;
+      try {
+        image = await smallImageFor(context.env, key);
+      } catch (error) {
+        if (error instanceof ImagesUnusableError) return failed(error.fault.error);
+        console.error('reading a garment photo failed', { id: stored.garment.id, error });
+        return failed(
+          `The photo stored for garment ${stored.garment.id} could not be read, so there is nothing to look at. Skip this one and tell the owner.`,
+        );
+      }
+
+      return {
+        isError: false,
+        content: [
+          {
+            type: 'text',
+            text: [
+              `${waiting.length} garment${waiting.length === 1 ? '' : 's'} still untagged. This is one of them.`,
+              '',
+              `id: ${stored.garment.id}`,
+              '',
+              'What the app holds for it now, in the shape set_garment_tags takes. These are placeholders written when the photo was stored, not observations, so treat none of them as evidence:',
+              JSON.stringify(currentTags(stored), null, 2),
+              '',
+              'Look at the photo below and call set_garment_tags with this id.',
+            ].join('\n'),
+          },
+          { type: 'image', data: image.base64, mimeType: image.mediaType },
+        ],
+      };
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// set_garment_tags
+// ---------------------------------------------------------------------------
+
+const TAGS_DESCRIPTION = `Writes what you saw in a garment's photo into the app's catalog. Call it for an id next_untagged handed you, or for a garment the owner asked you to correct.
+
+Every field is optional and only the ones you send are written, but a garment being described for the first time needs all of them. Writing anything marks the row reviewed, so it stops coming back from next_untagged whether you filled it in or not.
+
+The fields, and the exact words each one takes. A word of your own costs that field.
+
+  slot            ${words(VOCABULARIES.slot)}
+                  base is worn against the skin on the torso (t-shirt, tank, dress shirt, polo). top is a shirt worn over a base. mid is a sweater, hoodie, cardigan, vest or blazer. outer is a coat, parka or heavy jacket. bottom is anything worn on the legs. A shirt that could be base or top is base.
+  subtype         two or three lowercase words a person would say out loud: "oxford shirt", "white sneakers". No brand names.
+  colors          one to three plain color words, the largest area of the garment first.
+  colorRole       ${words(VOCABULARIES.colorRole)}. neutral for black, white, gray, navy, beige, brown, olive and denim blue. accent for anything that would be the loudest piece in an outfit.
+  pattern         ${words(VOCABULARIES.pattern)}
+  fabric          ${words(VOCABULARIES.fabric)}, or null when the photo does not say. Never infer a fiber from color alone.
+  warmth          a whole number 0 to 5, see the scale below
+  formality       a whole number 1 to 5, see the scale below
+  fit             ${words(VOCABULARIES.fit)}. Read the width of the panels and the shape of the cut.
+  structured      true when the garment holds its own shape instead of draping: blazer, denim jacket, stiff oxford. false for jersey and knitwear.
+  shoulderBulk    true only when the shoulders are padded or built up. The book's rules for one body type ban these outright.
+  waterResistant  true only when the surface is plainly made to shed water: rain shell, waxed jacket, rubber boots. Not wool, not denim.
+  seasons         any of ${words(VOCABULARIES.seasons)}. Most pieces suit two or three. An empty list keeps the garment out of every outfit, so do not send one out of caution.
+  rise            ${words(VOCABULARIES.rise)}. Bottoms only, null on everything else.
+  leg             ${words(VOCABULARIES.leg)}. Judge the line from the knee to the hem. Bottoms only, null on everything else.
+  neckline        ${words(VOCABULARIES.neckline)}. open means a collar or buttons worn open, high means a mock neck or turtleneck. Torso layers only, null on everything else.
+  sleeves         ${words(VOCABULARIES.sleeves)}. Torso layers only, null on everything else.
+  hem             ${words(VOCABULARIES.hem)}, where the bottom edge falls on the torso. Torso layers only, null on everything else.
+  notes           one short line, only when something matters that no other field carries: visible damage, a large logo, a cropped length. null otherwise.
+  uncertain       the field names you were not confident about, spelled as they are spelled here. The owner reviews every flagged field by hand, so doubt costs nothing and a confident wrong guess costs a lot.
+
+${calibrationAnchors()}
+
+Returns how many garments are still untagged.`;
+
+const SetTagsArgs = z.object({
+  id: z
+    .string()
+    .min(1)
+    .describe('The garment id, exactly as next_untagged gave it. Never a name you made up.'),
+  tags: GarmentPatchSchema.describe(
+    'The fields to write. Send every field you can read off the photo.',
+  ),
+});
+
+function setTagsTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'set_garment_tags',
+      title: 'Set garment tags',
+      description: TAGS_DESCRIPTION,
+      inputSchema: SetTagsArgs,
+    },
+    async (args) => {
+      if (Object.keys(args.tags).length === 0) {
+        return failed(
+          'No fields were sent, and writing nothing would still mark the garment reviewed and hide it from next_untagged. Send the fields you read off the photo.',
+        );
+      }
+
+      const updated = await patchGarment(context.env.DB, args.id, args.tags);
+      if (updated === null) {
+        return failed(
+          `No garment with id ${args.id} in this wardrobe. Call next_untagged and use the id it returns.`,
+        );
+      }
+
+      const left = (await listGarments(context.env.DB, { reviewed: false })).length;
+      return ok(
+        `Tagged ${updated.garment.id} as "${updated.garment.subtype}".`,
+        left === 0
+          ? 'Nothing is left untagged.'
+          : `${left} garment${left === 1 ? '' : 's'} still untagged. Call next_untagged for the next one.`,
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// plan_outfit
+// ---------------------------------------------------------------------------
+
+const PLAN_DESCRIPTION = `Does every part of choosing an outfit that a computer can do, and hands you the rest. Call it once, compose one outfit from what comes back, then call save_outfit.
+
+What it returns:
+  - a planId. save_outfit only accepts garments from the plan that minted it, so keep it. A plan lives for one hour.
+  - the body: which of the four types the owner's styling book classifies them as, and the five mirror observations behind it.
+  - the book's rules for that body type and no other, each one an id, the part of the outfit it is judged over, and the book's own reason. A rule written for another body type does not exist here, and citing one is rejected.
+  - what the outfit has to satisfy: two warmth bands as numbers with what each one means, the formality floor, the season, and whether rain counts today.
+  - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. A garment id that is not in the menu throws away the whole outfit it appears in.
+  - any required slot the wardrobe cannot fill today, in which case no outfit exists and you should say so rather than compose one.
+
+Weather: pass it when you know it. Leave it out and the app reads it from the owner's stored home location, and tells you plainly when no location is stored.`;
+
+const PlanArgs = z.object({
+  event: z
+    .enum(EVENTS)
+    .describe(
+      'Where the day is going. This sets the formality floor: home, errands and active have none, work, social and dinner ask for smart casual and up, formal asks for dressy and up.',
+    ),
+  timeOfDay: z.enum(TIMES_OF_DAY).describe('When the outfit is worn.'),
+  hoursOutdoors: z
+    .number()
+    .min(0)
+    .max(24)
+    .describe(
+      'How many hours of the day are actually spent outside. It decides how much of the warmth the coat is allowed to carry: a desk day can sit in a light shirt under a warm coat, a day spent outdoors needs the warmth in the layers themselves. It also decides whether rain is worth dressing for.',
+    ),
+  mood: z
+    .string()
+    .optional()
+    .describe(
+      'Anything the owner said about how they want to look or feel today, in their own words. Free text, read by you and by nothing else.',
+    ),
+  weather: z
+    .object({
+      tempC: z.number().describe('Air temperature in Celsius.'),
+      feelsLikeC: z
+        .number()
+        .optional()
+        .describe('Apparent temperature in Celsius. Falls back to tempC. This is the number the warmth bands are read from, so send it when you have it.'),
+      precipProbability: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe('Chance of rain as a fraction from 0 to 1, not a percentage. Defaults to 0.'),
+      windKph: z.number().min(0).optional().describe('Wind speed in km/h. Defaults to 0.'),
+    })
+    .optional()
+    .describe(
+      "Today's weather, when you already have it. Leave the whole object out to have the app look it up from the stored home location.",
+    ),
+});
+
+function planTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'plan_outfit',
+      title: 'Plan an outfit',
+      description: PLAN_DESCRIPTION,
+      inputSchema: PlanArgs,
+    },
+    async (args) => {
+      const request: PlanRequest = args;
+      const plan = await buildPlan(context.env, request, context.now());
+      if (planFailed(plan)) return failed(plan.problem);
+
+      const { profile, constraints, menu, moment } = plan;
+      const planId = await savePlan(context.env, context.userId, {
+        menu,
+        constraints,
+        bodyType: profile.bodyType,
+        event: moment.event,
+      });
+
+      const sections = [
+        `PLAN ${planId}\nsave_outfit takes this id and accepts garments only from the menu below. It expires in one hour.`,
+      ];
+
+      if (menu.starved.length > 0) {
+        sections.push(
+          `NO COMPLETE OUTFIT EXISTS TODAY\nNothing this person owns can fill ${menu.starved.join(' or ')} under today's constraints, and those slots are required. Do not compose: save_outfit would reject anything you sent. Tell them which slot is empty, and that the formality floor and the season are the two filters that empty one.`,
+        );
+      }
+
+      sections.push(
+        `THE BODY\n${bodyText(profile)}`,
+        `THE GUIDE\nThese are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it. Cite an id only when this outfit actually follows that rule.\n\n${rulesFor(profile.bodyType).map(ruleLine).join('\n')}`,
+        calibrationAnchors(),
+        userMessage({ profile, constraints, menu, moment }),
+        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them. Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
+      );
+
+      return ok(sections.join('\n\n'));
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// save_outfit
+// ---------------------------------------------------------------------------
+
+const SAVE_DESCRIPTION = `Checks an outfit you composed against the plan it came from, and stores it when it passes. The owner's app then shows it with the real photos.
+
+Every garment id has to come from the menu of the plan named by planId. Not from memory, not from an earlier plan, and not from a list you rebuilt: the wardrobe and the recency cooldowns move between calls, so a rebuilt menu is a different menu. An unknown or expired planId fails and tells you to call plan_outfit again.
+
+What is checked here and nowhere else:
+  - the warmth sums, against both bands the plan gave you
+  - the book's donts that need the pieces seen together, which no menu filter could catch
+  - every rule id you cite. A cited rule has to exist, apply to this body type, and actually hold for these clothes. Citing a rule the outfit breaks fails the whole save.
+
+On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new rationale for the new clothes: a rationale carried over from a rejected outfit describes something the owner is not wearing.
+
+On success you get the saved outfit's id and a link to it in the web app.`;
+
+const SaveArgs = z.object({
+  planId: z.string().min(1).describe('The planId plan_outfit returned. Nothing else is accepted.'),
+  pieces: z
+    .object({
+      base: z
+        .string()
+        .min(1)
+        .describe('Garment id from the base menu. The torso layer worn against the skin. Required.'),
+      bottom: z.string().min(1).describe('Garment id from the bottom menu. Required.'),
+      shoes: z.string().min(1).describe('Garment id from the shoes menu. Required.'),
+      top: z
+        .string()
+        .optional()
+        .describe('Garment id from the top menu, a shirt worn over the base. Leave out for no top layer.'),
+      mid: z
+        .string()
+        .optional()
+        .describe('Garment id from the mid menu: sweater, cardigan, blazer. Leave out for no mid layer.'),
+      outer: z
+        .string()
+        .optional()
+        .describe('Garment id from the outer menu: coat or jacket. Leave out for no outer layer.'),
+      accessories: z
+        .array(z.string())
+        .optional()
+        .describe(
+          "Garment ids from the accessory menu. A belt is worth checking for, because several of the book's rules ask for one.",
+        ),
+    })
+    .describe("The outfit, one garment id per slot. Every id must be in this plan's menu."),
+  rationale: z
+    .string()
+    .min(1)
+    .describe(
+      'Two or three sentences written to the person wearing this, saying what the outfit is doing for them today, in the language the plan named. It is stored and shown to them, so write it for them and not for the tool.',
+    ),
+  citedRules: z
+    .array(z.string())
+    .describe(
+      'Ids of the guide rules from this plan that this outfit actually follows. An empty list is allowed and is better than a rule you cannot defend. Rule ids are ids in every language: never translate one and never invent one.',
+    ),
+});
+
+function proposalFrom(args: z.infer<typeof SaveArgs>): OutfitProposal {
+  const layers: { top?: string; mid?: string; outer?: string } = {};
+  if (args.pieces.top !== undefined) layers.top = args.pieces.top;
+  if (args.pieces.mid !== undefined) layers.mid = args.pieces.mid;
+  if (args.pieces.outer !== undefined) layers.outer = args.pieces.outer;
+
+  return {
+    base: args.pieces.base,
+    bottom: args.pieces.bottom,
+    shoes: args.pieces.shoes,
+    ...layers,
+    accessories: args.pieces.accessories ?? [],
+    rationale: args.rationale,
+    citedRules: args.citedRules,
+  };
+}
+
+const WORN_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes'];
+
+function piecesOf(outfit: CertifiedOutfit): readonly OutfitPiece[] {
+  const worn = WORN_ORDER.flatMap((slot): OutfitPiece[] => {
+    const garment = outfit.pieces[slot];
+    return garment === undefined ? [] : [{ slot, id: garment.id }];
+  });
+  const accessories = outfit.accessories.map(
+    (garment): OutfitPiece => ({ slot: 'accessory', id: garment.id }),
+  );
+  return [...worn, ...accessories];
+}
+
+const ruleIds = (rules: readonly BookRule[]): readonly string[] => rules.map((rule) => rule.id);
+
+function saveTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'save_outfit',
+      title: 'Save an outfit',
+      description: SAVE_DESCRIPTION,
+      inputSchema: SaveArgs,
+    },
+    async (args) => {
+      const plan = await readPlan(context.env, context.userId, args.planId);
+      if (plan === null) {
+        return failed(
+          `No plan with id ${args.planId}. A plan lives for one hour and belongs to this connection only, so this one has expired or was never made here.`,
+          'Call plan_outfit and use the planId it returns. Do not retry this call with the same id.',
+        );
+      }
+
+      const rejected = (reasons: readonly RejectionReason[]): CallToolResult =>
+        failed(
+          'Rejected. Nothing was stored.',
+          ...reasons.map((reason) => `- ${reasonText(reason, plan.constraints)}`),
+          '',
+          `Compose again from the menu in plan ${args.planId} and write a new rationale for the new pieces. A rationale carried over from a rejected outfit describes clothes nobody is wearing.`,
+        );
+
+      const resolved = resolveOutfit(proposalFrom(args), plan.menu);
+      if (Array.isArray(resolved)) return rejected(resolved);
+
+      const certified = certify(resolved, plan.constraints, plan.bodyType);
+      if (Array.isArray(certified)) return rejected(certified);
+
+      const pieces = piecesOf(certified);
+      const id = await insertOutfit(
+        context.env.DB,
+        {
+          planId: args.planId,
+          event: plan.event,
+          pieces,
+          rationale: args.rationale,
+          citedRules: ruleIds(certified.cited),
+          missedRules: ruleIds(certified.missed),
+          warmthCore: certified.warmthCore,
+          warmthWithOuter: certified.warmthWithOuter,
+        },
+        context.now(),
+      );
+
+      return ok(
+        'Saved. The app will show this outfit with the real photos.',
+        `id: ${id}`,
+        `link: ${context.origin}/#/today`,
+        `warmth ${certified.warmthCore} at the core, ${certified.warmthWithOuter} with the outer layer.`,
+        certified.cited.length === 0
+          ? 'It cites no guide rules.'
+          : `Guide rules it follows: ${ruleIds(certified.cited).join(', ')}.`,
+        certified.missed.length === 0
+          ? 'It misses none of the guide preferences for this body.'
+          : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${ruleIds(certified.missed).join(', ')}.`,
+        `Call log_wear with these ids once it is actually worn: ${pieces.map((piece) => piece.id).join(', ')}.`,
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// log_wear
+// ---------------------------------------------------------------------------
+
+const WEAR_DESCRIPTION = `Records that these garments were worn today. One call for one outfit actually put on.
+
+This is the only thing that feeds the recency cooldown, which is what stops the same jacket coming back every morning: a garment that was worn recently drops out of the menu for a few days, longer for a coat than for a t-shirt. An outfit worn but never logged is invisible to every later plan.
+
+Every id has to be a garment this wardrobe knows. An unknown id is refused rather than recorded, because a wrong id would quietly bench a garment nobody wore.`;
+
+const LogWearArgs = z.object({
+  garmentIds: z
+    .array(z.string().min(1))
+    .min(1)
+    .describe(
+      'The ids of every garment worn, including accessories. save_outfit hands back exactly this list for the outfit it saved.',
+    ),
+});
+
+function logWearTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'log_wear',
+      title: 'Log what was worn',
+      description: WEAR_DESCRIPTION,
+      inputSchema: LogWearArgs,
+    },
+    async (args) => {
+      const ids = [...new Set(args.garmentIds.map((id) => id.trim()))];
+      const found = await Promise.all(ids.map((id) => getGarment(context.env.DB, id)));
+      const unknown = ids.filter((_, index) => found[index] === null);
+      if (unknown.length > 0) {
+        return failed(
+          'Nothing was logged.',
+          `These are not garments in this wardrobe: ${unknown.join(', ')}.`,
+          "Use the ids from a plan's menu, or the list save_outfit handed back.",
+        );
+      }
+
+      const logged = await recordWear(context.env.DB, { garmentIds: ids }, context.now());
+      return ok(
+        `Logged ${ids.length} garment${ids.length === 1 ? '' : 's'} as worn on ${logged.wornOn}.`,
+        'They now sit out their cooldown and will not be offered in the next few plans. The wait is longer for a coat than for a t-shirt.',
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+export function wardrobeTools(context: ToolContext): readonly ToolSpec[] {
+  return [
+    statusTool(context),
+    nextUntaggedTool(context),
+    setTagsTool(context),
+    planTool(context),
+    saveTool(context),
+    logWearTool(context),
+  ];
+}

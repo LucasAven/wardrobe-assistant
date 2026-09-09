@@ -1,0 +1,192 @@
+/**
+ * A D1 and a KV that answer the exact statements this app runs, so the
+ * connector can be driven end to end without a network or a container.
+ *
+ * Any statement not listed throws rather than returning nothing, because a
+ * silent empty result reads as a passing test.
+ */
+
+import type { Garment } from '../../src/domain/types';
+
+export type Row = Record<string, unknown>;
+
+const bit = (value: boolean): number => (value ? 1 : 0);
+
+export interface RowOptions {
+  readonly reviewed?: boolean;
+  readonly uncertain?: readonly string[];
+  readonly archived?: boolean;
+  readonly createdAt?: string;
+}
+
+/** A domain garment as the column shape `repo.ts` reads back. */
+export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
+  return {
+    id: garment.id,
+    slot: garment.slot,
+    subtype: garment.subtype,
+    image_original: garment.imageOriginal,
+    image_cutout: garment.imageCutout,
+    colors: JSON.stringify(garment.colors),
+    color_role: garment.colorRole,
+    pattern: garment.pattern,
+    fabric: garment.fabric,
+    warmth: garment.warmth,
+    formality: garment.formality,
+    fit: garment.fit,
+    structured: bit(garment.structured),
+    rise: garment.rise,
+    leg: garment.leg,
+    hem: garment.hem,
+    neckline: garment.neckline,
+    sleeves: garment.sleeves,
+    shoulder_bulk: bit(garment.shoulderBulk),
+    water_resistant: bit(garment.waterResistant),
+    seasons: JSON.stringify(garment.seasons),
+    notes: garment.notes,
+    reviewed: bit(options.reviewed ?? true),
+    uncertain: JSON.stringify(options.uncertain ?? []),
+    archived: bit(options.archived ?? false),
+    created_at: options.createdAt ?? '2026-05-01 09:00:00',
+  };
+}
+
+function columnsOf(sql: string, table: string): readonly string[] {
+  const match = new RegExp(`INSERT INTO ${table}\\s*\\(([^)]+)\\)`).exec(sql);
+  if (match?.[1] === undefined) throw new Error(`cannot read the column list of: ${sql}`);
+  return match[1].split(',').map((name) => name.trim());
+}
+
+function rowFrom(columns: readonly string[], args: readonly unknown[]): Row {
+  const row: Row = {};
+  columns.forEach((column, index) => {
+    row[column] = args[index] ?? null;
+  });
+  return row;
+}
+
+function descending(left: string, right: string): number {
+  if (left === right) return 0;
+  return left < right ? 1 : -1;
+}
+
+export class FakeDb {
+  public profile: Row | null = null;
+  public garments: Row[] = [];
+  public wear: Row[] = [];
+  public outfits: Row[] = [];
+
+  prepare(sql: string): {
+    bind: (...args: unknown[]) => ReturnType<FakeDb['prepare']>;
+    first: <T>() => Promise<T | null>;
+    all: <T>() => Promise<{ results: T[] }>;
+    run: () => Promise<{ success: true }>;
+  } {
+    const make = (args: readonly unknown[]): ReturnType<FakeDb['prepare']> => ({
+      bind: (...next: unknown[]) => make(next),
+      first: async <T,>() => (this.exec(sql, args)[0] ?? null) as T | null,
+      all: async <T,>() => ({ results: this.exec(sql, args) as T[] }),
+      run: async () => {
+        this.exec(sql, args);
+        return { success: true } as const;
+      },
+    });
+    return make([]);
+  }
+
+  private exec(sql: string, args: readonly unknown[]): Row[] {
+    if (sql.includes('INSERT INTO profile')) {
+      this.profile = { ...this.profile, data: args[0] };
+      return [];
+    }
+    if (sql.includes('FROM profile')) return this.profile === null ? [] : [this.profile];
+
+    if (sql.includes('INSERT INTO wear_log')) {
+      this.wear.unshift({ worn_on: args[1], garment_ids: args[2], event: args[3] ?? null });
+      return [];
+    }
+    if (sql.includes('FROM wear_log')) {
+      const since = String(args[0]);
+      return this.wear
+        .filter((row) => String(row.worn_on) >= since)
+        .sort((left, right) => descending(String(left.worn_on), String(right.worn_on)));
+    }
+
+    if (sql.includes('INSERT INTO outfit')) {
+      this.outfits.push(rowFrom(columnsOf(sql, 'outfit'), args));
+      return [];
+    }
+    if (sql.includes('FROM outfit')) {
+      const ordered = [...this.outfits].sort((left, right) =>
+        descending(String(left.created_at), String(right.created_at)),
+      );
+      if (sql.includes('created_at >= ?')) {
+        const since = String(args[0]);
+        return ordered.filter((row) => String(row.created_at) >= since).slice(0, 1);
+      }
+      return ordered.slice(0, Number(args[0]));
+    }
+
+    if (sql.startsWith('UPDATE garment SET')) return this.updateGarment(sql, args);
+    if (sql.includes('FROM garment')) return this.selectGarments(sql, args);
+
+    throw new Error(`unstubbed sql: ${sql}`);
+  }
+
+  private live(): Row[] {
+    return this.garments.filter((row) => row.archived !== 1);
+  }
+
+  private selectGarments(sql: string, args: readonly unknown[]): Row[] {
+    if (sql.includes('WHERE id = ?')) return this.live().filter((row) => row.id === args[0]);
+    if (sql.includes('reviewed = ?')) {
+      return this.live().filter((row) => row.reviewed === args[0]);
+    }
+    return this.live();
+  }
+
+  /** Applies the `SET` list `patchGarment` builds, which mixes bound and literal values. */
+  private updateGarment(sql: string, args: readonly unknown[]): Row[] {
+    const sets = /UPDATE garment SET (.+) WHERE id = \?/.exec(sql)?.[1];
+    if (sets === undefined) throw new Error(`cannot read the SET list of: ${sql}`);
+
+    const id = args[args.length - 1];
+    const row = this.live().find((candidate) => candidate.id === id);
+    if (row === undefined) return [];
+
+    let bound = 0;
+    for (const assignment of sets.split(', ')) {
+      const [column, value] = assignment.split(' = ');
+      if (column === undefined || value === undefined) continue;
+      row[column] = value === '?' ? args[bound++] : Number(value);
+    }
+    return [row];
+  }
+}
+
+export class FakeKv {
+  public readonly store = new Map<string, string>();
+
+  async put(key: string, value: string, _options?: { readonly expirationTtl?: number }): Promise<void> {
+    this.store.set(key, value);
+  }
+
+  async get(key: string, options?: { readonly type?: string }): Promise<unknown> {
+    const raw = this.store.get(key);
+    if (raw === undefined) return null;
+    return options?.type === 'json' ? JSON.parse(raw) : raw;
+  }
+}
+
+/** What `smallImageFor` needs: an R2 body and an Images binding that hands one back. */
+export const FAKE_PHOTOS = {
+  get: async (key: string) => (key === '' ? null : { body: key }),
+};
+
+export const FAKE_IMAGES = {
+  input: () => ({
+    transform: () => ({
+      output: async () => ({ image: () => 'aGVsbG8=' }),
+    }),
+  }),
+};

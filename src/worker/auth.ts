@@ -79,7 +79,7 @@ function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
  * digests and leaks neither the password nor its length whatever the loop above
  * does with its time.
  */
-async function passwordMatches(env: Env, candidate: string): Promise<boolean> {
+export async function passwordMatches(env: Env, candidate: string): Promise<boolean> {
   const [given, expected] = await Promise.all([
     sign(env.SESSION_SECRET, candidate),
     sign(env.SESSION_SECRET, env.APP_PASSWORD),
