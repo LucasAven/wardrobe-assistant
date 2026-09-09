@@ -39,7 +39,7 @@ this comfortably.
 ```bash
 npm install
 npx wrangler login
-./scripts/setup.sh          # creates D1, R2 and KV, writes the ids, loads the schema
+./scripts/setup.sh          # creates D1, R2 and KV, writes the ids, runs the migrations
 ```
 
 Then the three secrets it asks for at the end, and:
@@ -57,7 +57,18 @@ every upload still works but keeps the original photo and skips the cutout.
 ```bash
 npm test           # the engine, no network, no API key needed
 npm run typecheck
+npm run db:migrate # applies any new migration to the local database
 npx wrangler dev   # local, though the Images binding wants --remote
+```
+
+The database is defined by `src/db/migrations/*.sql`, applied in filename order
+and each one exactly once. `scripts/migrate.sh` records what it applied in a
+`_migration` table, so it is safe to run again and it skips what is already
+there. To change the schema, add the next numbered file. Never edit a migration
+that has already run somewhere.
+
+```bash
+./scripts/migrate.sh --remote   # the deployed database
 ```
 
 ## Layout
@@ -70,7 +81,7 @@ src/domain/     the engine. Pure, no network, no database.
   menu.ts         what the model is allowed to choose from
   certify.ts      the only thing that can mint a valid outfit
 src/worker/     Cloudflare Worker. Routes, storage, vision tagging, auth.
-src/db/         D1 schema.
+src/db/         D1 migrations, in order. The schema is their sum.
 public/         the web app. No build step.
 docs/book/      the styling book, distilled. rules.md is loaded on every request.
 ```

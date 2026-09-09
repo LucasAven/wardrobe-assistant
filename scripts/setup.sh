@@ -58,9 +58,8 @@ s = s.replace(/("binding":\s*"OAUTH_KV",\s*\n\s*"id":\s*)"[^"]*"/, `$1"${process
 fs.writeFileSync(p, s);
 ' "$D1_ID" "$KV_ID"
 
-echo "==> schema"
-wr d1 execute "$D1_NAME" --remote --file=src/db/schema.sql --yes >/dev/null
-wr d1 execute "$D1_NAME" --local  --file=src/db/schema.sql --yes >/dev/null 2>&1 || true
+echo "==> migrations"
+./scripts/migrate.sh --local --remote
 
 cat <<'NEXT'
 

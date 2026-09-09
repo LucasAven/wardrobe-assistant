@@ -7,8 +7,8 @@
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && node test/ui.selftest.mjs",
-    "db:local": "wrangler d1 execute wardrobe --local --file=src/db/schema.sql",
-    "db:remote": "wrangler d1 execute wardrobe --remote --file=src/db/schema.sql"
+    "db:migrate": "./scripts/migrate.sh --local",
+    "db:migrate:remote": "./scripts/migrate.sh --remote"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
