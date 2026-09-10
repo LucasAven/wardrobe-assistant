@@ -474,10 +474,17 @@ p {
   accent-color: var(--accent);
 }
 
-.danger {
+/* A small action at the end of a field group, set off from the fields above it. */
+.grouprow {
   display: flex;
   gap: 10px;
   padding: 14px 0;
+}
+
+.photoedit {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .actionbar {
@@ -1202,4 +1209,56 @@ p {
   border-radius: 0;
   background: transparent;
   padding: 0;
+}
+
+/* --- Fixing a cutout by hand --------------------------------------------- */
+
+.editor__hint {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+/* The checker reads as transparency, so an erased area looks gone rather than
+   like the color of the page behind it. */
+.editor {
+  display: flex;
+  justify-content: center;
+  /* Held to the photo's own width, so the checker never reads as part of the image. */
+  width: fit-content;
+  max-width: 100%;
+  margin-inline: auto;
+  border-radius: 18px;
+  overflow: hidden;
+  background-color: var(--surface-2);
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25% 75%, var(--line) 75%),
+    linear-gradient(45deg, var(--line) 25%, transparent 25% 75%, var(--line) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 9px 9px;
+}
+
+/* Without `touch-action` a drag scrolls the page on iPhone Safari instead of
+   drawing the line. */
+.editor__canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  touch-action: none;
+}
+
+/* Above the photo, never in a row of its own under it: the sticky action bar
+   covers whatever sits directly above it. */
+.editor__tools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editor__modes,
+.editor__turns {
+  display: flex;
+  gap: 8px;
+}
+
+.editor__turns .btn {
+  flex: 1;
 }

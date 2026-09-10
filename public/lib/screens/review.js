@@ -1,11 +1,19 @@
 import { button, clear, el } from '../dom.js';
 import { createField, summaryChips } from '../fields.js';
-import { isUntagged } from '../garments.js';
+import { tagState } from '../garments.js';
 import { buildPatch, confirmPatch } from '../patch.js';
 import { imagePath, watchImage } from '../photo.js';
+import { routeHash } from '../router.js';
 import { FIELDS, FIELD_BY_NAME, isRelevant } from '../vocab.js';
 
 const ARCHIVE_ARM_MS = 4000;
+
+/** Whose values these are, which is the difference between checking and writing. */
+const SOURCE_LINE = {
+  untagged: 'Never tagged. Every field below is a placeholder, so ask Claude to look at the photo.',
+  unconfirmed: 'Claude read these off the photo. Fix what is wrong and confirm.',
+  reviewed: null,
+};
 
 export function mountReview(ctx, route) {
   const node = el('section', { class: 'screen__body screen__body--review' });
@@ -61,52 +69,67 @@ export function mountReview(ctx, route) {
       target.append(createField(field, draft[field.name], { flagged: isFlagged, onChange }).node);
     }
 
-    restBody.append(dangerRow());
+    restBody.append(retagRow());
     group.querySelector('.group__title').textContent =
-      flaggedCount === 0 ? 'The tagger was sure about every field' : `Check ${flaggedCount}`;
+      flaggedCount === 0 ? 'Claude was sure about every field' : `Check ${flaggedCount}`;
     group.classList.toggle('is-clear', flaggedCount === 0);
   }
 
-  function dangerRow() {
-    const retag = button('Tag it again', { class: 'btn btn--small btn--ghost' });
-    const archive = button('Archive', { class: 'btn btn--small btn--danger' });
-    let armed = false;
-    let timer = null;
+  function retagRow() {
+    const retag = button('Ask Claude again', { class: 'btn btn--small btn--ghost' });
 
     retag.addEventListener('click', async () => {
       if (busy) return;
       busy = true;
       retag.disabled = true;
-      retag.textContent = 'Looking again';
+      retag.textContent = 'Sending it back';
       try {
         const updated = await ctx.api.retagGarment(original.id);
         ctx.store.upsert(updated);
         ctx.refreshBadge();
         queue[index] = updated;
         busy = false;
-        render();
+        // The row is back to placeholders, so there is nothing to check here
+        // until Claude has looked at the photo again. Move on and say so.
+        ctx.toast('Back in Claude\u2019s queue. Ask it to tag the untagged garments.');
+        advance();
       } catch (error) {
         busy = false;
         retag.disabled = false;
-        retag.textContent = 'Tag it again';
+        retag.textContent = 'Ask Claude again';
         ctx.toast(error.message, 'error');
       }
     });
 
-    archive.addEventListener('click', async () => {
+    return el('div', { class: 'grouprow' }, retag);
+  }
+
+  /**
+   * The route archives rather than deletes, because `wear_log` and the saved
+   * outfits hold garment ids and a row that is gone would take the photo out of
+   * a look the owner already wore. Two taps, because the only other guard
+   * against a mis-tap is undoing it in the database by hand.
+   */
+  function removeRow() {
+    const remove = button('Remove from wardrobe', { class: 'btn btn--small btn--danger' });
+    let armed = false;
+    let timer = null;
+
+    remove.addEventListener('click', async () => {
       if (busy) return;
       if (!armed) {
         armed = true;
-        archive.textContent = 'Tap again to archive';
+        remove.textContent = 'Tap again to remove';
+        ctx.toast('Outfits you already saved keep this piece and its photo.');
         timer = setTimeout(() => {
           armed = false;
-          archive.textContent = 'Archive';
+          remove.textContent = 'Remove from wardrobe';
         }, ARCHIVE_ARM_MS);
         return;
       }
       clearTimeout(timer);
       busy = true;
-      archive.disabled = true;
+      remove.disabled = true;
       try {
         await ctx.api.archiveGarment(original.id);
         ctx.store.remove(original.id);
@@ -117,12 +140,12 @@ export function mountReview(ctx, route) {
         else render();
       } catch (error) {
         busy = false;
-        archive.disabled = false;
+        remove.disabled = false;
         ctx.toast(error.message, 'error');
       }
     });
 
-    return el('div', { class: 'danger' }, [retag, archive]);
+    return remove;
   }
 
   function render() {
@@ -151,6 +174,17 @@ export function mountReview(ctx, route) {
 
     const frame = el('div', { class: 'photo' }, image);
     watchImage(frame, image, { retry: true });
+
+    // Both of these are about the whole garment rather than one field, and both
+    // belong above the fields. Removing used to sit under all nineteen of them,
+    // which is why it read as missing.
+    const fix = el('div', { class: 'photoedit' }, [
+      removeRow(),
+      button('Fix the photo', {
+        class: 'btn btn--small btn--ghost',
+        onclick: () => ctx.go(routeHash('edit', garment.id)),
+      }),
+    ]);
 
     const chips = el('ul', { class: 'tags' }, summaryChips(garment).map((text) => el('li', { class: 'tag' }, text)));
 
@@ -208,13 +242,16 @@ export function mountReview(ctx, route) {
 
     // Every field is flagged on a garment nothing ever looked at, so the head
     // says why rather than leaving the user to read nineteen warnings.
-    const source = isUntagged(garment)
-      ? el('p', { class: 'source' }, 'Never tagged. Every field below is a placeholder.')
-      : null;
+    const source = SOURCE_LINE[tagState(garment)];
 
     show(
       frame,
-      el('div', { class: 'review__head' }, [el('h2', { class: 'review__title' }, garment.subtype), source, chips]),
+      fix,
+      el('div', { class: 'review__head' }, [
+        el('h2', { class: 'review__title' }, garment.subtype),
+        source === null ? null : el('p', { class: 'source' }, source),
+        chips,
+      ]),
       flaggedGroup,
       details,
       el('div', { class: 'actionbar' }, [count, el('div', { class: 'actionbar__buttons' }, [skip, primary])]),
