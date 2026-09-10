@@ -167,12 +167,14 @@ describe('wardrobe_status', () => {
   it('counts the wardrobe, the untagged rows and the profile', async () => {
     db.garments = [
       garmentRow(WARDROBE[0]!, { reviewed: true }),
-      garmentRow(WARDROBE[1]!, { reviewed: false }),
+      garmentRow(WARDROBE[1]!, { untagged: true }),
+      garmentRow(WARDROBE[2]!, { reviewed: false, uncertain: ['warmth'] }),
     ];
     const text = textOf(await tool('wardrobe_status').call({}));
 
-    expect(text).toContain('Wardrobe: 2 garments');
+    expect(text).toContain('Wardrobe: 3 garments');
     expect(text).toContain('Untagged: 1');
+    expect(text).toContain('Waiting for the owner: 1');
     expect(text).toContain('Body type rectangle');
     expect(text).toContain('Home location: not set');
   });
@@ -187,7 +189,7 @@ describe('next_untagged', () => {
   it('returns the garment id and its photo as an image block', async () => {
     db.garments = [
       garmentRow(WARDROBE[0]!, { reviewed: true }),
-      garmentRow(WARDROBE[1]!, { reviewed: false, createdAt: '2026-05-02 09:00:00' }),
+      garmentRow(WARDROBE[1]!, { untagged: true, createdAt: '2026-05-02 09:00:00' }),
     ];
 
     const result = await tool('next_untagged').call({});
@@ -210,9 +212,9 @@ describe('next_untagged', () => {
 describe('set_garment_tags', () => {
   it('writes the fields and reports how many are left', async () => {
     db.garments = [
-      garmentRow(WARDROBE[0]!, { reviewed: false }),
-      garmentRow(WARDROBE[1]!, { reviewed: false }),
-      garmentRow(WARDROBE[2]!, { reviewed: false }),
+      garmentRow(WARDROBE[0]!, { untagged: true }),
+      garmentRow(WARDROBE[1]!, { untagged: true }),
+      garmentRow(WARDROBE[2]!, { untagged: true }),
     ];
 
     const text = textOf(
@@ -225,11 +227,21 @@ describe('set_garment_tags', () => {
     expect(text).toContain('Tagged tee-white as "linen tee"');
     expect(text).toContain('2 garments still untagged');
     expect(db.garments[0]?.subtype).toBe('linen tee');
+    // The owner confirms on the Review screen. A tool write that claimed the
+    // review had happened is what used to hide these from them entirely.
+    expect(db.garments[0]?.reviewed).toBe(0);
+  });
+
+  it('leaves a garment the owner already confirmed confirmed', async () => {
+    db.garments = [garmentRow(WARDROBE[0]!, { reviewed: true })];
+    await tool('set_garment_tags').call({ id: 'tee-white', tags: { warmth: 1 } });
+
+    expect(db.garments[0]?.warmth).toBe(1);
     expect(db.garments[0]?.reviewed).toBe(1);
   });
 
   it('reports nothing left when it tags the last one', async () => {
-    db.garments = [garmentRow(WARDROBE[0]!, { reviewed: false })];
+    db.garments = [garmentRow(WARDROBE[0]!, { untagged: true })];
     const text = textOf(
       await tool('set_garment_tags').call({ id: 'tee-white', tags: { warmth: 1 } }),
     );
@@ -245,12 +257,12 @@ describe('set_garment_tags', () => {
     expect(textOf(result)).toContain('invented-shirt');
   });
 
-  it('refuses an empty patch rather than silently marking the row reviewed', async () => {
-    db.garments = [garmentRow(WARDROBE[0]!, { reviewed: false })];
+  it('refuses an empty patch rather than clearing the placeholders', async () => {
+    db.garments = [garmentRow(WARDROBE[0]!, { untagged: true })];
     const result = await tool('set_garment_tags').call({ id: 'tee-white', tags: {} });
 
     expect(result.isError).toBe(true);
-    expect(db.garments[0]?.reviewed).toBe(0);
+    expect(JSON.parse(String(db.garments[0]?.uncertain))).toContain('warmth');
   });
 });
 

@@ -1,11 +1,16 @@
 import { z } from 'zod';
 import type { Garment, GarmentId } from '../domain/types';
 import type { GarmentTags } from './vision';
-import { GarmentDraftSchema } from './vision';
+import { GarmentDraftSchema, TAGGED_FIELDS } from './vision';
 
 /** A row as it comes back, split into the domain garment and the review state around it. */
 export interface StoredGarment {
   readonly garment: Garment;
+  /**
+   * How many times the stored photo has been rewritten. `/img/:kind/:id` answers
+   * `immutable`, so this is what the app hangs off the URL to see a new cutout.
+   */
+  readonly photoVersion: number;
   readonly reviewed: boolean;
   readonly uncertain: readonly string[];
   readonly archived: boolean;
@@ -41,6 +46,7 @@ export const GarmentRowSchema = z
     subtype: shape.subtype,
     image_original: z.string(),
     image_cutout: z.string().nullable(),
+    photo_version: z.number().int(),
     colors: jsonArrayOf(z.string()),
     color_role: shape.colorRole,
     pattern: shape.pattern,
@@ -89,6 +95,7 @@ export const GarmentRowSchema = z
         seasons: row.seasons,
         notes: row.notes,
       },
+      photoVersion: row.photo_version,
       reviewed: row.reviewed,
       uncertain: row.uncertain,
       archived: row.archived,
@@ -104,6 +111,7 @@ export function parseGarmentRow(row: unknown): StoredGarment {
 export function toJson(stored: StoredGarment): Record<string, unknown> {
   return {
     ...stored.garment,
+    photoVersion: stored.photoVersion,
     reviewed: stored.reviewed,
     uncertain: stored.uncertain,
     archived: stored.archived,
@@ -177,6 +185,26 @@ export async function insertGarment(db: D1Database, input: NewGarment): Promise<
 }
 
 /**
+ * What every photo write ends with. The cutout key rides along because a garment
+ * whose first cutout failed has none stored, and an edit or a fresh segment pass
+ * is where it gets one. Touches no tag column, so a garment the owner already
+ * confirmed keeps its answers when its photo changes.
+ */
+export async function bumpPhotoVersion(
+  db: D1Database,
+  id: string,
+  cutoutKey: string | null,
+): Promise<StoredGarment | null> {
+  const row = await db
+    .prepare(
+      'UPDATE garment SET photo_version = photo_version + 1, image_cutout = ? WHERE id = ? AND archived = 0 RETURNING *',
+    )
+    .bind(cutoutKey, id)
+    .first();
+  return row === null ? null : parseGarmentRow(row);
+}
+
+/**
  * Retag writes machine tags, so it drops the row back to unreviewed even if a
  * human had confirmed the old ones.
  */
@@ -228,13 +256,15 @@ function encodeColumn(value: unknown): unknown {
 }
 
 /**
- * A hand correction settles the row, so it also marks it reviewed and clears the
- * doubt list unless the caller sent a new one.
+ * `reviewed` records that the owner has looked at the row, so only a write the
+ * owner made may set it. Both writers clear the doubt list unless the caller
+ * sent a new one, which is what moves a row out of the untagged state.
  */
-export async function patchGarment(
+async function writeTags(
   db: D1Database,
   id: string,
   patch: GarmentPatch,
+  confirmed: boolean,
 ): Promise<StoredGarment | null> {
   const sets: string[] = [];
   const values: unknown[] = [];
@@ -247,11 +277,45 @@ export async function patchGarment(
     sets.push('uncertain = ?');
     values.push('[]');
   }
-  sets.push('reviewed = 1');
+  if (confirmed) sets.push('reviewed = 1');
 
   const sql = `UPDATE garment SET ${sets.join(', ')} WHERE id = ? AND archived = 0 RETURNING *`;
   const row = await db.prepare(sql).bind(...values, id).first();
   return row === null ? null : parseGarmentRow(row);
+}
+
+/** A hand correction settles the row, so it also marks it reviewed. */
+export function patchGarment(
+  db: D1Database,
+  id: string,
+  patch: GarmentPatch,
+): Promise<StoredGarment | null> {
+  return writeTags(db, id, patch, true);
+}
+
+/**
+ * What the connector writes after looking at a photo. It leaves `reviewed`
+ * alone, so a garment nobody has confirmed lands in the Review screen with
+ * these values already filled in and the owner only corrects what is wrong. A
+ * garment the owner already confirmed stays confirmed, which is what makes this
+ * safe to call on a correction too.
+ */
+export function describeGarment(
+  db: D1Database,
+  id: string,
+  patch: GarmentPatch,
+): Promise<StoredGarment | null> {
+  return writeTags(db, id, patch, false);
+}
+
+/**
+ * Nothing has ever looked at this photo. `blankDraft` flags every tagged field,
+ * so a row still flagging all of them is a row holding placeholders. Mirrors
+ * `isUntagged` in public/lib/garments.js.
+ */
+export function isUntagged(stored: StoredGarment): boolean {
+  const flagged = new Set(stored.uncertain);
+  return TAGGED_FIELDS.every((name) => flagged.has(name));
 }
 
 export async function getGarment(db: D1Database, id: string): Promise<StoredGarment | null> {

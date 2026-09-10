@@ -36,7 +36,13 @@ import { homeLocation, insertOutfit } from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
 import { getProfile } from '../profile';
-import { GarmentPatchSchema, getGarment, listGarments, patchGarment } from '../repo';
+import {
+  GarmentPatchSchema,
+  describeGarment,
+  getGarment,
+  isUntagged,
+  listGarments,
+} from '../repo';
 import type { StoredGarment } from '../repo';
 import { recordWear } from '../routes/wear';
 import { VOCABULARIES } from '../vision';
@@ -116,6 +122,7 @@ const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first
 It answers four questions.
   - How many garments are stored, and how they split across the slots an outfit is built from.
   - How many are still untagged. An untagged garment is a photo nobody has described yet, so it cannot appear in any outfit. next_untagged works through them.
+  - How many you have described that the owner has not confirmed yet. They are usable already, and the owner clears them on the Review screen.
   - Whether a body profile exists and which of the four body types it holds. Every styling rule this app knows is written against a body type, so plan_outfit cannot run without one.
   - Whether a home location is stored, which is what lets plan_outfit look up the weather by itself instead of being handed it.`;
 
@@ -134,7 +141,8 @@ function statusTool(context: ToolContext): ToolSpec {
         homeLocation(context.env.DB),
       ]);
 
-      const untagged = stored.filter((row) => !row.reviewed).length;
+      const untagged = stored.filter(isUntagged).length;
+      const unconfirmed = stored.filter((row) => !row.reviewed && !isUntagged(row)).length;
       const counts = SLOT_ORDER.map(
         (slot) => `${slot} ${stored.filter((row) => row.garment.slot === slot).length}`,
       ).join(' | ');
@@ -146,6 +154,9 @@ function statusTool(context: ToolContext): ToolSpec {
         untagged === 0
           ? 'Untagged: none. Every garment has been described.'
           : `Untagged: ${untagged}. Call next_untagged to look at the first one.`,
+        unconfirmed === 0
+          ? 'Waiting for the owner: none.'
+          : `Waiting for the owner: ${unconfirmed}. Described, and the owner has not confirmed them on the Review screen yet. They are already usable in an outfit, so this is theirs to clear, not yours.`,
         profile === null
           ? 'Body profile: not set. The owner answers five mirror questions on the Profile screen of the web app. plan_outfit refuses to run until then, because a body type is what every rule keys on.'
           : `Body profile: set. Body type ${profile.bodyType}. Rationales are written in ${LANGUAGE_NAMES[profile.language]}.`,
@@ -185,7 +196,7 @@ function nextUntaggedTool(context: ToolContext): ToolSpec {
       inputSchema: z.object({}),
     },
     async () => {
-      const waiting = await listGarments(context.env.DB, { reviewed: false });
+      const waiting = (await listGarments(context.env.DB, {})).filter(isUntagged);
       // Oldest first, so the queue drains in the order the photos arrived.
       const stored = waiting[waiting.length - 1];
       if (stored === undefined) {
@@ -235,7 +246,9 @@ function nextUntaggedTool(context: ToolContext): ToolSpec {
 
 const TAGS_DESCRIPTION = `Writes what you saw in a garment's photo into the app's catalog. Call it for an id next_untagged handed you, or for a garment the owner asked you to correct.
 
-Every field is optional and only the ones you send are written, but a garment being described for the first time needs all of them. Writing anything marks the row reviewed, so it stops coming back from next_untagged whether you filled it in or not.
+Every field is optional and only the ones you send are written, but a garment being described for the first time needs all of them. Writing anything clears the placeholder flags, so the garment stops coming back from next_untagged whether you filled it in or not.
+
+What you write is not the last word. It goes in as yours, the garment becomes usable in an outfit straight away, and it waits on the Review screen of the web app for the owner to confirm or correct it. So describe what you actually see and let them settle the calls you were unsure of, rather than leaving a field out.
 
 The fields, and the exact words each one takes. A word of your own costs that field.
 
@@ -286,22 +299,22 @@ function setTagsTool(context: ToolContext): ToolSpec {
     async (args) => {
       if (Object.keys(args.tags).length === 0) {
         return failed(
-          'No fields were sent, and writing nothing would still mark the garment reviewed and hide it from next_untagged. Send the fields you read off the photo.',
+          'No fields were sent, and writing nothing would still clear the placeholders and hide the garment from next_untagged. Send the fields you read off the photo.',
         );
       }
 
-      const updated = await patchGarment(context.env.DB, args.id, args.tags);
+      const updated = await describeGarment(context.env.DB, args.id, args.tags);
       if (updated === null) {
         return failed(
           `No garment with id ${args.id} in this wardrobe. Call next_untagged and use the id it returns.`,
         );
       }
 
-      const left = (await listGarments(context.env.DB, { reviewed: false })).length;
+      const left = (await listGarments(context.env.DB, {})).filter(isUntagged).length;
       return ok(
         `Tagged ${updated.garment.id} as "${updated.garment.subtype}".`,
         left === 0
-          ? 'Nothing is left untagged.'
+          ? 'Nothing is left untagged. The owner confirms these on the Review screen of the web app, and every one of them is usable in an outfit meanwhile.'
           : `${left} garment${left === 1 ? '' : 's'} still untagged. Call next_untagged for the next one.`,
       );
     },
