@@ -139,6 +139,28 @@ export function createApi(options = {}) {
       return json(`/api/garments/${encodeURIComponent(id)}/retag`, { method: 'POST' });
     },
 
+    putCutout(id, blob) {
+      return json(`/api/garments/${encodeURIComponent(id)}/cutout`, {
+        method: 'PUT',
+        headers: { 'content-type': 'image/png' },
+        body: blob,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+    },
+
+    resetCutout(id) {
+      return json(`/api/garments/${encodeURIComponent(id)}/cutout/reset`, { method: 'POST' });
+    },
+
+    replacePhoto(id, body, contentType) {
+      return json(`/api/garments/${encodeURIComponent(id)}/photo`, {
+        method: 'PUT',
+        headers: { 'content-type': contentType },
+        body,
+        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+      });
+    },
+
     archiveGarment(id) {
       return json(`/api/garments/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },

@@ -2,6 +2,7 @@ import { createApi } from './lib/api.js';
 import { readProfile } from './lib/body.js';
 import { clear, el } from './lib/dom.js';
 import { parseRoute } from './lib/router.js';
+import { mountEditPhoto } from './lib/screens/editphoto.js';
 import { createAuthGate } from './lib/screens/login.js';
 import { mountOutfits } from './lib/screens/outfits.js';
 import { mountProfile } from './lib/screens/profile.js';
@@ -156,10 +157,14 @@ const SCREENS = {
   upload: mountUpload,
   review: mountReview,
   wardrobe: mountWardrobe,
+  edit: mountEditPhoto,
 };
 
-/** The history hangs off Today, so the tab the user tapped stays lit. */
-const TAB_FOR_ROUTE = { outfits: 'today' };
+/**
+ * The history hangs off Today and the photo editor off Review, so the tab the
+ * user tapped stays lit.
+ */
+const TAB_FOR_ROUTE = { outfits: 'today', edit: 'review' };
 
 let backTarget = null;
 shell.back.addEventListener('click', () => {
