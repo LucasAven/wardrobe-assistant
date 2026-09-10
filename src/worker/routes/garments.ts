@@ -9,11 +9,13 @@ import {
   normalizeImageType,
   origKey,
   smallImageFor,
+  storeCutout,
   storeOriginal,
 } from '../photos';
 import {
   GarmentPatchSchema,
   archiveGarment,
+  bumpPhotoVersion,
   getGarment,
   insertGarment,
   listGarments,
@@ -87,28 +89,99 @@ garments.post('/', async (c) => {
   );
 });
 
+/**
+ * Puts a garment back in the connector's queue. Tagging runs on the owner's
+ * Claude subscription now, so this Worker has no model to call and nothing to
+ * retag with. What it can do is blank the row back to placeholders, which is
+ * the one state next_untagged looks for, so Claude hands the photo back on its
+ * next pass. The tags go rather than being kept and re-flagged, because the
+ * photo is what next_untagged asks Claude to judge and stale values sitting
+ * next to it read as evidence.
+ */
 garments.post('/:id/retag', async (c) => {
-  const fault = missingConfig(c.env, ['ANTHROPIC_API_KEY']);
-  if (fault !== null) return c.json(fault, 503);
-
   const id = c.req.param('id');
-  const existing = await getGarment(c.env.DB, id);
-  if (existing === null) return c.json({ error: 'not found' }, 404);
-
-  let draft: GarmentDraft;
-  try {
-    draft = await tagFromStoredImage(c.env, existing.garment.imageCutout ?? existing.garment.imageOriginal);
-  } catch (error) {
-    if (error instanceof ImagesUnusableError) return c.json(error.fault, 503);
-    // Unlike the upload path there is nothing to protect here, so a failed call
-    // leaves the tags the row already has rather than blanking them.
-    console.error('retag failed', { id, error });
-    return c.json({ error: 'tagging failed' }, 502);
-  }
-
-  const updated = await replaceTags(c.env.DB, id, draftToTags(draft), draft.uncertain);
+  const blank = blankDraft();
+  const updated = await replaceTags(c.env.DB, id, draftToTags(blank), blank.uncertain);
   if (updated === null) return c.json({ error: 'not found' }, 404);
   return c.json(toJson(updated));
+});
+
+/**
+ * The cutout with the parts that are not the garment erased by hand. Images
+ * segments on what it can see, so a photo taken standing up keeps the legs and
+ * the slippers, and the owner is the only one who can say where the sweater ends.
+ * Writes `cut/<id>.png` and nothing else: the upload under `orig/<id>` stays put
+ * so the reset below always has the real photo to go back to.
+ */
+garments.put('/:id/cutout', async (c) => {
+  const contentType = normalizeImageType(c.req.header('content-type'));
+  if (contentType !== 'image/png') {
+    return c.json({ error: 'send the edited cutout as a raw image/png body' }, 415);
+  }
+
+  const body = c.req.raw.body;
+  if (body === null) return c.json({ error: 'empty body' }, 400);
+
+  // Read before the write, so an id with no row behind it cannot leave an
+  // object in R2 that nothing points at.
+  const id = c.req.param('id');
+  if ((await getGarment(c.env.DB, id)) === null) return c.json({ error: 'not found' }, 404);
+
+  const key = await storeCutout(c.env, id, body, contentType);
+  const updated = await bumpPhotoVersion(c.env.DB, id, key);
+  if (updated === null) return c.json({ error: 'not found' }, 404);
+  return c.json(toJson(updated));
+});
+
+/** Throws the hand edits away and segments `orig/<id>` again. */
+garments.post('/:id/cutout/reset', async (c) => {
+  const id = c.req.param('id');
+  if ((await getGarment(c.env.DB, id)) === null) return c.json({ error: 'not found' }, 404);
+
+  const cutout = await makeCutout(c.env, id);
+  if (cutout.fault !== null) return c.json(cutout.fault, 503);
+
+  // A photo the segmenter could not lift comes back with no key, which is not a
+  // failure: the garment falls back to its original. The version still moves, so
+  // the phone lets go of the edited copy it was showing.
+  const updated = await bumpPhotoVersion(c.env.DB, id, cutout.key);
+  if (updated === null) return c.json({ error: 'not found' }, 404);
+  return c.json(toJson(updated));
+});
+
+/**
+ * A new photo for a garment that already has its tags. Re-shooting is the answer
+ * when the first photo was unusable, and the words the owner confirmed are about
+ * the garment rather than about the photo, so every tag column stays as it is,
+ * `reviewed` and `uncertain` included.
+ */
+garments.put('/:id/photo', async (c) => {
+  const contentType = normalizeImageType(c.req.header('content-type'));
+  if (contentType === null) return c.json({ error: 'send one image as the raw body' }, 415);
+
+  const body = c.req.raw.body;
+  if (body === null) return c.json({ error: 'empty body' }, 400);
+
+  const id = c.req.param('id');
+  if ((await getGarment(c.env.DB, id)) === null) return c.json({ error: 'not found' }, 404);
+
+  await storeOriginal(c.env, id, body, contentType);
+  const cutout = await makeCutout(c.env, id);
+
+  // The new photo is already durable here, so a 503 would leave `image_cutout`
+  // pointing at a cutout of the photo this one just replaced. The row is written
+  // either way and the answer carries the fault the way the upload route does,
+  // so the garment shows the photo that is actually stored.
+  const updated = await bumpPhotoVersion(c.env.DB, id, cutout.key);
+  if (updated === null) return c.json({ error: 'not found' }, 404);
+
+  const row = toJson(updated);
+  return c.json({
+    ...row,
+    ...(cutout.fault === null
+      ? {}
+      : { imagesError: cutout.fault.error, needsSetup: cutout.fault.needsSetup }),
+  });
 });
 
 garments.get('/', async (c) => {

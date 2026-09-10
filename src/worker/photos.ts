@@ -43,6 +43,21 @@ export async function storeOriginal(
 }
 
 /**
+ * The cutout the owner edited by hand. `orig/<id>` is never written again after
+ * the upload, so whatever this stores can always be thrown away and re-derived.
+ */
+export async function storeCutout(
+  env: Env,
+  id: string,
+  body: ReadableStream,
+  contentType: string,
+): Promise<string> {
+  const key = cutKey(id);
+  await env.PHOTOS.put(key, body, { httpMetadata: { contentType } });
+  return key;
+}
+
+/**
  * The same shape as the `ConfigFault` in `auth.ts`, and separate from it because
  * no command fixes this one. A secret is a line in a terminal, Images is a switch
  * in the dashboard.

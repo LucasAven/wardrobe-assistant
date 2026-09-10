@@ -50,7 +50,23 @@ export function imagePath(garment) {
 
   const kind = key.slice(0, slash) === 'cut' ? 'cut' : 'orig';
   const id = key.slice(slash + 1).replace(/\.png$/, '');
-  return `/img/${kind}/${encodeURIComponent(id)}`;
+  const path = `/img/${kind}/${encodeURIComponent(id)}`;
+
+  // The route answers `immutable` and an edited cutout rewrites the same key, so
+  // a photo the phone already holds is only replaced by a URL it has never seen.
+  const version = garment?.photoVersion;
+  return Number.isFinite(version) ? `${path}?v=${version}` : path;
+}
+
+/**
+ * Where the retry below points. The `v` the path carries is the whole reason a
+ * new cutout arrives at all, so the cache buster is added to the query rather
+ * than handed a query of its own.
+ */
+export function retryPath(src, now = Date.now()) {
+  const url = new URL(src, 'http://images.invalid');
+  url.searchParams.set('r', String(now));
+  return `${url.pathname}${url.search}`;
 }
 
 /**
@@ -68,6 +84,6 @@ export function watchImage(frame, image, { retry = false } = {}) {
 
   frame.addEventListener('click', () => {
     if (frame.dataset.failed !== 'true') return;
-    image.src = `${image.src.split('?')[0]}?r=${Date.now()}`;
+    image.src = retryPath(image.src);
   });
 }
