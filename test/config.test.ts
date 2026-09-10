@@ -14,14 +14,14 @@ vi.mock('@anthropic-ai/sdk', () => ({
 }));
 
 import app from '../src/worker/index';
-import { blankDraft } from '../src/worker/vision';
+import { TAGGED_FIELDS, blankDraft } from '../src/worker/vision';
 
 type Row = Record<string, unknown>;
 
 /**
- * Serves the insert the upload route runs and the read retag does. Every other
- * statement throws, so a guard that lets a request reach the database shows up
- * as a failure here.
+ * Serves the insert the upload route runs, plus the reads and the updates retag,
+ * patch and the photo routes do. Every other statement throws, so a guard that
+ * lets a request reach the database shows up as a failure here.
  */
 class FakeDb {
   public readonly inserted: Row[] = [];
@@ -42,14 +42,35 @@ class FakeDb {
       return this.inserted.find((row) => row.id === args[0]) ?? null;
     }
 
+    if (sql.startsWith('UPDATE garment SET')) return this.update(sql, args);
+
     const columns = /INSERT INTO garment \(([^)]+)\)/.exec(sql)?.[1];
     if (columns === undefined) throw new Error(`unstubbed sql: ${sql}`);
 
-    const row: Row = { archived: 0, created_at: '2026-09-08T09:00:00Z' };
+    const row: Row = { photo_version: 0, archived: 0, created_at: '2026-09-08T09:00:00Z' };
     columns.split(', ').forEach((column, index) => {
       row[column] = args[index] ?? null;
     });
     this.inserted.push(row);
+    return row;
+  }
+
+  /** Applies the `SET` list, which mixes bound values with literal ones. */
+  private update(sql: string, args: unknown[]): Row | null {
+    const sets = /UPDATE garment SET (.+) WHERE id = \?/.exec(sql)?.[1];
+    if (sets === undefined) throw new Error(`cannot read the SET list of: ${sql}`);
+
+    const row = this.inserted.find((candidate) => candidate.id === args[args.length - 1]);
+    if (row === undefined) return null;
+
+    let bound = 0;
+    for (const assignment of sets.split(', ')) {
+      const [column, value] = assignment.split(' = ');
+      if (column === undefined || value === undefined) continue;
+      if (value === '?') row[column] = args[bound++];
+      else if (value === `${column} + 1`) row[column] = Number(row[column] ?? 0) + 1;
+      else row[column] = Number(value);
+    }
     return row;
   }
 }
@@ -263,17 +284,23 @@ describe('routes that call the model with no ANTHROPIC_API_KEY', () => {
     expect(parseMock).not.toHaveBeenCalled();
   });
 
-  it('answers 503 on retag and leaves the stored tags alone', async () => {
+  it('retags with no key set, because retagging asks the connector now', async () => {
     const env = halfConfigured();
     const cookie = await sessionCookie(env);
+    const uploaded = await bodyOf(await upload(env, cookie));
 
     const response = await send(
       env,
-      new Request('http://x/api/garments/a1/retag', { method: 'POST', headers: { cookie } }),
+      new Request(`http://x/api/garments/${String(uploaded.id)}/retag`, {
+        method: 'POST',
+        headers: { cookie },
+      }),
     );
 
-    expect(response.status).toBe(503);
-    expect((await bodyOf(response)).missing).toEqual(['ANTHROPIC_API_KEY']);
+    expect(response.status).toBe(200);
+    // Every tagged field flagged is the one state next_untagged looks for, so
+    // this is what puts the photo back in front of Claude.
+    expect((await bodyOf(response)).uncertain).toEqual([...TAGGED_FIELDS]);
     expect(parseMock).not.toHaveBeenCalled();
   });
 
@@ -342,24 +369,20 @@ describe('uploads on an account where Images was never turned on', () => {
     expect(row.needsSetup).toBe('cloudflare-images');
   });
 
-  it('answers a later retag with the setting rather than a failed model call', async () => {
-    const working = fullyConfigured();
-    const cookie = await sessionCookie(working);
-    parseMock.mockResolvedValue({ parsed_output: MODEL_ANSWER, stop_reason: 'end_turn' });
-    const uploaded = await bodyOf(await upload(working, cookie));
+  it('still retags, because retagging reads no photo and calls no model', async () => {
+    const env = fullyConfigured(imagesThat(imagesOff));
+    const cookie = await sessionCookie(env);
+    const uploaded = await bodyOf(await upload(env, cookie));
 
     const response = await send(
-      fullyConfigured(imagesThat(imagesOff)),
+      env,
       new Request(`http://x/api/garments/${String(uploaded.id)}/retag`, {
         method: 'POST',
         headers: { cookie },
       }),
     );
 
-    expect(response.status).toBe(503);
-    const body = await bodyOf(response);
-    expect(body.needsSetup).toBe('cloudflare-images');
-    expect(body.error).toContain('Cloudflare dashboard');
+    expect(response.status).toBe(200);
   });
 });
 
@@ -396,6 +419,174 @@ describe('an upload with Images working', () => {
     expect(Object.keys(row).filter((key) => key.endsWith('Error'))).toEqual([]);
     expect(row.needsSetup).toBeUndefined();
     expect(row.missing).toBeUndefined();
+  });
+});
+
+/**
+ * Images segments on what it can see, so a photo taken standing up leaves the
+ * legs and the slippers in the cutout of a sweater. These three routes are how
+ * the owner corrects that, and none of them may move a tag they confirmed.
+ */
+describe('fixing the photo of a garment that is already tagged', () => {
+  const PNG = new Uint8Array([137, 80, 78, 71]);
+
+  async function uploadTagged(
+    env: Record<string, unknown>,
+    cookie: string,
+  ): Promise<Record<string, unknown>> {
+    parseMock.mockResolvedValue({ parsed_output: MODEL_ANSWER, stop_reason: 'end_turn' });
+    return bodyOf(await upload(env, cookie));
+  }
+
+  function raw(
+    method: string,
+    url: string,
+    cookie: string,
+    contentType: string,
+    body: Uint8Array,
+  ): Request {
+    return new Request(url, { method, headers: { cookie, 'content-type': contentType }, body });
+  }
+
+  function noBody(method: string, url: string, cookie: string): Request {
+    return new Request(url, { method, headers: { cookie } });
+  }
+
+  it('refuses a cutout that is not a PNG and stores nothing for it', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+    const row = await uploadTagged(env, cookie);
+    const before = new Map(photos.stored);
+
+    const response = await send(
+      env,
+      raw('PUT', `http://x/api/garments/${String(row.id)}/cutout`, cookie, 'image/jpeg', PNG),
+    );
+
+    expect(response.status).toBe(415);
+    expect((await bodyOf(response)).error).toContain('image/png');
+    expect(photos.stored).toEqual(before);
+  });
+
+  it('answers 404 for an id with no row behind it and writes nothing to R2', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+
+    const cutout = await send(
+      env,
+      raw('PUT', 'http://x/api/garments/no-such-id/cutout', cookie, 'image/png', PNG),
+    );
+    const photo = await send(
+      env,
+      raw('PUT', 'http://x/api/garments/no-such-id/photo', cookie, 'image/jpeg', PNG),
+    );
+    const reset = await send(
+      env,
+      noBody('POST', 'http://x/api/garments/no-such-id/cutout/reset', cookie),
+    );
+
+    expect([cutout.status, photo.status, reset.status]).toEqual([404, 404, 404]);
+    expect(photos.stored.size).toBe(0);
+  });
+
+  it('stores the edited cutout, moves the version and moves no tag', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+    const { photoVersion, ...tags } = await uploadTagged(env, cookie);
+    const id = String(tags.id);
+
+    const response = await send(
+      env,
+      raw('PUT', `http://x/api/garments/${id}/cutout`, cookie, 'image/png', PNG),
+    );
+
+    expect(response.status).toBe(200);
+    expect(photoVersion).toBe(0);
+
+    const { photoVersion: bumped, ...after } = await bodyOf(response);
+    expect(bumped).toBe(1);
+    expect(after).toEqual(tags);
+    expect(photos.stored.has(`cut/${id}.png`)).toBe(true);
+  });
+
+  it('re-derives the cutout from the original, which the edit never touched', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+    const row = await uploadTagged(env, cookie);
+    const id = String(row.id);
+    const key = `cut/${id}.png`;
+
+    await send(env, raw('PUT', `http://x/api/garments/${id}/cutout`, cookie, 'image/png', PNG));
+    const edited = photos.stored.get(key);
+
+    const response = await send(
+      env,
+      noBody('POST', `http://x/api/garments/${id}/cutout/reset`, cookie),
+    );
+
+    expect(response.status).toBe(200);
+    const after = await bodyOf(response);
+    expect(after.photoVersion).toBe(2);
+    expect(after.imageCutout).toBe(key);
+    expect(photos.stored.get(key)).not.toBe(edited);
+    expect(photos.stored.get(key)).toBe('image-bytes');
+  });
+
+  it('leaves the version alone when Images is the thing that is off', async () => {
+    const env = fullyConfigured(imagesThat(imagesOff));
+    const cookie = await sessionCookie(env);
+    const row = await bodyOf(await upload(env, cookie));
+
+    const response = await send(
+      env,
+      noBody('POST', `http://x/api/garments/${String(row.id)}/cutout/reset`, cookie),
+    );
+
+    expect(response.status).toBe(503);
+    expect((await bodyOf(response)).needsSetup).toBe('cloudflare-images');
+    expect(db.inserted[0]?.photo_version).toBe(0);
+  });
+
+  it('replaces the photo and keeps every tag the owner confirmed', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+    const row = await uploadTagged(env, cookie);
+    const id = String(row.id);
+    const url = `http://x/api/garments/${id}`;
+
+    const confirmed = await bodyOf(await send(env, jsonRequest('PATCH', url, { warmth: 4 }, cookie)));
+    expect(confirmed.reviewed).toBe(true);
+    expect(confirmed.uncertain).toEqual([]);
+    const first = photos.stored.get(`orig/${id}`);
+
+    const response = await send(
+      env,
+      raw('PUT', `${url}/photo`, cookie, 'image/heic', new Uint8Array([9, 9])),
+    );
+
+    expect(response.status).toBe(200);
+    const after = await bodyOf(response);
+    expect(after.reviewed).toBe(true);
+    expect(after.uncertain).toEqual([]);
+    expect(after.warmth).toBe(4);
+    expect(after.subtype).toBe('oxford shirt');
+    expect(after.photoVersion).toBe(1);
+    expect(photos.stored.get(`orig/${id}`)).not.toBe(first);
+  });
+
+  it('refuses a replacement photo that is not an image', async () => {
+    const env = fullyConfigured();
+    const cookie = await sessionCookie(env);
+    const row = await uploadTagged(env, cookie);
+    const before = new Map(photos.stored);
+
+    const response = await send(
+      env,
+      raw('PUT', `http://x/api/garments/${String(row.id)}/photo`, cookie, 'application/pdf', PNG),
+    );
+
+    expect(response.status).toBe(415);
+    expect(photos.stored).toEqual(before);
   });
 });
 

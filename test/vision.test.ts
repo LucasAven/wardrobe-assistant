@@ -91,6 +91,7 @@ function rowFrom(draft: GarmentDraft, id = 'row-1') {
     subtype: draft.subtype,
     image_original: `orig/${id}`,
     image_cutout: `cut/${id}.png`,
+    photo_version: 0,
     colors: JSON.stringify(draft.colors),
     color_role: draft.colorRole,
     pattern: draft.pattern,

@@ -36,7 +36,16 @@ import {
   todayView,
 } from '../public/lib/outfits.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
-import { imagePath, uploadContentType } from '../public/lib/photo.js';
+import { imagePath, retryPath, uploadContentType } from '../public/lib/photo.js';
+import {
+  canvasPoint,
+  clampCrop,
+  edgeDrag,
+  isLasso,
+  rotateCrop,
+  rotatedSize,
+  sourcePoint,
+} from '../public/lib/screens/editphoto.js';
 import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
 import { FIELDS, isRelevant, relevantFields } from '../public/lib/vocab.js';
@@ -77,6 +86,7 @@ const GARMENT = {
   subtype: 'oxford shirt',
   imageOriginal: 'orig/a1',
   imageCutout: 'cut/a1.png',
+  photoVersion: 2,
   colors: ['navy', 'off white'],
   colorRole: 'neutral',
   pattern: 'stripe',
@@ -266,9 +276,176 @@ test('colors round trip through the text control', () => {
   assert.equal(formatColors(['navy', 'off white']), 'navy, off white');
 });
 
-test('image paths point at the worker route', () => {
-  assert.equal(imagePath(GARMENT), '/img/cut/a1');
-  assert.equal(imagePath({ ...GARMENT, imageCutout: null }), '/img/orig/a1');
+test('image paths point at the worker route and carry the photo version', () => {
+  assert.equal(imagePath(GARMENT), '/img/cut/a1?v=2');
+  assert.equal(imagePath({ ...GARMENT, imageCutout: null }), '/img/orig/a1?v=2');
+  assert.equal(imagePath({ ...GARMENT, photoVersion: 0 }), '/img/cut/a1?v=0', 'an unedited photo is still a version');
+  assert.equal(imagePath({ ...GARMENT, photoVersion: undefined }), '/img/cut/a1', 'a piece composed in a chat carries none');
+});
+
+test('retrying a failed photo keeps the version that makes it a new url', () => {
+  assert.equal(retryPath('https://wardrobe.example/img/cut/a1?v=3', 1700), '/img/cut/a1?v=3&r=1700');
+  assert.equal(retryPath('https://wardrobe.example/img/orig/a1', 1700), '/img/orig/a1?r=1700');
+  assert.equal(
+    retryPath('https://wardrobe.example/img/cut/a1?v=3&r=1', 1700),
+    '/img/cut/a1?v=3&r=1700',
+    'a second tap replaces its own parameter rather than stacking them',
+  );
+});
+
+test('a pointer maps into the bitmap through the scale the canvas is shown at', () => {
+  // A 2048px bitmap laid out 360px wide, 40px down the page.
+  const rect = { left: 8, top: 40, width: 360, height: 480 };
+  const size = { width: 2048, height: 2731 };
+
+  assert.deepEqual(canvasPoint({ x: 8, y: 40 }, rect, size), { x: 0, y: 0 }, 'the top left corner');
+  assert.deepEqual(canvasPoint({ x: 368, y: 520 }, rect, size), { x: 2048, y: 2731 }, 'the bottom right corner');
+  assert.deepEqual(canvasPoint({ x: 188, y: 280 }, rect, size), { x: 1024, y: 1365.5 }, 'the middle');
+  assert.notDeepEqual(
+    canvasPoint({ x: 188, y: 280 }, rect, size),
+    { x: 188, y: 280 },
+    'reading the event coordinate straight off would erase somewhere else',
+  );
+});
+
+test('a canvas shown at its own size maps one to one', () => {
+  const rect = { left: 0, top: 0, width: 300, height: 200 };
+  assert.deepEqual(canvasPoint({ x: 120, y: 90 }, rect, { width: 300, height: 200 }), { x: 120, y: 90 });
+});
+
+test('a stray tap encloses no area, so it is not a lasso', () => {
+  const point = { x: 1, y: 1 };
+  assert.equal(isLasso([]), false);
+  assert.equal(isLasso([point]), false);
+  assert.equal(isLasso([point, { x: 4, y: 9 }]), false, 'two points are a line, and a line erases nothing');
+  assert.equal(isLasso([point, { x: 4, y: 9 }, { x: 7, y: 2 }]), true);
+});
+
+/** The transform the editor draws with, written out so the inverse has something to answer to. */
+function drawnAt(point, quarterTurns, source, offset) {
+  const turned = [
+    { x: point.x, y: point.y },
+    { x: source.height - point.y, y: point.x },
+    { x: source.width - point.x, y: source.height - point.y },
+    { x: point.y, y: source.width - point.x },
+  ][quarterTurns];
+  return { x: turned.x - offset.x, y: turned.y - offset.y };
+}
+
+const EDIT_SOURCE = { width: 300, height: 500 };
+
+test('a turn swaps the axes, so a photo of trousers on their side stands up', () => {
+  assert.deepEqual(rotatedSize(EDIT_SOURCE, 0), { width: 300, height: 500 });
+  assert.deepEqual(rotatedSize(EDIT_SOURCE, 1), { width: 500, height: 300 });
+  assert.deepEqual(rotatedSize(EDIT_SOURCE, 2), { width: 300, height: 500 });
+  assert.deepEqual(rotatedSize(EDIT_SOURCE, 3), { width: 500, height: 300 });
+});
+
+test('one quarter turn is clockwise, and the turned photo fills its frame', () => {
+  const none = { x: 0, y: 0 };
+  const frame = rotatedSize(EDIT_SOURCE, 1);
+
+  assert.deepEqual(drawnAt({ x: 0, y: 0 }, 1, EDIT_SOURCE, none), { x: 500, y: 0 }, 'top left goes to top right');
+  assert.deepEqual(drawnAt({ x: 0, y: 500 }, 1, EDIT_SOURCE, none), { x: 0, y: 0 }, 'bottom left goes to top left');
+  assert.deepEqual(drawnAt({ x: 300, y: 500 }, 1, EDIT_SOURCE, none), { x: 0, y: frame.height });
+});
+
+test('a lasso point read back off the canvas is the point it was drawn at, after any turn', () => {
+  const points = [
+    { x: 0, y: 0 },
+    { x: 300, y: 500 },
+    { x: 41, y: 380 },
+    { x: 150, y: 250 },
+  ];
+
+  for (const quarterTurns of [0, 1, 2, 3]) {
+    for (const crop of [null, { x: 17, y: 23, w: 120, h: 140 }]) {
+      for (const point of points) {
+        const drawn = drawnAt(point, quarterTurns, EDIT_SOURCE, crop ?? { x: 0, y: 0 });
+        assert.deepEqual(
+          sourcePoint(drawn, { quarterTurns, crop }, EDIT_SOURCE),
+          point,
+          `turn ${quarterTurns} at ${point.x},${point.y}`,
+        );
+      }
+    }
+  }
+});
+
+test('a turn carries the crop with it rather than resetting it', () => {
+  const bounds = { width: 100, height: 200 };
+  const crop = { x: 10, y: 20, w: 30, h: 40 };
+
+  assert.deepEqual(rotateCrop(crop, bounds, 1), { x: 140, y: 10, w: 40, h: 30 });
+  assert.deepEqual(rotateCrop(crop, bounds, -1), { x: 20, y: 60, w: 40, h: 30 });
+  assert.deepEqual(
+    rotateCrop(rotateCrop(crop, bounds, 1), { width: 200, height: 100 }, -1),
+    crop,
+    'a turn and a turn back is the framing it started as',
+  );
+});
+
+test('four turns the same way land back on the framing they started from', () => {
+  const start = { x: 10, y: 20, w: 30, h: 40 };
+
+  for (const direction of [1, -1]) {
+    let crop = start;
+    let bounds = { width: 100, height: 200 };
+    for (let turn = 0; turn < 4; turn += 1) {
+      crop = rotateCrop(crop, bounds, direction);
+      bounds = rotatedSize(bounds, 1);
+    }
+    assert.deepEqual(crop, start, `four turns of ${direction}`);
+    assert.deepEqual(bounds, { width: 100, height: 200 });
+  }
+});
+
+test('dragging a handle moves that edge and leaves the other three alone', () => {
+  const bounds = { width: 400, height: 600 };
+  const crop = { x: 100, y: 150, w: 200, h: 300 };
+
+  assert.deepEqual(edgeDrag(crop, 'top', 200, bounds, 32), { x: 100, y: 200, w: 200, h: 250 });
+  assert.deepEqual(edgeDrag(crop, 'bottom', 500, bounds, 32), { x: 100, y: 150, w: 200, h: 350 });
+  assert.deepEqual(edgeDrag(crop, 'left', 60, bounds, 32), { x: 60, y: 150, w: 240, h: 300 });
+  assert.deepEqual(edgeDrag(crop, 'right', 380, bounds, 32), { x: 100, y: 150, w: 280, h: 300 });
+});
+
+test('a handle dragged across the crop stops at the smallest crop, on every edge', () => {
+  const bounds = { width: 400, height: 600 };
+  const crop = { x: 100, y: 150, w: 200, h: 300 };
+
+  assert.deepEqual(edgeDrag(crop, 'top', 9000, bounds, 32), { x: 100, y: 418, w: 200, h: 32 });
+  assert.deepEqual(edgeDrag(crop, 'bottom', -9000, bounds, 32), { x: 100, y: 150, w: 200, h: 32 });
+  assert.deepEqual(edgeDrag(crop, 'left', 9000, bounds, 32), { x: 268, y: 150, w: 32, h: 300 });
+  assert.deepEqual(edgeDrag(crop, 'right', -9000, bounds, 32), { x: 100, y: 150, w: 32, h: 300 });
+});
+
+test('a handle dragged off the photo stops at the edge of the photo, on every edge', () => {
+  const bounds = { width: 400, height: 600 };
+  const crop = { x: 100, y: 150, w: 200, h: 300 };
+
+  assert.deepEqual(edgeDrag(crop, 'top', -80, bounds, 32), { x: 100, y: 0, w: 200, h: 450 });
+  assert.deepEqual(edgeDrag(crop, 'bottom', 9000, bounds, 32), { x: 100, y: 150, w: 200, h: 450 });
+  assert.deepEqual(edgeDrag(crop, 'left', -80, bounds, 32), { x: 0, y: 150, w: 300, h: 300 });
+  assert.deepEqual(edgeDrag(crop, 'right', 9000, bounds, 32), { x: 100, y: 150, w: 300, h: 300 });
+});
+
+test('a crop that falls outside the photo is pulled back inside it', () => {
+  const bounds = { width: 400, height: 600 };
+
+  assert.deepEqual(clampCrop({ x: -50, y: -50, w: 200, h: 300 }, bounds, 32), { x: 0, y: 0, w: 200, h: 300 });
+  assert.deepEqual(clampCrop({ x: 380, y: 590, w: 200, h: 300 }, bounds, 32), { x: 200, y: 300, w: 200, h: 300 });
+  assert.deepEqual(clampCrop({ x: 0, y: 0, w: 9000, h: 9000 }, bounds, 32), { x: 0, y: 0, w: 400, h: 600 });
+  assert.deepEqual(
+    clampCrop({ x: 10, y: 10, w: 4, h: 4 }, bounds, 32),
+    { x: 10, y: 10, w: 32, h: 32 },
+    'a mis-drag can never collapse the crop to nothing',
+  );
+  assert.deepEqual(
+    clampCrop({ x: 0, y: 0, w: 1, h: 1 }, { width: 20, height: 20 }, 32),
+    { x: 0, y: 0, w: 20, h: 20 },
+    'a photo smaller than the smallest crop is kept whole',
+  );
 });
 
 test('upload content type falls back to the file name', () => {
@@ -311,6 +488,7 @@ test('routes parse and build', () => {
   assert.deepEqual(parseRoute('#/upload'), { name: 'upload', id: null });
   assert.deepEqual(parseRoute('#/review/a1'), { name: 'review', id: 'a1' });
   assert.deepEqual(parseRoute(''), { name: 'wardrobe', id: null });
+  assert.deepEqual(parseRoute('#/edit/a1'), { name: 'edit', id: 'a1' });
   assert.deepEqual(parseRoute('#/nope'), { name: 'wardrobe', id: null });
   assert.equal(routeHash('review', 'a 1'), '#/review/a%201');
 });
@@ -862,7 +1040,12 @@ test('the screens hit the routes the worker registers', async () => {
   const calls = [];
   const api = createApi({
     fetchImpl: async (path, init) => {
-      calls.push({ path, method: init.method ?? 'GET', body: init.body });
+      calls.push({
+        path,
+        method: init.method ?? 'GET',
+        body: init.body,
+        type: init.headers?.['content-type'] ?? null,
+      });
       return fakeResponse(200, { ok: true });
     },
   });
@@ -873,6 +1056,9 @@ test('the screens hit the routes the worker registers', async () => {
   await api.getTodayOutfit();
   await api.listOutfits(20);
   await api.wear({ garmentIds: garmentIds(readOutfit(SAVED)) });
+  await api.putCutout('a 1', new Uint8Array([1]));
+  await api.resetCutout('a 1');
+  await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}`),
@@ -883,8 +1069,13 @@ test('the screens hit the routes the worker registers', async () => {
       'GET /api/outfits/today',
       'GET /api/outfits?limit=20',
       'POST /api/wear',
+      'PUT /api/garments/a%201/cutout',
+      'POST /api/garments/a%201/cutout/reset',
+      'PUT /api/garments/a%201/photo',
     ],
   );
+  assert.equal(calls[6].type, 'image/png', 'the cutout route answers 415 to anything else');
+  assert.equal(calls[8].type, 'image/jpeg');
   assert.equal(
     calls[1].body,
     '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',

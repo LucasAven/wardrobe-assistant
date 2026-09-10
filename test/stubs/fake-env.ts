@@ -7,6 +7,7 @@
  */
 
 import type { Garment } from '../../src/domain/types';
+import { TAGGED_FIELDS } from '../../src/worker/vision';
 
 export type Row = Record<string, unknown>;
 
@@ -14,9 +15,16 @@ const bit = (value: boolean): number => (value ? 1 : 0);
 
 export interface RowOptions {
   readonly reviewed?: boolean;
+  readonly photoVersion?: number;
   readonly uncertain?: readonly string[];
   readonly archived?: boolean;
   readonly createdAt?: string;
+  /**
+   * A photo nobody has described yet. Flags every tagged field the way
+   * `blankDraft` does at upload, which is the only thing that marks the row
+   * untagged, and implies not reviewed.
+   */
+  readonly untagged?: boolean;
 }
 
 /** A domain garment as the column shape `repo.ts` reads back. */
@@ -27,6 +35,7 @@ export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
     subtype: garment.subtype,
     image_original: garment.imageOriginal,
     image_cutout: garment.imageCutout,
+    photo_version: options.photoVersion ?? 0,
     colors: JSON.stringify(garment.colors),
     color_role: garment.colorRole,
     pattern: garment.pattern,
@@ -44,8 +53,10 @@ export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
     water_resistant: bit(garment.waterResistant),
     seasons: JSON.stringify(garment.seasons),
     notes: garment.notes,
-    reviewed: bit(options.reviewed ?? true),
-    uncertain: JSON.stringify(options.uncertain ?? []),
+    reviewed: bit(options.reviewed ?? options.untagged !== true),
+    uncertain: JSON.stringify(
+      options.uncertain ?? (options.untagged === true ? TAGGED_FIELDS : []),
+    ),
     archived: bit(options.archived ?? false),
     created_at: options.createdAt ?? '2026-05-01 09:00:00',
   };
@@ -158,7 +169,9 @@ export class FakeDb {
     for (const assignment of sets.split(', ')) {
       const [column, value] = assignment.split(' = ');
       if (column === undefined || value === undefined) continue;
-      row[column] = value === '?' ? args[bound++] : Number(value);
+      if (value === '?') row[column] = args[bound++];
+      else if (value === `${column} + 1`) row[column] = Number(row[column] ?? 0) + 1;
+      else row[column] = Number(value);
     }
     return [row];
   }

@@ -9,6 +9,7 @@ const ROW: Row = {
   subtype: 'wool sweater',
   image_original: 'orig/4a1f2c66-0000-4000-8000-000000000001',
   image_cutout: 'cut/4a1f2c66-0000-4000-8000-000000000001.png',
+  photo_version: 2,
   colors: '["charcoal","navy"]',
   color_role: 'neutral',
   pattern: 'solid',
@@ -62,6 +63,7 @@ describe('parseGarmentRow', () => {
       seasons: ['autumn', 'winter'],
       notes: 'small hole on the left cuff',
     });
+    expect(stored.photoVersion).toBe(2);
     expect(stored.reviewed).toBe(true);
     expect(stored.uncertain).toEqual(['fit']);
     expect(stored.archived).toBe(false);
@@ -151,6 +153,10 @@ describe('parseGarmentRow', () => {
   it('refuses a row that is missing a column', () => {
     const { warmth: _dropped, ...incomplete } = ROW;
     expect(() => parseGarmentRow(incomplete)).toThrow();
+
+    // What a database that never ran 003_photo_version.sql hands back.
+    const { photo_version: _unmigrated, ...unmigrated } = ROW;
+    expect(() => parseGarmentRow(unmigrated)).toThrow();
   });
 });
 
@@ -159,6 +165,7 @@ describe('toJson', () => {
     const json = toJson(parseGarmentRow(ROW));
     expect(json['id']).toBe(ROW['id']);
     expect(json['imageCutout']).toBe(ROW['image_cutout']);
+    expect(json['photoVersion']).toBe(2);
     expect(json['seasons']).toEqual(['autumn', 'winter']);
     expect(json['reviewed']).toBe(true);
     expect(json['uncertain']).toEqual(['fit']);
