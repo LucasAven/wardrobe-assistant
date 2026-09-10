@@ -60,6 +60,23 @@ app.get('/img/:kind/:id', async (c) => {
   return new Response(object.body, { headers });
 });
 
+/**
+ * `not_found_handling: "single-page-application"` answers every unknown path
+ * with index.html and a 200, so a connector pointed at the wrong path gets the
+ * web app instead of an error and reads as working. `/sse` is the path someone
+ * reaches for when a server speaks the older MCP transport, so name the right
+ * one rather than serving a page.
+ */
+app.all('/sse', (c) =>
+  c.json(
+    {
+      error: 'This server speaks MCP over Streamable HTTP, not SSE.',
+      endpoint: new URL('/mcp', c.req.url).toString(),
+    },
+    404,
+  ),
+);
+
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
 /**
