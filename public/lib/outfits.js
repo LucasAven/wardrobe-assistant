@@ -82,6 +82,33 @@ function readCorrections(value) {
   });
 }
 
+/** The four codes `Waived` in src/domain/types.ts holds. Anything else is dropped. */
+const WAIVED = ['season', 'formality', 'rain', 'cooldown'];
+
+/**
+ * What the owner asked for by name, and what admitting it turned off. Read like
+ * the corrections: a row the card cannot draw is dropped rather than drawn half
+ * empty, and the whole block is dropped when the words are gone, because a
+ * waiver with nothing to justify it is the one thing this section exists to
+ * make impossible to hide.
+ */
+function readOwnerRequest(value) {
+  if (!isObject(value) || typeof value.words !== 'string' || value.words === '') return null;
+
+  const honored = asArray(value.honored).flatMap((row) => {
+    if (!isObject(row) || typeof row.id !== 'string') return [];
+    const waived = asArray(row.waived).filter((one) => WAIVED.includes(one));
+    return [{ id: row.id, subtype: typeof row.subtype === 'string' ? row.subtype : null, waived }];
+  });
+  if (honored.length === 0) return null;
+
+  return {
+    words: value.words,
+    disagreement: typeof value.disagreement === 'string' ? value.disagreement : '',
+    honored,
+  };
+}
+
 function readPieces(value) {
   return asArray(value).filter((piece) => isObject(piece) && typeof piece.slot === 'string' && isObject(piece.garment));
 }
@@ -106,6 +133,7 @@ export function readOutfit(value) {
     missed: readRules(value.missed),
     worn: value.worn === true,
     corrections: readCorrections(value.corrections),
+    ownerRequest: readOwnerRequest(value.ownerRequest),
   };
 }
 
