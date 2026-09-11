@@ -14,13 +14,17 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { certify, resolveOutfit } from '../../domain/certify';
-import { rulesFor } from '../../domain/bookRules';
+import { RULES_BY_ID, rulesFor } from '../../domain/bookRules';
 import type {
   BookRule,
   CertifiedOutfit,
+  HeldBack,
+  MenuChoices,
   OutfitProposal,
+  RefusedRequest,
   RejectionReason,
   Slot,
+  Waived,
 } from '../../domain/types';
 import {
   LANGUAGE_NAMES,
@@ -29,9 +33,10 @@ import {
   reasonText,
   ruleLine,
   userMessage,
+  waivedText,
 } from '../compose';
 import type { Env } from '../env';
-import type { Correction, OutfitPiece } from '../outfits';
+import type { Correction, NewOwnerRequest, OutfitPiece, Waiver } from '../outfits';
 import { homeLocation, insertOutfit, recentCorrections } from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
@@ -47,7 +52,7 @@ import type { StoredGarment } from '../repo';
 import { recordWear } from '../routes/wear';
 import { VOCABULARIES } from '../vision';
 import { EVENTS, TIMES_OF_DAY, buildPlan, planFailed, readPlan, savePlan } from './plan';
-import type { PlanRequest } from './plan';
+import type { Plan, PlanRequest } from './plan';
 
 export interface ToolContext {
   readonly env: Env;
@@ -340,6 +345,9 @@ What it returns:
   - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. A garment id that is not in the menu throws away the whole outfit it appears in.
   - any required slot the wardrobe cannot fill today, in which case no outfit exists and you should say so rather than compose one.
   - what the owner has corrected by hand on outfits you saved before, and the line they wrote about each change. Read it before you compose: repeating a swap they already made is the mistake that section exists to prevent.
+  - what today's filters held back, with the id of each garment and what held it. These are not in the menu and naming one fails the save. They are listed for one reason, below.
+
+The owner's own request is the one thing that overrides a filter. If they ask for a specific garment and it is in the held back list, call plan_outfit a second time with ownerAsked filled in. That garment then enters the menu marked as theirs, with the filters it failed named on its line, and every other garment stays filtered exactly as before. Season, the formality floor, rain and the recency cooldown are the four that a request waives. The guide's donts are not: they are about this person's body rather than about today, and save_outfit rejects an outfit that breaks one whatever the menu says. Warmth is not waived either, so the two warmth bands still hold.
 
 Weather: pass it when you know it. Leave it out and the app reads it from the owner's stored home location, and tells you plainly when no location is stored.`;
 
@@ -362,6 +370,25 @@ const PlanArgs = z.object({
     .optional()
     .describe(
       'Anything the owner said about how they want to look or feel today, in their own words. Free text, read by you and by nothing else.',
+    ),
+  ownerAsked: z
+    .object({
+      garmentIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .describe(
+          'The ids of the garments they named. Take them from the held back list of an earlier plan, or from a menu. One request covers one outfit and expires with the plan.',
+        ),
+      words: z
+        .string()
+        .min(1)
+        .describe(
+          'What the owner said, in their own words, as close to verbatim as you have them. It is stored on the outfit and shown to them next to the filters it turned off, so a sentence they did not say is a sentence they will read back.',
+        ),
+    })
+    .optional()
+    .describe(
+      'Fill this in only when the owner asked for a specific garment. It is the one thing in this app that turns a filter off, so it is theirs alone: never set it because the outfit would look better, because the menu is thin, or because you want a garment you saw earlier. A mood is not a request. "Something warm" is not a request. "I want to wear the mustard sweater" is.',
     ),
   weather: z
     .object({
@@ -425,6 +452,85 @@ function correctionsSection(corrections: readonly Correction[]): string {
   ].join('\n');
 }
 
+/**
+ * Long enough that the garment the owner has in mind is almost always on it,
+ * short enough that it never crowds out the menu it sits under.
+ */
+const HELD_BACK_SHOWN = 40;
+
+function heldBackLine(held: HeldBack): string {
+  const garment = held.garment;
+  const parts = [garment.id, garment.subtype];
+  if (garment.colors.length > 0) parts.push(garment.colors.join(' and '));
+  parts.push(garment.slot);
+  parts.push(
+    held.bookDonts.length > 0
+      ? `the guide's ${held.bookDonts.join(' and ')}, which a request cannot override`
+      : waivedText(held.why),
+  );
+  return `  ${parts.join(' | ')}`;
+}
+
+/**
+ * The menu's shadow, and the only place a garment outside the menu has a visible
+ * id. It says what it is not before it says what it is, because a list of ids
+ * next to a menu of ids is the easiest thing in this whole result to misread.
+ */
+function heldBackSection(heldBack: readonly HeldBack[]): string {
+  const shown = heldBack.slice(0, HELD_BACK_SHOWN);
+  const rest = heldBack.length - shown.length;
+  return [
+    'HELD BACK BY TODAY, AND NOT IN THE MENU',
+    'Garments this person owns that today filtered out. None of these is in the menu, so naming one in save_outfit throws away the whole outfit exactly as an invented id would. They are listed so that when the owner asks for one by name you can find its id and say which it is.',
+    'To use one, call plan_outfit again with ownerAsked. Only when they asked.',
+    '',
+    ...shown.map(heldBackLine),
+    ...(rest > 0 ? ['', `and ${rest} more held back the same way.`] : []),
+  ].join('\n');
+}
+
+function refusedLine(refused: RefusedRequest): string {
+  if (refused.kind === 'not_in_wardrobe') {
+    return `  ${refused.id}: no garment in this wardrobe has that id, so nothing was admitted for it.`;
+  }
+  const rule = RULES_BY_ID.get(refused.ruleId);
+  const because = rule === undefined ? '' : ` The guide says: ${rule.because}`;
+  return `  ${refused.subtype} (${refused.id}): not admitted. It breaks the guide's ${refused.ruleId}, and a request does not override the guide.${because}`;
+}
+
+/**
+ * What the request actually did, garment by garment. A request that changed
+ * nothing and a request that was refused both have to be visible: the whole
+ * point of this feature is that the owner gets what they asked for or is told
+ * plainly why not, and a silent drop is the one outcome that breaks it.
+ */
+function ownerAskedSection(plan: Plan): string {
+  const asked = plan.ownerAsked;
+  if (asked === null) return '';
+
+  const refused = new Set(plan.menu.refused.map((one) => one.id));
+  const admitted = SLOT_ORDER.flatMap((slot) => plan.menu.bySlot[slot]).filter(
+    (entry) => asked.garmentIds.includes(entry.garment.id),
+  );
+
+  const lines = admitted.map((entry) => {
+    const waived = entry.admittedBy.by === 'owner_asked' ? entry.admittedBy.waived : [];
+    return waived.length === 0
+      ? `  ${entry.garment.subtype} (${entry.garment.id}): in the ${entry.garment.slot} menu. It passed today's filters anyway, so the request turned nothing off and there is nothing to disagree with.`
+      : `  ${entry.garment.subtype} (${entry.garment.id}): in the ${entry.garment.slot} menu, and there only because they asked. It is ${waivedText(waived)}.`;
+  });
+
+  return [
+    'WHAT THE OWNER ASKED FOR',
+    `They said: "${asked.words}"`,
+    '',
+    ...lines,
+    ...plan.menu.refused.filter((one) => refused.has(one.id)).map(refusedLine),
+    '',
+    'Compose with what they asked for. Where a line above says a filter was turned off, write the second opinion into save_outfit\'s `disagreement` field: what you would have chosen instead and why, in their language, in a sentence or two. They get what they want and your read of it, kept apart from the rationale. It is not a refusal and not a lecture. Where nothing was turned off, leave that field out.',
+  ].join('\n');
+}
+
 function planTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -444,6 +550,7 @@ function planTool(context: ToolContext): ToolSpec {
         constraints,
         bodyType: profile.bodyType,
         event: moment.event,
+        ownerAsked: plan.ownerAsked,
       });
 
       const sections = [
@@ -466,6 +573,8 @@ function planTool(context: ToolContext): ToolSpec {
       );
 
       if (corrections.length > 0) sections.push(correctionsSection(corrections));
+      if (menu.heldBack.length > 0) sections.push(heldBackSection(menu.heldBack));
+      if (plan.ownerAsked !== null) sections.push(ownerAskedSection(plan));
 
       sections.push(
         `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them. Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
@@ -491,6 +600,8 @@ What is checked here and nowhere else:
   - the accessories a body has one place for. At most one of glasses, hat, scarf, belt, bag, watch and earrings each. A ring, a chain and a bracelet may repeat as often as you like.
 
 On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new rationale for the new clothes: a rationale carried over from a rejected outfit describes something the owner is not wearing.
+
+If the plan carried an ownerAsked request, this is where the second opinion on it goes. Write it into the disagreement field. The owner is shown what they asked for and which filters it turned off whether or not you write one, so an empty field is their request standing on its own.
 
 On success you get the saved outfit's id and a link to it in the web app.`;
 
@@ -535,6 +646,12 @@ const SaveArgs = z.object({
     .describe(
       'Ids of the guide rules from this plan that this outfit actually follows. An empty list is allowed and is better than a rule you cannot defend. Rule ids are ids in every language: never translate one and never invent one.',
     ),
+  disagreement: z
+    .string()
+    .optional()
+    .describe(
+      'Only for an outfit built on a plan whose ownerAsked turned a filter off. A sentence or two, written to the wearer in the language the plan named, saying what you would have picked instead and why. It is stored beside their own words and shown under a heading of its own, so it never reads as part of the rationale. Leave it out when the plan waived nothing: there is nothing to disagree with.',
+    ),
 });
 
 function proposalFrom(args: z.infer<typeof SaveArgs>): OutfitProposal {
@@ -569,6 +686,47 @@ function piecesOf(outfit: CertifiedOutfit): readonly OutfitPiece[] {
 
 const ruleIds = (rules: readonly BookRule[]): readonly string[] => rules.map((rule) => rule.id);
 
+/**
+ * What the request actually bought, read off the menu rather than off the
+ * arguments. The composer says which garments it used and the plan says what
+ * admitting each one turned off, so neither side can write the other's half.
+ *
+ * Only the requested garments that are really in the outfit are recorded. A
+ * request the composer ignored is not something to show the owner as honored.
+ */
+function honoredIn(
+  menu: MenuChoices,
+  askedFor: readonly string[],
+  pieces: readonly OutfitPiece[],
+): readonly Waiver[] {
+  return pieces.flatMap((piece): Waiver[] => {
+    if (!askedFor.includes(piece.id)) return [];
+    const admission = menu.bySlot[piece.slot].find(
+      (entry) => entry.garment.id === piece.id,
+    )?.admittedBy;
+    const waived: readonly Waived[] =
+      admission !== undefined && admission.by === 'owner_asked' ? admission.waived : [];
+    return [{ id: piece.id, waived }];
+  });
+}
+
+/**
+ * Said back rather than checked, because the second opinion is the owner's to
+ * want and not this server's to require. What it does do is make the silence
+ * audible: a waived filter with nothing written next to it is a thing the owner
+ * reads alone.
+ */
+function requestLine(request: NewOwnerRequest): string {
+  const waived = request.honored.filter((one) => one.waived.length > 0);
+  if (waived.length === 0) {
+    return 'It records what the owner asked for. Every piece they named fit the day anyway, so no filter was turned off.';
+  }
+  const turned = `It records what the owner asked for, and the ${waived.length === 1 ? 'filter' : 'filters'} that turned off for ${waived.map((one) => one.id).join(', ')}.`;
+  return request.disagreement === null
+    ? `${turned} No second opinion was written, so they see the waiver with nothing from you beside it.`
+    : `${turned} Your second opinion is stored beside it.`;
+}
+
 function saveTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -601,6 +759,18 @@ function saveTool(context: ToolContext): ToolSpec {
       if (Array.isArray(certified)) return rejected(certified);
 
       const pieces = piecesOf(certified);
+      const asked = plan.ownerAsked;
+      const honored = asked === null ? [] : honoredIn(plan.menu, asked.garmentIds, pieces);
+      const disagreement = args.disagreement?.trim();
+      const ownerRequest: NewOwnerRequest | null =
+        asked === null || honored.length === 0
+          ? null
+          : {
+              words: asked.words,
+              disagreement: disagreement === undefined || disagreement === '' ? null : disagreement,
+              honored,
+            };
+
       const id = await insertOutfit(
         context.env.DB,
         {
@@ -612,6 +782,7 @@ function saveTool(context: ToolContext): ToolSpec {
           missedRules: ruleIds(certified.missed),
           warmthCore: certified.warmthCore,
           warmthWithOuter: certified.warmthWithOuter,
+          ownerRequest,
         },
         context.now(),
       );
@@ -627,6 +798,7 @@ function saveTool(context: ToolContext): ToolSpec {
         certified.missed.length === 0
           ? 'It misses none of the guide preferences for this body.'
           : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${ruleIds(certified.missed).join(', ')}.`,
+        ...(ownerRequest === null ? [] : [requestLine(ownerRequest)]),
         `Call log_wear with these ids once it is actually worn: ${pieces.map((piece) => piece.id).join(', ')}.`,
       );
     },

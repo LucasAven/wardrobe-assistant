@@ -93,8 +93,8 @@ function corrected(row: Record<string, unknown>): void {
   db.feedback.push({ outfit_id: 'o1', created_at: '2026-05-10T07:30:00.000Z', ...row });
 }
 
-async function plan(): Promise<string> {
-  const result = await tool('plan_outfit').call(MOMENT);
+async function plan(args: Record<string, unknown> = {}): Promise<string> {
+  const result = await tool('plan_outfit').call({ ...MOMENT, ...args });
   const planId = /PLAN (\S+)/.exec(textOf(result))?.[1];
   if (planId === undefined) throw new Error(`no planId in:\n${textOf(result)}`);
   return planId;
@@ -304,12 +304,14 @@ describe('plan_outfit', () => {
 
   it('lists the menu and says that nothing outside it may be named', async () => {
     const text = textOf(await tool('plan_outfit').call(MOMENT));
+    const menu = text.slice(text.indexOf('THE MENU'), text.indexOf('HELD BACK BY TODAY'));
 
     expect(text).toContain('THE MENU');
     expect(text).toContain('Every garment you may name, and nothing else.');
-    expect(text).toContain('tee-white | cotton t-shirt');
-    // Summer only, so an autumn menu cannot hold it.
-    expect(text).not.toContain('tank-gray |');
+    expect(menu).toContain('tee-white | cotton t-shirt');
+    // Summer only, so an autumn menu cannot hold it. It is still named further
+    // down, under held back, which is the one place an unusable id is allowed.
+    expect(menu).not.toContain('tank-gray |');
   });
 
   it('says what each accessory is, so four rings do not read as four of one thing', async () => {
@@ -528,5 +530,121 @@ describe('log_wear', () => {
 
     expect(result.isError).toBe(true);
     expect(db.wear).toHaveLength(0);
+  });
+});
+
+describe("an owner's request, through the connector", () => {
+  /** Spring and summer only, so an autumn plan cannot offer it without being asked. */
+  const ASKED = {
+    ownerAsked: { garmentIds: ['linen-shirt-beige'], words: 'I want to wear the beige linen shirt' },
+  };
+  const WITH_ASKED = { ...GOOD_PIECES, top: 'linen-shirt-beige' };
+
+  it('lists what today held back, apart from the menu and marked as unusable', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('HELD BACK BY TODAY, AND NOT IN THE MENU');
+    expect(text).toContain('linen-shirt-beige | linen shirt | beige | top | out of season');
+    expect(text).toContain('throws away the whole outfit');
+  });
+
+  it('says a guide ban is one a request cannot turn off, in the held back list itself', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain("the guide's rect-05a, which a request cannot override");
+  });
+
+  it("quotes the owner's words back and names the filter the request turned off", async () => {
+    const text = textOf(await tool('plan_outfit').call({ ...MOMENT, ...ASKED }));
+
+    expect(text).toContain('WHAT THE OWNER ASKED FOR');
+    expect(text).toContain('They said: "I want to wear the beige linen shirt"');
+    expect(text).toContain('there only because they asked. It is out of season');
+  });
+
+  it('puts the asked-for garment in the menu, which is what makes it savable', async () => {
+    const text = textOf(await tool('plan_outfit').call({ ...MOMENT, ...ASKED }));
+    const menu = text.slice(text.indexOf('THE MENU'), text.indexOf('HELD BACK BY TODAY'));
+
+    expect(menu).toContain('linen-shirt-beige | linen shirt');
+    expect(menu).toContain('the owner asked for this one and it is here only because they did');
+  });
+
+  it('reports a request the guide refuses instead of quietly dropping it', async () => {
+    const text = textOf(
+      await tool('plan_outfit').call({
+        ...MOMENT,
+        ownerAsked: { garmentIds: ['jeans-black-skinny'], words: 'the black skinny jeans' },
+      }),
+    );
+
+    expect(text).toContain("not admitted. It breaks the guide's rect-05a");
+    expect(text).toContain('a request does not override the guide');
+  });
+
+  it('stores the words, the waiver and the second opinion on the outfit it saved', async () => {
+    const planId = await plan(ASKED);
+    const result = await tool('save_outfit').call({
+      planId,
+      pieces: WITH_ASKED,
+      rationale: 'Light and easy.',
+      citedRules: [],
+      disagreement: 'I would have kept the oxford, linen reads thin for sixteen degrees.',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const stored = JSON.parse(String(db.outfits[0]?.owner_request));
+    expect(stored.words).toBe('I want to wear the beige linen shirt');
+    expect(stored.disagreement).toContain('oxford');
+    expect(stored.honored).toEqual([{ id: 'linen-shirt-beige', waived: ['season'] }]);
+  });
+
+  it('says out loud when a filter was waived and no second opinion was written', async () => {
+    const planId = await plan(ASKED);
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: WITH_ASKED,
+        rationale: 'Light and easy.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('No second opinion was written');
+  });
+
+  it('records nothing when the composer did not use what was asked for', async () => {
+    const planId = await plan(ASKED);
+    await tool('save_outfit').call({
+      planId,
+      pieces: GOOD_PIECES,
+      rationale: 'Plain and easy.',
+      citedRules: [],
+    });
+
+    expect(db.outfits[0]?.owner_request).toBeNull();
+  });
+
+  /**
+   * The whole hole in the menu, tested from the outside. A request waives the
+   * four filters that are about today and nothing else, so the warmth sum and
+   * the guide's donts still reject an outfit built on one.
+   */
+  it('still rejects a requested garment that breaks the warmth band or a guide dont', async () => {
+    const planId = await plan({
+      ownerAsked: { garmentIds: ['knit-cream-heavy'], words: 'the cream knit' },
+    });
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: { ...GOOD_PIECES, mid: 'knit-cream-heavy' },
+        rationale: 'Warm.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('Rejected. Nothing was stored.');
+    expect(text).toContain('core warmth came to 7');
+    expect(text).toContain('rect-06b');
   });
 });
