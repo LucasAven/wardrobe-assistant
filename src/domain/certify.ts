@@ -22,7 +22,7 @@ import type {
   Constraints,
   Garment,
   LayerSlot,
-  Menu,
+  MenuChoices,
   OutfitProposal,
   RejectionReason,
   RequiredSlot,
@@ -75,7 +75,7 @@ function doubledAccessories(accessories: readonly Garment[]): readonly Rejection
     .map(([accessoryKind, ids]): RejectionReason => ({ kind: 'doubled_accessory', accessoryKind, ids }));
 }
 
-function findInMenu(menu: Menu, slot: Slot, id: string): Garment | undefined {
+function findInMenu(menu: MenuChoices, slot: Slot, id: string): Garment | undefined {
   return menu.bySlot[slot].find((entry) => entry.garment.id === id)?.garment;
 }
 
@@ -90,7 +90,7 @@ interface Naming {
  */
 export function resolveOutfit(
   proposal: OutfitProposal,
-  menu: Menu,
+  menu: MenuChoices,
 ): ResolvedOutfit | RejectionReason[] {
   const reasons: RejectionReason[] = [];
   const named: Naming[] = [];
