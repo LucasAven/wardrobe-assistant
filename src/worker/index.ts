@@ -4,9 +4,9 @@ import { login, requireSession } from './auth';
 import type { Env } from './env';
 import { mcp } from './mcp/server';
 import { approveAuthorization, authorizePage } from './oauth';
-import { MAX_OUTFITS, recentOutfits, todayOutfit } from './outfits';
 import { cutKey, origKey } from './photos';
 import { garments } from './routes/garments';
+import { outfits } from './routes/outfits';
 import { profile } from './routes/profile';
 import { currentWeather, recommend } from './routes/recommend';
 import { wear } from './routes/wear';
@@ -24,24 +24,11 @@ app.get('/authorize', authorizePage);
 app.post('/authorize', approveAuthorization);
 
 app.route('/api/garments', garments);
+app.route('/api/outfits', outfits);
 app.route('/api/profile', profile);
 app.route('/api/recommend', recommend);
 app.route('/api/wear', wear);
 app.get('/api/weather', currentWeather);
-
-/**
- * `null` rather than a 404: nothing saved today is a normal state the app has a
- * screen for, and a 404 would read as a broken request instead.
- */
-app.get('/api/outfits/today', async (c) => {
-  return c.json({ outfit: await todayOutfit(c.env.DB, new Date()) });
-});
-
-app.get('/api/outfits', async (c) => {
-  const asked = Number(c.req.query('limit') ?? MAX_OUTFITS);
-  const limit = Number.isFinite(asked) && asked > 0 ? asked : MAX_OUTFITS;
-  return c.json({ outfits: await recentOutfits(c.env.DB, limit) });
-});
 
 app.get('/img/:kind/:id', async (c) => {
   const kind = c.req.param('kind');
