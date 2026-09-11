@@ -253,7 +253,7 @@ What you write is not the last word. It goes in as yours, the garment becomes us
 The fields, and the exact words each one takes. A word of your own costs that field.
 
   slot            ${words(VOCABULARIES.slot)}
-                  base is worn against the skin on the torso (t-shirt, tank, dress shirt, polo). top is a shirt worn over a base. mid is a sweater, hoodie, cardigan, vest or blazer. outer is a coat, parka or heavy jacket. bottom is anything worn on the legs. A shirt that could be base or top is base.
+                  base is worn against the skin on the torso (t-shirt, tank, dress shirt, polo). top is a shirt worn over a base. mid is a sweater, hoodie, cardigan, vest or blazer. outer is a coat, parka or heavy jacket. bottom is anything worn on the legs. shoes is anything worn on the feet. accessory is anything worn that is not clothing and not shoes: jewelry, eyewear, a hat, a scarf, a belt, a watch, a bag. A shirt that could be base or top is base.
   subtype         two or three lowercase words a person would say out loud: "oxford shirt", "white sneakers". No brand names.
   colors          one to three plain color words, the largest area of the garment first.
   colorRole       ${words(VOCABULARIES.colorRole)}. neutral for black, white, gray, navy, beige, brown, olive and denim blue. accent for anything that would be the loudest piece in an outfit.
@@ -274,6 +274,10 @@ The fields, and the exact words each one takes. A word of your own costs that fi
   accessoryKind   ${words(VOCABULARIES.accessoryKind)}. What the piece is, in one word the app can act on. Accessories only, null on everything else, and never null on an accessory. Pick other over a word that is close but wrong.
   notes           one short line, only when something matters that no other field carries: visible damage, a large logo, a cropped length. null otherwise.
   uncertain       the field names you were not confident about, spelled as they are spelled here. The owner reviews every flagged field by hand, so doubt costs nothing and a confident wrong guess costs a lot.
+
+ACCESSORIES, where two of those fields do not mean what they mean on clothes.
+  seasons    jewelry, eyewear, a watch and a belt are worn all year, so send all four seasons for them. A season left off keeps the piece out of every outfit for that quarter of the year, and nothing tells the owner why it went missing. A wool hat and a wool scarf are genuinely seasonal, so say so.
+  formality  on an accessory this is a note and not a filter. It no longer keeps a piece out of a menu, so read it as how dressy the piece is and leave the floor to the clothes.
 
 ${calibrationAnchors()}
 
