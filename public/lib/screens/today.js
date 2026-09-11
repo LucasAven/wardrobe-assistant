@@ -1,46 +1,17 @@
 import { append, button, clear, el } from '../dom.js';
+import { askPosition } from '../geo.js';
 import { outfitCard } from '../outfitcard.js';
 import { savedClock, todayView } from '../outfits.js';
-import { forgetPref, readChoice, writePref } from '../prefs.js';
-import { locatedWeather, readWeather, weatherLine } from '../weather.js';
+import { forgetPref } from '../prefs.js';
+import { readWeather, weatherLine } from '../weather.js';
 
-const GEO_TIMEOUT_MS = 8000;
-/** A position from earlier this morning is good enough, and it saves the second wait. */
-const GEO_MAX_AGE_MS = 10 * 60 * 1000;
-
-function geoFailure(error) {
-  if (error?.code === 1) return 'Location is off for this app, so there is no weather to show.';
-  if (error?.code === 3) return 'Finding you took too long, so there is no weather to show.';
-  return 'Your location did not come back, so there is no weather to show.';
-}
-
-/**
- * Asked once, and never waited on. A denial is remembered so tomorrow morning
- * does not open on the same prompt.
- */
-function askLocation() {
-  return new Promise((resolve) => {
-    if (readChoice('location', ['off'], null) === 'off') {
-      resolve({ source: 'off', reason: 'Location is off for this app, so there is no weather to show.' });
-      return;
-    }
-
-    const geolocation = globalThis.navigator?.geolocation ?? null;
-    if (geolocation === null) {
-      resolve({ source: 'off', reason: 'This browser cannot give a location, so there is no weather to show.' });
-      return;
-    }
-
-    geolocation.getCurrentPosition(
-      (position) => resolve(locatedWeather(position)),
-      (error) => {
-        if (error?.code === 1) writePref('location', 'off');
-        resolve({ source: 'off', reason: geoFailure(error) });
-      },
-      { timeout: GEO_TIMEOUT_MS, maximumAge: GEO_MAX_AGE_MS },
-    );
-  });
-}
+/** What a missing position costs this screen, said once per cause. */
+const NO_POSITION = {
+  denied: 'Location is off for this app, so there is no weather to show.',
+  unsupported: 'This browser cannot give a location, so there is no weather to show.',
+  timeout: 'Finding you took too long, so there is no weather to show.',
+  unknown: 'Your location did not come back, so there is no weather to show.',
+};
 
 export function mountToday(ctx) {
   let located = null;
@@ -99,16 +70,17 @@ export function mountToday(ctx) {
       });
   }
 
+  /** Asked once on mount, and never waited on. */
   function startLocating() {
-    askLocation().then((result) => {
+    askPosition().then((result) => {
       if (gone) return;
-      if (result.source === 'location') {
+      if (result.found) {
         located = result;
         note = 'Reading the weather where you are.';
         showForecast(result);
       } else {
         located = null;
-        note = result.reason;
+        note = NO_POSITION[result.cause];
       }
       renderWeather();
     });

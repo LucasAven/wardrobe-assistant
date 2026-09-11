@@ -22,6 +22,7 @@ import {
   taggingPending,
   uploadStatus,
 } from '../public/lib/garments.js';
+import { askPosition, positionLine } from '../public/lib/geo.js';
 import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
 import {
@@ -49,7 +50,7 @@ import {
 import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
 import { FIELDS, isRelevant, relevantFields } from '../public/lib/vocab.js';
-import { locatedWeather, readWeather, weatherLine } from '../public/lib/weather.js';
+import { readWeather, weatherLine } from '../public/lib/weather.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -823,9 +824,13 @@ test('answers count as unchanged only while all five match', () => {
   assert.ok(!sameObservations(MIRROR.rectangle, null));
 });
 
-test('the location the phone gives is read into a lat and a lon', () => {
-  const position = { coords: { latitude: -34.9011, longitude: -56.1645 } };
-  assert.deepEqual(locatedWeather(position), { source: 'location', lat: -34.9011, lon: -56.1645 });
+test('a stored position is shown at about a hundred meters', () => {
+  assert.equal(positionLine({ lat: -34.901112, lon: -56.164531 }), '-34.901, -56.165');
+  assert.equal(positionLine({ lat: 0, lon: 10 }), '0.000, 10.000');
+});
+
+test('a browser that cannot give a position says so instead of hanging', async () => {
+  assert.deepEqual(await askPosition(), { found: false, cause: 'unsupported' });
 });
 
 test('a weather read is only shown when all four numbers came back', () => {

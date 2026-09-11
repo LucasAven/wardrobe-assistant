@@ -5,10 +5,6 @@
  * request: a read that fails costs a line of text and nothing else.
  */
 
-export function locatedWeather(position) {
-  return { source: 'location', lat: position.coords.latitude, lon: position.coords.longitude };
-}
-
 /** A WeatherResponse, or null when it came back in a shape the app does not know. */
 export function readWeather(body) {
   if (body === null || typeof body !== 'object') return null;
