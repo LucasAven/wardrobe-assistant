@@ -392,15 +392,17 @@ function correctionLine(correction: Correction): string {
       ? `you picked something for ${correction.slot} that is gone from the wardrobe`
       : `you picked the ${correction.from.subtype} for ${correction.slot}`;
 
-  let wore = 'they left the slot empty';
+  // Never "they wore": a correction is only possible before the outfit is
+  // logged as worn, so what this records is the change and not the day.
+  let changed = 'they took it out and left the slot empty';
   if (correction.to !== null) {
-    wore =
+    changed =
       correction.to.subtype === null
-        ? 'they wore something that is gone from the wardrobe instead'
-        : `they wore the ${correction.to.subtype} instead`;
+        ? 'they changed it to a garment that is gone from the wardrobe'
+        : `they changed it to the ${correction.to.subtype}`;
   }
 
-  return `- ${when}: ${picked}, ${wore}. "${correction.reason}"`;
+  return `- ${when}: ${picked}, ${changed}. "${correction.reason}"`;
 }
 
 /**

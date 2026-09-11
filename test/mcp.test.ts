@@ -339,7 +339,7 @@ describe('plan_outfit', () => {
     expect(text).toContain('WHAT THE OWNER CORRECTED');
     expect(text).toContain('They are not from the guide, nothing filtered the menu on them');
     expect(text).toContain(
-      '- 2026-05-10, work: you picked the cardigan for mid, they wore the heavy knit sweater instead. "the cardigan itches at the office"',
+      '- 2026-05-10, work: you picked the cardigan for mid, they changed it to the heavy knit sweater. "the cardigan itches at the office"',
     );
     // Last thing read before the instruction, so the framing is still fresh.
     expect(text.indexOf('WHAT THE OWNER CORRECTED')).toBeLessThan(text.indexOf('WHAT TO DO NEXT'));
@@ -351,7 +351,7 @@ describe('plan_outfit', () => {
     const text = textOf(await tool('plan_outfit').call(MOMENT));
 
     expect(text).toContain(
-      '- 2026-05-10, work: you picked something for accessory that is gone from the wardrobe, they left the slot empty. "cut me in half"',
+      '- 2026-05-10, work: you picked something for accessory that is gone from the wardrobe, they took it out and left the slot empty. "cut me in half"',
     );
   });
 });

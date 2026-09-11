@@ -237,7 +237,22 @@ export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
   const node = el('section', { class: 'outfit' });
   let current = outfit;
 
-  function drawPicker(piece) {
+  /**
+   * The wardrobe is loaded once at boot, and Today's own fetch for the outfit
+   * normally lands after it. Normally is not always, and a picker drawn from an
+   * empty store would tell the owner they own nothing in this slot.
+   */
+  async function drawPicker(piece) {
+    clear(node);
+    append(node, el('p', { class: 'empty__text' }, 'Reading your wardrobe.'));
+    try {
+      await ctx.store.ensure();
+    } catch (error) {
+      ctx.toast(error.message, 'error');
+      drawCard();
+      return;
+    }
+
     clear(node);
     append(
       node,
