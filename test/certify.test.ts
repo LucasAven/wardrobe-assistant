@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RULES_BY_ID, outermostTorso } from '../src/domain/bookRules';
-import { certify, resolveOutfit } from '../src/domain/certify';
+import { certify, recheck, resolveOutfit } from '../src/domain/certify';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu } from '../src/domain/menu';
 import type {
@@ -579,5 +579,62 @@ describe('prefer rules and outerwear', () => {
     expect(outfitRule('circ-03').test(wearing({ ...navy, outer: garmentById('wool-coat-camel') }))).toBe(
       false,
     );
+  });
+});
+
+/**
+ * The owner's own correction, which is the one caller that has no Menu and no
+ * Constraints behind it.
+ */
+describe('recheck', () => {
+  const layered = wearing({ base: garmentById('tee-white'), mid: garmentById('cardigan-gray') });
+  const bare = wearing({ base: garmentById('tee-white') });
+
+  it('drops a citation the new pieces break and keeps one that still holds', () => {
+    expect(recheck(layered, ['rect-01', 'all-01'], 'rectangle').cited.map((rule) => rule.id)).toEqual([
+      'rect-01',
+      'all-01',
+    ]);
+
+    const after = recheck(bare, ['rect-01', 'all-01'], 'rectangle');
+    expect(after.cited.map((rule) => rule.id)).toEqual(['all-01']);
+    expect(after.missed.map((rule) => rule.id)).toContain('rect-01');
+  });
+
+  it('drops a citation no rule answers to, and one written for another body', () => {
+    const kept = recheck(layered, ['not-a-rule', 'circ-01', 'rect-01'], 'rectangle');
+
+    expect(kept.cited.map((rule) => rule.id)).toEqual(['rect-01']);
+  });
+
+  /** `certify` refuses this outright. The owner is not the composer, so here it is shown instead. */
+  it('reports a broken require rule as missed rather than refusing the outfit', () => {
+    const tight = wearing({
+      base: garmentById('tee-white'),
+      bottom: garmentById('jeans-black-skinny'),
+    });
+
+    expect(garmentRule('rect-05a').severity).toBe('require');
+    expect(recheck(tight, [], 'rectangle').missed.map((rule) => rule.id)).toContain('rect-05a');
+  });
+
+  it('restates both warmth sums with no band to judge them against', () => {
+    const heavy = wearing({
+      base: garmentById('tee-white'),
+      mid: garmentById('knit-cream-heavy'),
+      outer: garmentById('wool-coat-camel'),
+    });
+
+    expect(recheck(heavy, [], 'rectangle').warmthCore).toBe(5);
+    expect(recheck(heavy, [], 'rectangle').warmthWithOuter).toBe(10);
+  });
+
+  it('gives no verdict at all when no body type is known', () => {
+    expect(recheck(layered, ['rect-01'], null)).toEqual({
+      cited: [],
+      missed: [],
+      warmthCore: 4,
+      warmthWithOuter: 4,
+    });
   });
 });

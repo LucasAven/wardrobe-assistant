@@ -6,6 +6,11 @@
  * Rejection, never repair. A repaired outfit is a different outfit from the one
  * the rationale describes, so repairing would ship a rationale that no longer
  * matches the clothes.
+ *
+ * The owner changing a piece of a saved outfit by hand is not that repair, so
+ * `recheck` at the bottom of this file exists for it. They did the changing,
+ * they are told the rationale was written for the pieces before it, and nothing
+ * is put in the composer's mouth that it did not say.
  */
 
 import { RULES_BY_ID } from './bookRules';
@@ -197,4 +202,50 @@ export function certify(
     warmthWithOuter,
   };
   return checked as CertifiedOutfit;
+}
+
+export interface Recheck {
+  readonly cited: readonly BookRule[];
+  readonly missed: readonly BookRule[];
+  readonly warmthCore: number;
+  readonly warmthWithOuter: number;
+}
+
+/**
+ * What is still true about an outfit after the owner changed a piece of it.
+ *
+ * The warmth bands are absent on purpose. A band lives in the `Constraints` of
+ * the plan the outfit was composed from, and a plan expires an hour after it is
+ * made, so the sums come back restated as numbers with nothing left to judge
+ * them against. Every rule check needs only the body type, so that half is
+ * exact.
+ *
+ * A citation is only ever dropped, never added: it is the composer's claim
+ * about its own reasoning, and this server has no standing to make one for it.
+ * `missed` is recomputed whole, `prefer` and `require` alike, because it was
+ * never anyone's claim in the first place.
+ *
+ * A null body type means nothing can be judged. Every rule is written against
+ * one, so both lists come back empty rather than guessing at a body.
+ */
+export function recheck(
+  outfit: ResolvedOutfit,
+  citedIds: readonly string[],
+  bodyType: BodyType | null,
+): Recheck {
+  const warmthCore = sumWarmth(outfit, CORE_LAYERS);
+  const warmth = {
+    warmthCore,
+    warmthWithOuter: warmthCore + (outfit.pieces.outer?.warmth ?? 0),
+  };
+  if (bodyType === null) return { cited: [], missed: [], ...warmth };
+
+  const applicable = [...RULES_BY_ID.values()].filter((rule) => appliesTo(rule, bodyType));
+  const cited = citedIds.flatMap((id): BookRule[] => {
+    const rule = RULES_BY_ID.get(id);
+    if (rule === undefined || !appliesTo(rule, bodyType) || violates(rule, outfit)) return [];
+    return [rule];
+  });
+
+  return { cited, missed: applicable.filter((rule) => violates(rule, outfit)), ...warmth };
 }
