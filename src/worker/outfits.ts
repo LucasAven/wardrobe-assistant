@@ -10,15 +10,20 @@
  */
 
 import { RULES_BY_ID } from '../domain/bookRules';
-import type { EventKind, Garment, Slot } from '../domain/types';
+import { recheck } from '../domain/certify';
+import type { EventKind, Garment, ResolvedOutfit, Slot } from '../domain/types';
 import { ruleView } from './compose';
 import type { OutfitView, RuleView } from './contract';
-import { listGarments } from './repo';
+import { getProfile } from './profile';
+import { getGarment, listGarments } from './repo';
 import type { LoggedWear } from './routes/wear';
 import { day, recentWear } from './routes/wear';
 
 /** Base to shoes, then accessories. The order an outfit is read in. */
 const PIECE_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];
+
+/** An outfit without one of these is not an outfit, so none of them can be emptied. */
+const REQUIRED_SLOTS: readonly Slot[] = ['base', 'bottom', 'shoes'];
 
 /** Newest first, and never more than this whatever the caller asks for. */
 export const MAX_OUTFITS = 20;
@@ -90,6 +95,24 @@ export async function insertOutfit(
   return id;
 }
 
+/** One piece of a saved outfit changed by hand, as the owner asked for it. */
+export interface OutfitEdit {
+  readonly slot: Slot;
+  /** Null empties the slot rather than filling it. */
+  readonly toId: string | null;
+  readonly reason: string;
+}
+
+/** One correction, hydrated. `subtype` is null for a garment archived since. */
+export interface Correction {
+  readonly at: string;
+  readonly event: EventKind | null;
+  readonly slot: Slot;
+  readonly from: { readonly id: string; readonly subtype: string | null };
+  readonly to: { readonly id: string; readonly subtype: string | null } | null;
+  readonly reason: string;
+}
+
 /** What the web app reads. `OutfitView` plus the state only a stored outfit has. */
 export interface SavedOutfit extends OutfitView {
   readonly id: string;
@@ -97,6 +120,12 @@ export interface SavedOutfit extends OutfitView {
   readonly createdAt: string;
   /** Every garment in it was logged as worn on the day it was saved. */
   readonly worn: boolean;
+  /**
+   * What the owner changed by hand, oldest first. Empty for an untouched
+   * outfit, which is also what says the outfit was never corrected: the rows
+   * are the record, so no column repeats it.
+   */
+  readonly corrections: readonly Correction[];
 }
 
 interface OutfitRow {
@@ -108,6 +137,15 @@ interface OutfitRow {
   readonly missed_rules: string;
   readonly warmth_core: number;
   readonly warmth_with_outer: number;
+  readonly created_at: string;
+}
+
+interface FeedbackRow {
+  readonly outfit_id: string;
+  readonly slot: string;
+  readonly from_id: string;
+  readonly to_id: string | null;
+  readonly reason: string;
   readonly created_at: string;
 }
 
@@ -123,13 +161,40 @@ function parsePieces(json: string): readonly OutfitPiece[] {
   );
 }
 
-function ruleViews(json: string): readonly RuleView[] {
+function ruleIds(json: string): readonly string[] {
   const parsed: unknown = JSON.parse(json);
   if (!Array.isArray(parsed)) return [];
-  return parsed.flatMap((id: unknown): RuleView[] => {
-    const rule = typeof id === 'string' ? RULES_BY_ID.get(id) : undefined;
+  return parsed.filter((id: unknown): id is string => typeof id === 'string');
+}
+
+function ruleViews(ids: readonly string[]): readonly RuleView[] {
+  return ids.flatMap((id): RuleView[] => {
+    const rule = RULES_BY_ID.get(id);
     return rule === undefined ? [] : [ruleView(rule)];
   });
+}
+
+/** A garment as a correction names it: an id, plus whatever the wardrobe calls it now. */
+function named(
+  id: string,
+  wardrobe: ReadonlyMap<string, Garment>,
+): { readonly id: string; readonly subtype: string | null } {
+  return { id, subtype: wardrobe.get(id)?.subtype ?? null };
+}
+
+function toCorrection(
+  row: FeedbackRow,
+  event: EventKind | null,
+  wardrobe: ReadonlyMap<string, Garment>,
+): Correction {
+  return {
+    at: row.created_at,
+    event,
+    slot: row.slot as Slot,
+    from: named(row.from_id, wardrobe),
+    to: row.to_id === null ? null : named(row.to_id, wardrobe),
+    reason: row.reason,
+  };
 }
 
 /** The UTC day an outfit belongs to, which is the day the wear log writes. */
@@ -167,7 +232,9 @@ function toSaved(
   row: OutfitRow,
   wardrobe: ReadonlyMap<string, Garment>,
   byDay: ReadonlyMap<string, ReadonlySet<string>>,
+  feedback: readonly FeedbackRow[],
 ): SavedOutfit {
+  const event = row.event as EventKind | null;
   const stored = parsePieces(row.pieces);
   const hydrated = stored.flatMap((piece) => {
     const garment = wardrobe.get(piece.id);
@@ -178,22 +245,47 @@ function toSaved(
 
   return {
     id: row.id,
-    event: row.event as EventKind | null,
+    event,
     createdAt: row.created_at,
     pieces: hydrated.filter((piece) => piece.slot !== 'accessory'),
     accessories: hydrated.filter((piece) => piece.slot === 'accessory').map((piece) => piece.garment),
     rationale: row.rationale,
-    cited: ruleViews(row.cited_rules),
-    missed: ruleViews(row.missed_rules),
+    cited: ruleViews(ruleIds(row.cited_rules)),
+    missed: ruleViews(ruleIds(row.missed_rules)),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
     worn: wasWorn(stored, row.created_at, byDay),
+    corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe)),
   };
 }
 
 async function wardrobeById(db: D1Database): Promise<ReadonlyMap<string, Garment>> {
   const rows = await listGarments(db, {});
   return new Map(rows.map((row): [string, Garment] => [row.garment.id, row.garment]));
+}
+
+/** The corrections for a whole row set, read once and grouped, oldest first. */
+async function correctionsFor(
+  db: D1Database,
+  ids: readonly string[],
+): Promise<ReadonlyMap<string, readonly FeedbackRow[]>> {
+  const result = await db
+    .prepare(
+      `SELECT outfit_id, slot, from_id, to_id, reason, created_at
+         FROM outfit_feedback
+        WHERE outfit_id IN (${ids.map(() => '?').join(', ')})
+        ORDER BY created_at`,
+    )
+    .bind(...ids)
+    .all<FeedbackRow>();
+
+  const byOutfit = new Map<string, FeedbackRow[]>();
+  for (const row of result.results) {
+    const found = byOutfit.get(row.outfit_id) ?? [];
+    found.push(row);
+    byOutfit.set(row.outfit_id, found);
+  }
+  return byOutfit;
 }
 
 /** One read of everything a batch of rows needs, whatever days they fall on. */
@@ -204,13 +296,14 @@ async function hydrate(db: D1Database, rows: readonly OutfitRow[]): Promise<read
     (earliest, row) => (row.created_at < earliest ? row.created_at : earliest),
     rows[0]?.created_at ?? '',
   );
-  const [wardrobe, wear] = await Promise.all([
+  const [wardrobe, wear, corrections] = await Promise.all([
     wardrobeById(db),
     recentWear(db, dayOf(oldest)),
+    correctionsFor(db, rows.map((row) => row.id)),
   ]);
 
   const byDay = loggedByDay(wear);
-  return rows.map((row) => toSaved(row, wardrobe, byDay));
+  return rows.map((row) => toSaved(row, wardrobe, byDay, corrections.get(row.id) ?? []));
 }
 
 /**
@@ -233,4 +326,171 @@ export async function recentOutfits(db: D1Database, limit: number): Promise<read
     .bind(Math.min(Math.max(Math.trunc(limit), 1), MAX_OUTFITS))
     .all<OutfitRow>();
   return hydrate(db, result.results);
+}
+
+async function outfitRow(db: D1Database, id: string): Promise<OutfitRow | null> {
+  return db.prepare('SELECT * FROM outfit WHERE id = ?').bind(id).first<OutfitRow>();
+}
+
+/** One outfit by id, hydrated the way Today and the history are. */
+export async function outfitById(db: D1Database, id: string): Promise<SavedOutfit | null> {
+  const row = await outfitRow(db, id);
+  if (row === null) return null;
+  return (await hydrate(db, [row]))[0] ?? null;
+}
+
+export type SwapResult =
+  | { readonly kind: 'saved'; readonly outfit: SavedOutfit }
+  | { readonly kind: 'missing' }
+  | { readonly kind: 'worn' }
+  | { readonly kind: 'refused'; readonly error: string };
+
+const refused = (error: string): SwapResult => ({ kind: 'refused', error });
+
+/**
+ * The stored row as a `ResolvedOutfit`, which is what lets the book rules be
+ * read against an outfit whose plan expired an hour after it was saved. Nothing
+ * is invented: the proposal restates the row. A garment archived since drops out
+ * of the check the same way `toSaved` drops it from the render.
+ */
+function resolvedFrom(
+  stored: readonly OutfitPiece[],
+  wardrobe: ReadonlyMap<string, Garment>,
+  row: OutfitRow,
+): ResolvedOutfit {
+  const pieces: Partial<Record<Slot, Garment>> = {};
+  const accessories: Garment[] = [];
+  for (const piece of stored) {
+    const garment = wardrobe.get(piece.id);
+    if (garment === undefined) continue;
+    if (piece.slot === 'accessory') accessories.push(garment);
+    else pieces[piece.slot] = garment;
+  }
+
+  const idIn = (slot: Slot): string => stored.find((piece) => piece.slot === slot)?.id ?? '';
+  return {
+    pieces,
+    accessories,
+    proposal: {
+      base: idIn('base'),
+      bottom: idIn('bottom'),
+      shoes: idIn('shoes'),
+      rationale: row.rationale,
+      citedRules: ruleIds(row.cited_rules),
+    },
+  };
+}
+
+/**
+ * Replaces or empties one slot of a saved outfit and records why in the owner's
+ * own words.
+ *
+ * `created_at`, `plan_id`, `event` and `rationale` are never touched.
+ * `created_at` in particular is the UTC day `wasWorn` reads the wear log
+ * against, so moving it would detach the outfit from its own day.
+ */
+export async function swapPiece(
+  db: D1Database,
+  id: string,
+  edit: OutfitEdit,
+  now: Date,
+): Promise<SwapResult> {
+  const row = await outfitRow(db, id);
+  if (row === null) return { kind: 'missing' };
+
+  const current = (await hydrate(db, [row]))[0];
+  if (current === undefined) return { kind: 'missing' };
+  // `wasWorn` reads the stored ids against that day's wear log, so changing one
+  // would quietly turn an outfit the owner wore back into an unworn one.
+  if (current.worn) return { kind: 'worn' };
+
+  const stored = parsePieces(row.pieces);
+  // One match for every slot the card can tap: an outfit holds one garment per
+  // slot, and the exception, accessories, is not drawn as a tile.
+  const target = stored.find((piece) => piece.slot === edit.slot);
+  if (target === undefined) return refused(`There is nothing in ${edit.slot} to change.`);
+
+  if (edit.toId === null && REQUIRED_SLOTS.includes(edit.slot)) {
+    return refused(
+      `An outfit needs a base, a bottom and shoes, so ${edit.slot} cannot be left empty.`,
+    );
+  }
+  if (edit.toId === target.id) return refused(`That is already the ${edit.slot} in this outfit.`);
+
+  let incoming: Garment | null = null;
+  if (edit.toId !== null) {
+    if (stored.some((piece) => piece.id === edit.toId)) {
+      return refused('That garment is already in this outfit.');
+    }
+    const found = await getGarment(db, edit.toId);
+    if (found === null) return refused('That garment is not in your wardrobe.');
+    if (found.garment.slot !== edit.slot) {
+      return refused(`The ${found.garment.subtype} is a ${found.garment.slot}, not a ${edit.slot}.`);
+    }
+    incoming = found.garment;
+  }
+
+  const nextPieces = stored.flatMap((piece): OutfitPiece[] => {
+    if (piece !== target) return [piece];
+    return edit.toId === null ? [] : [{ slot: piece.slot, id: edit.toId }];
+  });
+
+  const wardrobe = new Map<string, Garment>();
+  for (const piece of current.pieces) wardrobe.set(piece.garment.id, piece.garment);
+  for (const garment of current.accessories) wardrobe.set(garment.id, garment);
+  if (incoming !== null) wardrobe.set(incoming.id, incoming);
+
+  const resolved = resolvedFrom(nextPieces, wardrobe, row);
+  const profile = await getProfile(db);
+  const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
+
+  // One batch, so a reason can never be recorded for a swap that did not land,
+  // and a swap can never land with nothing saying why.
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE outfit
+            SET pieces = ?, cited_rules = ?, missed_rules = ?, warmth_core = ?, warmth_with_outer = ?
+          WHERE id = ?`,
+      )
+      .bind(
+        JSON.stringify(nextPieces),
+        JSON.stringify(checked.cited.map((rule) => rule.id)),
+        JSON.stringify(checked.missed.map((rule) => rule.id)),
+        checked.warmthCore,
+        checked.warmthWithOuter,
+        id,
+      ),
+    db
+      .prepare(
+        `INSERT INTO outfit_feedback (id, outfit_id, slot, from_id, to_id, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), id, edit.slot, target.id, edit.toId, edit.reason, now.toISOString()),
+  ]);
+
+  const saved = await outfitById(db, id);
+  return saved === null ? { kind: 'missing' } : { kind: 'saved', outfit: saved };
+}
+
+/** The newest corrections across every outfit, which is what `plan_outfit` reads. */
+export async function recentCorrections(
+  db: D1Database,
+  limit: number,
+): Promise<readonly Correction[]> {
+  const result = await db
+    .prepare(
+      `SELECT f.outfit_id, f.slot, f.from_id, f.to_id, f.reason, f.created_at, o.event
+         FROM outfit_feedback f
+         LEFT JOIN outfit o ON o.id = f.outfit_id
+        ORDER BY f.created_at DESC
+        LIMIT ?`,
+    )
+    .bind(limit)
+    .all<FeedbackRow & { readonly event: string | null }>();
+
+  if (result.results.length === 0) return [];
+
+  const wardrobe = await wardrobeById(db);
+  return result.results.map((row) => toCorrection(row, row.event as EventKind | null, wardrobe));
 }

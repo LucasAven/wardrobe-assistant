@@ -81,11 +81,25 @@ function descending(left: string, right: string): number {
   return left < right ? 1 : -1;
 }
 
+function ascending(left: string, right: string): number {
+  return descending(right, left);
+}
+
 export class FakeDb {
   public profile: Row | null = null;
   public garments: Row[] = [];
   public wear: Row[] = [];
   public outfits: Row[] = [];
+  public feedback: Row[] = [];
+
+  /** Sequential, so a batch lands in the order it was written. */
+  async batch(
+    statements: readonly { readonly run: () => Promise<{ success: true }> }[],
+  ): Promise<{ success: true }[]> {
+    const results: { success: true }[] = [];
+    for (const statement of statements) results.push(await statement.run());
+    return results;
+  }
 
   prepare(sql: string): {
     bind: (...args: unknown[]) => ReturnType<FakeDb['prepare']>;
@@ -123,11 +137,22 @@ export class FakeDb {
         .sort((left, right) => descending(String(left.worn_on), String(right.worn_on)));
     }
 
+    if (sql.includes('INSERT INTO outfit_feedback')) {
+      this.feedback.push(rowFrom(columnsOf(sql, 'outfit_feedback'), args));
+      return [];
+    }
+    if (sql.includes('FROM outfit_feedback')) return this.selectFeedback(sql, args);
+
     if (sql.includes('INSERT INTO outfit')) {
       this.outfits.push(rowFrom(columnsOf(sql, 'outfit'), args));
       return [];
     }
+    if (sql.startsWith('UPDATE outfit')) return this.updateOutfit(sql, args);
     if (sql.includes('FROM outfit')) {
+      if (sql.includes('WHERE id = ?')) {
+        return this.outfits.filter((row) => String(row.id) === String(args[0]));
+      }
+
       const ordered = [...this.outfits].sort((left, right) =>
         descending(String(left.created_at), String(right.created_at)),
       );
@@ -142,6 +167,41 @@ export class FakeDb {
     if (sql.includes('FROM garment')) return this.selectGarments(sql, args);
 
     throw new Error(`unstubbed sql: ${sql}`);
+  }
+
+  /** Oldest first for one outfit's own corrections, newest first for the join. */
+  private selectFeedback(sql: string, args: readonly unknown[]): Row[] {
+    const ordered = [...this.feedback].sort((left, right) =>
+      ascending(String(left.created_at), String(right.created_at)),
+    );
+
+    if (sql.includes('LEFT JOIN outfit')) {
+      return ordered
+        .reverse()
+        .slice(0, Number(args[0]))
+        .map((row) => ({
+          ...row,
+          event: this.outfits.find((outfit) => outfit.id === row.outfit_id)?.event ?? null,
+        }));
+    }
+
+    const wanted = new Set(args.map(String));
+    return ordered.filter((row) => wanted.has(String(row.outfit_id)));
+  }
+
+  /** Every assignment in the one UPDATE this app runs against `outfit` is a bound value. */
+  private updateOutfit(sql: string, args: readonly unknown[]): Row[] {
+    const sets = /SET ([\s\S]+?)\s+WHERE id = \?/.exec(sql)?.[1];
+    if (sets === undefined) throw new Error(`cannot read the SET list of: ${sql}`);
+
+    const row = this.outfits.find((outfit) => String(outfit.id) === String(args[args.length - 1]));
+    if (row === undefined) return [];
+
+    sets.split(',').forEach((assignment, index) => {
+      const column = assignment.split('=')[0]?.trim();
+      if (column !== undefined) row[column] = args[index] ?? null;
+    });
+    return [row];
   }
 
   private live(): Row[] {
