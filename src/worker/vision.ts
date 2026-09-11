@@ -466,8 +466,12 @@ SLOT, where the piece sits in an outfit.
   outer      coat, parka, rain shell, heavy jacket
   bottom     trousers, jeans, chinos, shorts, joggers
   shoes      any footwear
-  accessory  belt, hat, scarf, bag, watch, sunglasses
+  accessory  anything worn that is not clothing and not shoes: ring, chain, bracelet, earrings, watch, glasses, hat, scarf, belt, bag
   A shirt that could be base or top is base, because it is normally worn next to the skin.
+
+ACCESSORY KIND, one word for what an accessory is. The subtype is free text, so "beanie" tells the app nothing on its own, and this is what lets it refuse two hats on one body.
+  ring, chain, bracelet, earrings, watch, glasses, hat, scarf, belt, bag, other
+  Null on everything that is not an accessory, and never null on one. Pick other over a word that is close but wrong.
 
 SUBTYPE: two or three lowercase words, the words a person would say out loud.
   "oxford shirt", "slim jeans", "white sneakers". No brand, no color word unless the color is the name of the thing.
@@ -480,7 +484,7 @@ WARMTH, 0 to 5. How much this one piece adds to how warm the wearer is. The app 
   4  wool coat, thick puffer, heavy knit
   5  heavy parka, expedition coat
 
-FORMALITY, 1 to 5. The least formal room this piece belongs in. The app takes an outfit's formality as the minimum across its pieces, so a piece that drags the outfit down has to score low.
+FORMALITY, 1 to 5. The least formal room this piece belongs in. The app takes an outfit's formality as the minimum across its clothes, so a garment that drags the outfit down has to score low. An accessory is outside that minimum, so on one this is a note about how dressy the piece is and nothing is kept out of an outfit by it.
   1  gym and loungewear: sweatpants, running shoes, tech tees
   2  casual: tee, jeans, sneakers, hoodie
   3  smart casual: chinos and a polo, clean dark denim, unstructured blazer, leather sneakers, loafers
@@ -495,7 +499,7 @@ The remaining fields feed a men's styling book whose rules read the silhouette o
   structured      true when the garment holds its own shape instead of draping: blazer, denim jacket, stiff oxford, structured coat. false for jersey, knitwear, and anything that collapses when you set it down.
   shoulderBulk    true only when the shoulders are padded or built up: suit and blazer shoulders, padded jackets, heavy raglan bulk. false for a plain tee, a shirt, a thin knit.
   waterResistant  true only when the surface is plainly made to shed water: rain shell, waxed or coated jacket, rubber boots. Not wool, not a denim jacket.
-  seasons         every season the piece is comfortable in. Most pieces suit two or three. Do not return one season out of caution.
+  seasons         every season the piece is comfortable in. Most pieces suit two or three. Do not return one season out of caution. Jewelry, eyewear, a watch and a belt are worn all year, so send all four for them. A wool hat and a wool scarf are genuinely seasonal, so say so.
   colors          one to three plain color words, the largest area of the garment first: "navy", "off white", "olive". No brand names, no fashion names.
   colorRole       neutral for black, white, gray, navy, beige, brown, olive and denim blue. accent for anything that would be the loudest piece in an outfit.
   pattern         solid, stripe, check, print.
