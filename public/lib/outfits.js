@@ -64,6 +64,24 @@ function readRules(value) {
     .map((rule) => ({ id: rule.id, because: rule.because }));
 }
 
+function readNamed(value) {
+  if (!isObject(value) || typeof value.id !== 'string') return null;
+  return { id: value.id, subtype: typeof value.subtype === 'string' ? value.subtype : null };
+}
+
+/**
+ * What the owner changed by hand. Read the way the rules are read: a row the
+ * card cannot draw is dropped rather than drawn half empty.
+ */
+function readCorrections(value) {
+  return asArray(value).flatMap((row) => {
+    if (!isObject(row) || typeof row.slot !== 'string') return [];
+    const from = readNamed(row.from);
+    if (from === null) return [];
+    return [{ slot: row.slot, from, to: readNamed(row.to), reason: asText(row.reason) }];
+  });
+}
+
 function readPieces(value) {
   return asArray(value).filter((piece) => isObject(piece) && typeof piece.slot === 'string' && isObject(piece.garment));
 }
@@ -87,6 +105,7 @@ export function readOutfit(value) {
     cited: readRules(value.cited),
     missed: readRules(value.missed),
     worn: value.worn === true,
+    corrections: readCorrections(value.corrections),
   };
 }
 

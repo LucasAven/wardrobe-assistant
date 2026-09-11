@@ -185,6 +185,10 @@ export function createApi(options = {}) {
       return json(`/api/outfits?limit=${encodeURIComponent(limit)}`);
     },
 
+    swapPiece(id, edit) {
+      return json(`/api/outfits/${encodeURIComponent(id)}/swap`, { method: 'POST', ...jsonBody(edit) });
+    },
+
     wear(entry) {
       return json('/api/wear', { method: 'POST', ...jsonBody(entry) });
     },

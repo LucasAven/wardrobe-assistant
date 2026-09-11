@@ -995,6 +995,41 @@ test('a cited rule is never also a missed one', () => {
   assert.deepEqual(splitRules(readOutfit({ ...SAVED, cited: [], missed: [] })), { cited: [], missed: [] });
 });
 
+test("the owner's corrections ride along with the outfit", () => {
+  assert.deepEqual(readOutfit(SAVED).corrections, [], 'an outfit nobody touched was never corrected');
+
+  const corrected = readOutfit({
+    ...SAVED,
+    corrections: [
+      {
+        at: '2026-09-03T09:00:00',
+        event: 'work',
+        slot: 'mid',
+        from: { id: 'm1', subtype: 'grey overshirt' },
+        to: { id: 'm2', subtype: 'navy cardigan' },
+        reason: 'the overshirt is too warm indoors',
+      },
+      { slot: 'accessory', from: { id: 'a2' }, to: null, reason: 'no belt with this one' },
+      { slot: 'mid', from: null, reason: 'a row with no garment in it' },
+      'not a correction at all',
+    ],
+  });
+
+  assert.deepEqual(
+    corrected.corrections,
+    [
+      {
+        slot: 'mid',
+        from: { id: 'm1', subtype: 'grey overshirt' },
+        to: { id: 'm2', subtype: 'navy cardigan' },
+        reason: 'the overshirt is too warm indoors',
+      },
+      { slot: 'accessory', from: { id: 'a2', subtype: null }, to: null, reason: 'no belt with this one' },
+    ],
+    'a row the card cannot draw is dropped, and a garment with no name reads as null',
+  );
+});
+
 test('every garment in a saved outfit reaches the wear log once', () => {
   assert.deepEqual(garmentIds(readOutfit(SAVED)), ['s1', 'b1', 'p1', 'm1', 'a2'], 'the accessories are worn too');
   assert.deepEqual(garmentIds({ pieces: [], accessories: [] }), []);
@@ -1059,6 +1094,7 @@ test('the screens hit the routes the worker registers', async () => {
   await api.putCutout('a 1', new Uint8Array([1]));
   await api.resetCutout('a 1');
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
+  await api.swapPiece('o 1', { slot: 'mid', toId: null, reason: 'too warm indoors' });
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}`),
@@ -1072,6 +1108,7 @@ test('the screens hit the routes the worker registers', async () => {
       'PUT /api/garments/a%201/cutout',
       'POST /api/garments/a%201/cutout/reset',
       'PUT /api/garments/a%201/photo',
+      'POST /api/outfits/o%201/swap',
     ],
   );
   assert.equal(calls[6].type, 'image/png', 'the cutout route answers 415 to anything else');
@@ -1080,5 +1117,6 @@ test('the screens hit the routes the worker registers', async () => {
     calls[1].body,
     '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',
   );
+  assert.equal(calls[9].body, '{"slot":"mid","toId":null,"reason":"too warm indoors"}');
   assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
 });
