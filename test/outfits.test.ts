@@ -16,7 +16,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import type { BodyProfile } from '../src/domain/types';
 import worker from '../src/worker/index';
 import type { NewOutfit, SavedOutfit } from '../src/worker/outfits';
-import { clearHome, homeLocation, insertOutfit, putHome } from '../src/worker/outfits';
+import { clearHome, homeLocation, insertOutfit, putHome, recentOutfits } from '../src/worker/outfits';
 import { WARDROBE } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
@@ -36,6 +36,7 @@ const OUTFIT: Omit<NewOutfit, 'planId'> = {
   missedRules: ['rect-02'],
   warmthCore: 3,
   warmthWithOuter: 3,
+  ownerRequest: null,
 };
 
 /**
@@ -55,6 +56,7 @@ const LAYERED: Omit<NewOutfit, 'planId'> = {
   missedRules: [],
   warmthCore: 4,
   warmthWithOuter: 4,
+  ownerRequest: null,
 };
 
 const RECTANGLE: BodyProfile = {
@@ -399,6 +401,46 @@ describe('POST /api/outfits/:id/swap', () => {
  * The whole feature is this round trip: what the Profile screen writes is what
  * `plan_outfit` reads the weather from, so the two are checked against each other.
  */
+describe("an owner's request on a stored outfit", () => {
+  it('comes back with the garment named from the live wardrobe', async () => {
+    const db = new FakeDb();
+    db.garments = WARDROBE.map((garment) => garmentRow(garment));
+    await insertOutfit(
+      db as unknown as D1Database,
+      {
+        ...OUTFIT,
+        planId: 'p1',
+        ownerRequest: {
+          words: 'I want the beige linen shirt',
+          disagreement: 'The oxford was warmer.',
+          honored: [{ id: 'linen-shirt-beige', waived: ['season'] }],
+        },
+      },
+      new Date('2026-05-10T08:00:00.000Z'),
+    );
+
+    const saved = await recentOutfits(db as unknown as D1Database, 5);
+
+    expect(saved[0]?.ownerRequest).toEqual({
+      words: 'I want the beige linen shirt',
+      disagreement: 'The oxford was warmer.',
+      honored: [{ id: 'linen-shirt-beige', subtype: 'linen shirt', waived: ['season'] }],
+    });
+  });
+
+  it('is null on an outfit nobody overrode a filter for', async () => {
+    const db = new FakeDb();
+    db.garments = WARDROBE.map((garment) => garmentRow(garment));
+    await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1' },
+      new Date('2026-05-10T08:00:00.000Z'),
+    );
+
+    expect((await recentOutfits(db as unknown as D1Database, 5))[0]?.ownerRequest).toBeNull();
+  });
+});
+
 describe('the home location', () => {
   const HOME = { lat: -34.901112, lon: -56.164531 };
 

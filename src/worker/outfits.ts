@@ -11,7 +11,7 @@
 
 import { RULES_BY_ID } from '../domain/bookRules';
 import { recheck } from '../domain/certify';
-import type { EventKind, Garment, ResolvedOutfit, Slot } from '../domain/types';
+import type { EventKind, Garment, ResolvedOutfit, Slot, Waived } from '../domain/types';
 import { ruleView } from './compose';
 import type { OutfitView, RuleView } from './contract';
 import { getProfile } from './profile';
@@ -70,6 +70,37 @@ export interface OutfitPiece {
   readonly id: string;
 }
 
+/** One garment the owner asked for, and the filters admitting it turned off. */
+export interface Waiver {
+  readonly id: string;
+  /** Empty when the garment passed today's filters anyway and the request changed nothing. */
+  readonly waived: readonly Waived[];
+}
+
+/**
+ * An owner's request as it is stored. The words are theirs, captured when the
+ * plan was made, so the outfit records what was asked rather than a later
+ * account of it.
+ */
+export interface NewOwnerRequest {
+  readonly words: string;
+  /** The composer's own read on the pieces it was asked for. Null when it wrote none. */
+  readonly disagreement: string | null;
+  /** Only the requested garments this outfit actually wears. */
+  readonly honored: readonly Waiver[];
+}
+
+/** The same, as the app reads it. `subtype` is null for a garment archived since. */
+export interface HonoredRequest extends Waiver {
+  readonly subtype: string | null;
+}
+
+export interface OwnerRequest {
+  readonly words: string;
+  readonly disagreement: string | null;
+  readonly honored: readonly HonoredRequest[];
+}
+
 export interface NewOutfit {
   readonly planId: string;
   readonly event: EventKind;
@@ -79,6 +110,8 @@ export interface NewOutfit {
   readonly missedRules: readonly string[];
   readonly warmthCore: number;
   readonly warmthWithOuter: number;
+  /** Null for the ordinary outfit, which is one nobody overrode a filter for. */
+  readonly ownerRequest: NewOwnerRequest | null;
 }
 
 export async function insertOutfit(
@@ -90,8 +123,8 @@ export async function insertOutfit(
   await db
     .prepare(
       `INSERT INTO outfit
-         (id, plan_id, event, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, plan_id, event, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, owner_request, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -103,6 +136,7 @@ export async function insertOutfit(
       JSON.stringify(outfit.missedRules),
       outfit.warmthCore,
       outfit.warmthWithOuter,
+      outfit.ownerRequest === null ? null : JSON.stringify(outfit.ownerRequest),
       // ISO rather than SQLite's `datetime('now')`, so the first ten characters
       // are the same UTC day the wear log writes and the two can be compared.
       savedAt.toISOString(),
@@ -142,6 +176,12 @@ export interface SavedOutfit extends OutfitView {
    * are the record, so no column repeats it.
    */
   readonly corrections: readonly Correction[];
+  /**
+   * What the owner asked for by name on the day this was planned, and what
+   * admitting it turned off. Null for every outfit nobody overrode a filter for,
+   * which is almost all of them.
+   */
+  readonly ownerRequest: OwnerRequest | null;
 }
 
 interface OutfitRow {
@@ -153,6 +193,7 @@ interface OutfitRow {
   readonly missed_rules: string;
   readonly warmth_core: number;
   readonly warmth_with_outer: number;
+  readonly owner_request: string | null;
   readonly created_at: string;
 }
 
@@ -196,6 +237,49 @@ function named(
   wardrobe: ReadonlyMap<string, Garment>,
 ): { readonly id: string; readonly subtype: string | null } {
   return { id, subtype: wardrobe.get(id)?.subtype ?? null };
+}
+
+const WAIVED: readonly Waived[] = ['season', 'formality', 'rain', 'cooldown'];
+
+/**
+ * Read the way `parsePieces` reads its column: this app wrote the JSON, but a
+ * row written by an older version of it is still a row this one has to draw.
+ * Anything unreadable comes back as no request rather than as a broken one.
+ */
+function parseOwnerRequest(
+  json: string | null,
+  wardrobe: ReadonlyMap<string, Garment>,
+): OwnerRequest | null {
+  if (json === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+
+  const row = parsed as Record<string, unknown>;
+  if (typeof row.words !== 'string' || row.words === '') return null;
+
+  const honored = (Array.isArray(row.honored) ? row.honored : []).flatMap(
+    (entry: unknown): HonoredRequest[] => {
+      if (entry === null || typeof entry !== 'object') return [];
+      const one = entry as Record<string, unknown>;
+      if (typeof one.id !== 'string') return [];
+      const waived = (Array.isArray(one.waived) ? one.waived : []).filter(
+        (value: unknown): value is Waived =>
+          typeof value === 'string' && WAIVED.includes(value as Waived),
+      );
+      return [{ id: one.id, subtype: wardrobe.get(one.id)?.subtype ?? null, waived }];
+    },
+  );
+
+  return {
+    words: row.words,
+    disagreement: typeof row.disagreement === 'string' ? row.disagreement : null,
+    honored,
+  };
 }
 
 function toCorrection(
@@ -272,6 +356,7 @@ function toSaved(
     warmthWithOuter: row.warmth_with_outer,
     worn: wasWorn(stored, row.created_at, byDay),
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe)),
+    ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
 }
 
