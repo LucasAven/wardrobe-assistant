@@ -87,6 +87,12 @@ function build(profile: BodyProfile | null): void {
   );
 }
 
+/** One correction the owner made, straight into the table `plan_outfit` reads. */
+function corrected(row: Record<string, unknown>): void {
+  db.outfits = [{ id: 'o1', event: 'work' }];
+  db.feedback.push({ outfit_id: 'o1', created_at: '2026-05-10T07:30:00.000Z', ...row });
+}
+
 async function plan(): Promise<string> {
   const result = await tool('plan_outfit').call(MOMENT);
   const planId = /PLAN (\S+)/.exec(textOf(result))?.[1];
@@ -312,6 +318,41 @@ describe('plan_outfit', () => {
 
     expect(text).toContain('NO COMPLETE OUTFIT EXISTS TODAY');
     expect(text).toContain('bottom or shoes');
+  });
+
+  it('says nothing at all about corrections when the owner has made none', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).not.toContain('WHAT THE OWNER CORRECTED');
+  });
+
+  it('carries what the owner corrected, in their words, and says it is not the guide', async () => {
+    corrected({
+      slot: 'mid',
+      from_id: 'cardigan-gray',
+      to_id: 'knit-cream-heavy',
+      reason: 'the cardigan itches at the office',
+    });
+
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('WHAT THE OWNER CORRECTED');
+    expect(text).toContain('They are not from the guide, nothing filtered the menu on them');
+    expect(text).toContain(
+      '- 2026-05-10, work: you picked the cardigan for mid, they wore the heavy knit sweater instead. "the cardigan itches at the office"',
+    );
+    // Last thing read before the instruction, so the framing is still fresh.
+    expect(text.indexOf('WHAT THE OWNER CORRECTED')).toBeLessThan(text.indexOf('WHAT TO DO NEXT'));
+  });
+
+  it('names the slot alone for a garment archived since the correction', async () => {
+    corrected({ slot: 'accessory', from_id: 'gone-for-good', to_id: null, reason: 'cut me in half' });
+
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain(
+      '- 2026-05-10, work: you picked something for accessory that is gone from the wardrobe, they left the slot empty. "cut me in half"',
+    );
   });
 });
 

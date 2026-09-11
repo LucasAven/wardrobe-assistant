@@ -31,8 +31,8 @@ import {
   userMessage,
 } from '../compose';
 import type { Env } from '../env';
-import type { OutfitPiece } from '../outfits';
-import { homeLocation, insertOutfit } from '../outfits';
+import type { Correction, OutfitPiece } from '../outfits';
+import { homeLocation, insertOutfit, recentCorrections } from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
 import { getProfile } from '../profile';
@@ -334,6 +334,7 @@ What it returns:
   - what the outfit has to satisfy: two warmth bands as numbers with what each one means, the formality floor, the season, and whether rain counts today.
   - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. A garment id that is not in the menu throws away the whole outfit it appears in.
   - any required slot the wardrobe cannot fill today, in which case no outfit exists and you should say so rather than compose one.
+  - what the owner has corrected by hand on outfits you saved before, and the line they wrote about each change. Read it before you compose: repeating a swap they already made is the mistake that section exists to prevent.
 
 Weather: pass it when you know it. Leave it out and the app reads it from the owner's stored home location, and tells you plainly when no location is stored.`;
 
@@ -378,6 +379,45 @@ const PlanArgs = z.object({
     ),
 });
 
+/** Enough to read as a pattern, short enough that the newest one is never buried. */
+const CORRECTIONS_SHOWN = 15;
+
+function correctionLine(correction: Correction): string {
+  const day = correction.at.slice(0, 10);
+  const when = correction.event === null ? day : `${day}, ${correction.event}`;
+
+  // A garment archived since has no name left to give, so the slot stands alone.
+  const picked =
+    correction.from.subtype === null
+      ? `you picked something for ${correction.slot} that is gone from the wardrobe`
+      : `you picked the ${correction.from.subtype} for ${correction.slot}`;
+
+  let wore = 'they left the slot empty';
+  if (correction.to !== null) {
+    wore =
+      correction.to.subtype === null
+        ? 'they wore something that is gone from the wardrobe instead'
+        : `they wore the ${correction.to.subtype} instead`;
+  }
+
+  return `- ${when}: ${picked}, ${wore}. "${correction.reason}"`;
+}
+
+/**
+ * The one thing in this app that carries an opinion the guide does not have. It
+ * says what these words are not before it says what they are, because a note
+ * from the owner read as an instruction would have the composer explaining the
+ * app to them instead of dressing them.
+ */
+function correctionsSection(corrections: readonly Correction[]): string {
+  return [
+    'WHAT THE OWNER CORRECTED',
+    'After you saved an outfit, the owner sometimes changed one piece of it in the app and said why. Their newest corrections, in their own words. These are preferences to weigh, the way you weigh their mood. They are not from the guide, nothing filtered the menu on them, and a correction made on a rainy day may not apply today.',
+    '',
+    ...corrections.map(correctionLine),
+  ].join('\n');
+}
+
 function planTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -409,11 +449,18 @@ function planTool(context: ToolContext): ToolSpec {
         );
       }
 
+      const corrections = await recentCorrections(context.env.DB, CORRECTIONS_SHOWN);
+
       sections.push(
         `THE BODY\n${bodyText(profile)}`,
         `THE GUIDE\nThese are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it. Cite an id only when this outfit actually follows that rule.\n\n${rulesFor(profile.bodyType).map(ruleLine).join('\n')}`,
         calibrationAnchors(),
         userMessage({ profile, constraints, menu, moment }),
+      );
+
+      if (corrections.length > 0) sections.push(correctionsSection(corrections));
+
+      sections.push(
         `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them. Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
       );
 
