@@ -23,6 +23,8 @@ export interface ProfileResponse {
   readonly profile: BodyProfile | null;
   /** What the observations imply, so the UI can show it and offer to accept it. */
   readonly suggestedType: BodyType | null;
+  /** Where a plan reads its weather from when the caller sends none. */
+  readonly home: { readonly lat: number; readonly lon: number } | null;
 }
 
 export interface WeatherResponse {

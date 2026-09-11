@@ -76,7 +76,7 @@ const store = createStore();
 
 /** One record, read once a session. Two screens ask for it and neither should wait twice. */
 function createProfileStore() {
-  let data = { profile: null, suggestedType: null };
+  let data = { profile: null, suggestedType: null, home: null };
   let loaded = false;
   let inFlight = null;
 
@@ -102,6 +102,9 @@ function createProfileStore() {
     },
     get suggestedType() {
       return data.suggestedType;
+    },
+    get home() {
+      return data.home;
     },
     refresh,
     ensure: () => (loaded ? Promise.resolve(data) : refresh()),

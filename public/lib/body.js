@@ -165,16 +165,24 @@ export function profileBody(observations, bodyType, language) {
   };
 }
 
+/** The stored home, or nothing: half a position is not one, so it counts as none. */
+function readHome(value) {
+  if (value === null || typeof value !== 'object') return null;
+  const { lat, lon } = value;
+  return Number.isFinite(lat) && Number.isFinite(lon) ? { lat, lon } : null;
+}
+
 /**
  * Reads a ProfileResponse. A PUT that answers with the stored profile alone
  * still has to land somewhere, and a suggestion the server left out is derived
  * here rather than shown as missing.
  */
 export function readProfile(body) {
-  if (body === null || typeof body !== 'object') return { profile: null, suggestedType: null };
+  if (body === null || typeof body !== 'object') return { profile: null, suggestedType: null, home: null };
 
+  const home = readHome(body.home);
   const profile = 'profile' in body ? (body.profile ?? null) : (typeof body.bodyType === 'string' ? body : null);
-  if (profile === null) return { profile: null, suggestedType: body.suggestedType ?? null };
+  if (profile === null) return { profile: null, suggestedType: body.suggestedType ?? null, home };
 
-  return { profile, suggestedType: body.suggestedType ?? deriveBodyType(profile) };
+  return { profile, suggestedType: body.suggestedType ?? deriveBodyType(profile), home };
 }

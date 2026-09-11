@@ -792,8 +792,12 @@ test('every body type the app can derive has the book description to show', () =
 });
 
 test('the stored type and the suggested one are read apart', () => {
-  assert.deepEqual(readProfile({ profile: null, suggestedType: null }), { profile: null, suggestedType: null });
-  assert.deepEqual(readProfile(null), { profile: null, suggestedType: null });
+  assert.deepEqual(readProfile({ profile: null, suggestedType: null }), {
+    profile: null,
+    suggestedType: null,
+    home: null,
+  });
+  assert.deepEqual(readProfile(null), { profile: null, suggestedType: null, home: null });
 
   const stored = { ...MIRROR.rectangle, bodyType: 'circular', language: 'es' };
   const overridden = readProfile({ profile: stored, suggestedType: 'rectangle' });
@@ -804,6 +808,15 @@ test('the stored type and the suggested one are read apart', () => {
   const bare = readProfile(stored);
   assert.equal(bare.profile.bodyType, 'circular', 'a PUT answering with the profile alone still lands');
   assert.equal(bare.suggestedType, 'rectangle', 'and the suggestion is derived rather than shown as missing');
+});
+
+test('the home comes through as a pair of numbers, or as nothing at all', () => {
+  const stored = { ...MIRROR.rectangle, bodyType: 'rectangle', language: 'en' };
+  const home = { lat: -34.901112, lon: -56.164531 };
+
+  assert.deepEqual(readProfile({ profile: stored, suggestedType: 'rectangle', home }).home, home, 'and never rounded');
+  assert.equal(readProfile({ profile: stored, suggestedType: 'rectangle' }).home, null, 'a reply without one reads as none');
+  assert.equal(readProfile({ profile: null, suggestedType: null, home: { lat: -34.9 } }).home, null, 'half a position is not one');
 });
 
 test('the profile PUT carries the observations, the type and the language', () => {
@@ -1123,6 +1136,8 @@ test('the screens hit the routes the worker registers', async () => {
   await api.resetCutout('a 1');
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
   await api.swapPiece('o 1', { slot: 'mid', toId: null, reason: 'too warm indoors' });
+  await api.saveHome(-34.901112, -56.164531);
+  await api.clearHome();
 
   assert.deepEqual(
     calls.map((call) => `${call.method} ${call.path}`),
@@ -1137,6 +1152,8 @@ test('the screens hit the routes the worker registers', async () => {
       'POST /api/garments/a%201/cutout/reset',
       'PUT /api/garments/a%201/photo',
       'POST /api/outfits/o%201/swap',
+      'PUT /api/profile/home',
+      'DELETE /api/profile/home',
     ],
   );
   assert.equal(calls[6].type, 'image/png', 'the cutout route answers 415 to anything else');
@@ -1147,4 +1164,5 @@ test('the screens hit the routes the worker registers', async () => {
   );
   assert.equal(calls[9].body, '{"slot":"mid","toId":null,"reason":"too warm indoors"}');
   assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
+  assert.equal(calls[10].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
 });

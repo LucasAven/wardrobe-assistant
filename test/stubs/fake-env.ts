@@ -126,6 +126,14 @@ export class FakeDb {
       return [];
     }
     if (sql.includes('FROM profile')) return this.profile === null ? [] : [this.profile];
+    if (sql.startsWith('UPDATE profile')) {
+      // Both home statements land here, and the clearing one binds nothing. No
+      // row means no write, the way an UPDATE that matches nothing behaves.
+      if (this.profile !== null) {
+        this.profile = { ...this.profile, home_lat: args[0] ?? null, home_lon: args[1] ?? null };
+      }
+      return [];
+    }
 
     if (sql.includes('INSERT INTO wear_log')) {
       this.wear.unshift({ worn_on: args[1], garment_ids: args[2], event: args[3] ?? null });

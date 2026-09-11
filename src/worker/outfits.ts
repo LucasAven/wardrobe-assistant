@@ -49,6 +49,22 @@ export async function homeLocation(db: D1Database): Promise<HomeLocation | null>
   return { lat, lon };
 }
 
+/**
+ * An UPDATE and never an insert: `profile.data` is NOT NULL, so a row made for a
+ * home alone would have to invent a body profile. No profile row yet means no
+ * write, which is the state the screen already draws as no home stored.
+ */
+export async function putHome(db: D1Database, home: HomeLocation): Promise<void> {
+  await db
+    .prepare('UPDATE profile SET home_lat = ?, home_lon = ? WHERE id = 1')
+    .bind(home.lat, home.lon)
+    .run();
+}
+
+export async function clearHome(db: D1Database): Promise<void> {
+  await db.prepare('UPDATE profile SET home_lat = NULL, home_lon = NULL WHERE id = 1').run();
+}
+
 export interface OutfitPiece {
   readonly slot: Slot;
   readonly id: string;

@@ -16,7 +16,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import type { BodyProfile } from '../src/domain/types';
 import worker from '../src/worker/index';
 import type { NewOutfit, SavedOutfit } from '../src/worker/outfits';
-import { insertOutfit } from '../src/worker/outfits';
+import { clearHome, homeLocation, insertOutfit, putHome } from '../src/worker/outfits';
 import { WARDROBE } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
@@ -392,6 +392,37 @@ describe('POST /api/outfits/:id/swap', () => {
     expect(outfit.cited).toEqual([]);
     expect(outfit.missed).toEqual([]);
     expect(outfit.warmthCore).toBe(1);
+  });
+});
+
+/**
+ * The whole feature is this round trip: what the Profile screen writes is what
+ * `plan_outfit` reads the weather from, so the two are checked against each other.
+ */
+describe('the home location', () => {
+  const HOME = { lat: -34.901112, lon: -56.164531 };
+
+  it('reads back exactly what was written, to the digit', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+
+    await putHome(db as unknown as D1Database, HOME);
+
+    expect(await homeLocation(db as unknown as D1Database)).toEqual(HOME);
+  });
+
+  it('reads back nothing once it is cleared', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    await putHome(db as unknown as D1Database, HOME);
+
+    await clearHome(db as unknown as D1Database);
+
+    expect(await homeLocation(db as unknown as D1Database)).toBeNull();
+  });
+
+  it('writes nothing and throws nothing when no profile row exists yet', async () => {
+    await putHome(db as unknown as D1Database, HOME);
+
+    expect(await homeLocation(db as unknown as D1Database)).toBeNull();
   });
 });
 

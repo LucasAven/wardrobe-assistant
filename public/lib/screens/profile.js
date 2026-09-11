@@ -16,19 +16,34 @@ import {
 } from '../body.js';
 import { chipChoice } from '../choice.js';
 import { append, button, clear, el } from '../dom.js';
+import { askPosition, positionLine } from '../geo.js';
+
+/** The two waits behind one tap, so the button says which one it is in. */
+const HOME_STEP_LABEL = { asking: 'Asking', saving: 'Saving' };
+
+/** What a missing position costs here. The owner asked for it, so it is said out loud. */
+const NO_POSITION = {
+  denied: 'Location is off for this app, so there is no home to save.',
+  unsupported: 'This browser cannot give a location, so there is no home to save.',
+  timeout: 'Finding you took too long, so the home was not saved.',
+  unknown: 'Your location did not come back, so the home was not saved.',
+};
 
 export function mountProfile(ctx) {
   const node = el('section', { class: 'screen__body' });
   let gone = false;
   let busy = false;
+  /** Null, or the step the one home action is in. */
+  let homeStep = null;
 
   let answers = emptyObservations();
   let language = DEFAULT_LANGUAGE;
   /** Set only when the user picks a type the answers do not imply. Kept, because that is why both are stored. */
   let override = null;
-  let stored = { profile: null, suggestedType: null };
+  let stored = { profile: null, suggestedType: null, home: null };
 
   const resultBody = el('div', { class: 'result__body' });
+  const homeBody = el('div', { class: 'card__body' });
   const save = button('Save profile', { class: 'btn btn--primary btn--wide' });
   const saveNote = el('p', { class: 'actionbar__count' });
 
@@ -112,6 +127,80 @@ export function mountProfile(ctx) {
         ]),
       );
     }
+  }
+
+  function renderHome() {
+    clear(homeBody);
+    const working = homeStep === null ? null : HOME_STEP_LABEL[homeStep];
+
+    if (stored.home === null) {
+      append(
+        homeBody,
+        el(
+          'p',
+          { class: 'card__line' },
+          'Until this is set, Claude has to be told the temperature on every plan you ask for.',
+        ),
+        button(working ?? 'Use where I am now', {
+          class: 'btn btn--small',
+          disabled: working !== null,
+          onclick: useHere,
+        }),
+      );
+      return;
+    }
+
+    append(
+      homeBody,
+      el('p', { class: 'card__line' }, 'Claude reads the weather here by itself.'),
+      el('p', { class: 'card__line' }, positionLine(stored.home)),
+      button(working ?? 'Update it', {
+        class: 'btn btn--small',
+        disabled: working !== null,
+        onclick: useHere,
+      }),
+      button('Forget it', { class: 'btn btn--small btn--ghost', disabled: working !== null, onclick: forget }),
+    );
+  }
+
+  /** Both writes answer the whole profile, so the card redraws from the reply. */
+  async function applyHome(call, done) {
+    homeStep = 'saving';
+    renderHome();
+
+    try {
+      stored = readProfile(await call());
+      ctx.profile.set(stored);
+      if (!gone) ctx.toast(done);
+    } catch (error) {
+      if (!gone) ctx.toast(error.message, 'error');
+    } finally {
+      homeStep = null;
+      if (!gone) renderHome();
+    }
+  }
+
+  async function useHere() {
+    if (homeStep !== null) return;
+    homeStep = 'asking';
+    renderHome();
+
+    // The owner just tapped this, which is a newer answer than a denial
+    // remembered on the Today screen days ago, so that one does not stop it.
+    const position = await askPosition({ remembered: false });
+    if (gone) return;
+    if (!position.found) {
+      homeStep = null;
+      renderHome();
+      ctx.toast(NO_POSITION[position.cause], 'error');
+      return;
+    }
+
+    await applyHome(() => ctx.api.saveHome(position.lat, position.lon), 'Home saved.');
+  }
+
+  function forget() {
+    if (homeStep === null) applyHome(() => ctx.api.clearHome(), 'Home forgotten.');
   }
 
   function refreshSave() {
@@ -209,10 +298,15 @@ export function mountProfile(ctx) {
           },
         }),
       ]),
+      el('section', { class: 'card' }, [
+        el('h2', { class: 'card__title' }, 'Home for the weather'),
+        homeBody,
+      ]),
       el('div', { class: 'actionbar' }, [saveNote, save]),
     );
 
     renderResult();
+    renderHome();
     refreshSave();
   }
 

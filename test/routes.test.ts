@@ -34,7 +34,17 @@ class FakeDb {
   private exec(sql: string, args: unknown[]): Row[] {
     if (sql.includes('FROM profile')) return this.profile;
     if (sql.includes('INSERT INTO profile')) {
-      this.profile = [{ data: args[0] }];
+      // The home columns survive a profile write, which is why they are columns.
+      this.profile = [{ ...this.profile[0], data: args[0] }];
+      return [];
+    }
+    if (sql.startsWith('UPDATE profile')) {
+      // Both home statements land here, and the clearing one binds nothing. No
+      // row means no write, the way an UPDATE that matches nothing behaves.
+      const row = this.profile[0];
+      if (row !== undefined) {
+        this.profile = [{ ...row, home_lat: args[0] ?? null, home_lon: args[1] ?? null }];
+      }
       return [];
     }
     if (sql.includes('INSERT INTO wear_log')) {
@@ -106,11 +116,52 @@ describe('profile route', () => {
     });
   });
 
-  it('answers null for both before anything is stored', async () => {
+  it('answers null for every field before anything is stored', async () => {
     expect(await (await call('GET', 'http://x/api/profile')).json()).toEqual({
       profile: null,
       suggestedType: null,
+      home: null,
     });
+  });
+});
+
+describe('home location route', () => {
+  const HOME = { lat: -34.901112, lon: -56.164531 };
+
+  it('stores both columns and answers the whole profile back', async () => {
+    await call('PUT', 'http://x/api/profile', OBSERVATIONS);
+
+    const written = await call('PUT', 'http://x/api/profile/home', HOME);
+    expect(written.status).toBe(200);
+    expect(await written.json()).toMatchObject({ profile: { bodyType: 'triangle' }, home: HOME });
+    // Stored to the digit the phone gave, because a rounded home is a different place.
+    expect(db.profile[0]).toMatchObject({ home_lat: HOME.lat, home_lon: HOME.lon });
+  });
+
+  it('carries the home on a plain read, in both states', async () => {
+    await call('PUT', 'http://x/api/profile', OBSERVATIONS);
+    expect(await (await call('GET', 'http://x/api/profile')).json()).toMatchObject({ home: null });
+
+    await call('PUT', 'http://x/api/profile/home', HOME);
+    expect(await (await call('GET', 'http://x/api/profile')).json()).toMatchObject({ home: HOME });
+  });
+
+  it('clears both columns on a delete', async () => {
+    await call('PUT', 'http://x/api/profile', OBSERVATIONS);
+    await call('PUT', 'http://x/api/profile/home', HOME);
+
+    const cleared = await call('DELETE', 'http://x/api/profile/home');
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toMatchObject({ home: null });
+    expect(db.profile[0]).toMatchObject({ home_lat: null, home_lon: null });
+  });
+
+  it('refuses a latitude off the globe', async () => {
+    expect((await call('PUT', 'http://x/api/profile/home', { lat: 91, lon: 0 })).status).toBe(400);
+  });
+
+  it('refuses a longitude off the globe', async () => {
+    expect((await call('PUT', 'http://x/api/profile/home', { lat: 0, lon: -181 })).status).toBe(400);
   });
 });
 

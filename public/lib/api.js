@@ -173,6 +173,14 @@ export function createApi(options = {}) {
       return json('/api/profile', { method: 'PUT', ...jsonBody(profile) });
     },
 
+    saveHome(lat, lon) {
+      return json('/api/profile/home', { method: 'PUT', ...jsonBody({ lat, lon }) });
+    },
+
+    clearHome() {
+      return json('/api/profile/home', { method: 'DELETE' });
+    },
+
     getWeather(lat, lon) {
       return json(`/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
     },
