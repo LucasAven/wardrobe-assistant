@@ -68,7 +68,12 @@ function isAllowed(
   bans: readonly GarmentRule[],
 ): boolean {
   if (!garment.seasons.includes(constraints.season)) return false;
-  if (garment.formality < constraints.minFormality) return false;
+  // The floor is about the silhouette, and an outfit reads as the lowest of its
+  // clothing. A ring is not part of that silhouette, so holding one to the floor
+  // would only empty the accessory menu at the events that ask for the most.
+  if (garment.slot !== 'accessory' && garment.formality < constraints.minFormality) {
+    return false;
+  }
   if (
     constraints.rainProof &&
     (garment.slot === 'outer' || garment.slot === 'shoes') &&

@@ -4,7 +4,7 @@
  * One idea carries it: a hard constraint either distributes over single
  * garments or it does not, and that decides where it is enforced.
  *
- *   formality   min(pieces) >= F  <=>  every piece >= F   distributes, filter
+ *   formality   min(clothes) >= F  <=>  every one >= F    distributes, filter
  *   rain        the piece must be water resistant         distributes, filter
  *   season      the piece must suit the season            distributes, filter
  *   book donts  about a garment nothing can cover         distributes, filter
@@ -182,7 +182,7 @@ export interface WarmthBands {
  */
 export interface Constraints {
   readonly warmth: WarmthBands;
-  /** Outfit formality is min(pieces), so this is also a per-garment floor. */
+  /** Outfit formality is min(clothes), so this is also a floor on every garment but an accessory. */
   readonly minFormality: Formality;
   readonly rainProof: boolean;
   readonly season: Season;

@@ -24,23 +24,42 @@ function idsIn(menu: Menu, slot: Slot): readonly string[] {
   return menu.bySlot[slot].map((entry) => entry.garment.id);
 }
 
-function everyEntry(menu: Menu): readonly MenuEntry[] {
-  return SLOTS.flatMap((slot) => [...menu.bySlot[slot]]);
+/** Every slot an outfit reads its formality from, which is every slot but `accessory`. */
+function clothing(menu: Menu): readonly MenuEntry[] {
+  return SLOTS.filter((slot) => slot !== 'accessory').flatMap((slot) => [...menu.bySlot[slot]]);
 }
 
 describe('distributive filters', () => {
-  it('drops every casual piece at a formal event', () => {
+  it('drops every casual piece of clothing at a formal event', () => {
     const constraints = deriveConstraints(COOL_FORMAL);
     const menu = buildMenu(WARDROBE, constraints, [], 'rectangle', WINTER_DAY);
 
     expect(constraints.minFormality).toBe(4);
-    for (const entry of everyEntry(menu)) {
+    for (const entry of clothing(menu)) {
       expect(entry.garment.formality).toBeGreaterThanOrEqual(4);
     }
     expect(idsIn(menu, 'base')).not.toContain('tee-white');
     expect(idsIn(menu, 'bottom')).not.toContain('jeans-indigo');
     expect(idsIn(menu, 'shoes')).not.toContain('sneakers-white');
     expect(menu.starved).toEqual([]);
+  });
+
+  it('keeps an accessory the floor would have taken, because the floor is about the clothing', () => {
+    const constraints = deriveConstraints(COOL_FORMAL);
+    const menu = buildMenu(WARDROBE, constraints, [], 'rectangle', WINTER_DAY);
+
+    expect(garmentById('cap-navy').formality).toBe(1);
+    expect(idsIn(menu, 'accessory')).toContain('cap-navy');
+    expect(garmentById('jeans-indigo').formality).toBe(2);
+    expect(idsIn(menu, 'bottom')).not.toContain('jeans-indigo');
+  });
+
+  it('still drops an accessory that is out of season', () => {
+    const menu = buildMenu(WARDROBE, deriveConstraints(HOT_ERRANDS), [], 'rectangle', SUMMER_DAY);
+
+    expect(garmentById('scarf-wool-charcoal').seasons).not.toContain('summer');
+    expect(idsIn(menu, 'accessory')).not.toContain('scarf-wool-charcoal');
+    expect(idsIn(menu, 'accessory')).toContain('cap-navy');
   });
 
   it('leaves no way to name an under-formal piece in a proposal', () => {
