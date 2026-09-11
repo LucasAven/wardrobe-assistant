@@ -85,7 +85,7 @@ function changeList(corrections) {
  * wear also flips the outfit's own `worn` flag is the Worker's business, and
  * leaving the screen and coming back must not offer to log the same day twice.
  */
-function wearButton(ctx, outfit, already) {
+function wearButton(ctx, outfit, already, onWorn) {
   const control = button(already ? 'Worn' : 'Wore this', { class: 'btn btn--wide', disabled: already });
   if (!already) control.classList.add('btn--primary');
 
@@ -96,8 +96,10 @@ function wearButton(ctx, outfit, already) {
     try {
       await ctx.api.wear({ garmentIds: garmentIds(outfit) });
       ctx.worn.markWorn(outfit.id);
-      control.classList.remove('btn--primary');
-      control.textContent = 'Worn';
+      // Redrawn rather than just relabeled: the pieces stop being tap targets
+      // the moment the outfit becomes the record of a day, and the server would
+      // refuse the swap anyway, so leaving them tappable only earns a toast.
+      onWorn();
     } catch (error) {
       control.disabled = false;
       control.textContent = 'Wore this';
@@ -326,7 +328,7 @@ export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
             el('p', { class: 'source' }, 'This outfit breaks these on purpose.'),
             ruleList(missed, 'rules--missed'),
           ]),
-      wearButton(ctx, current, worn),
+      wearButton(ctx, current, worn, drawCard),
     );
   }
 

@@ -419,13 +419,15 @@ export async function swapPiece(
 
   let incoming: Garment | null = null;
   if (edit.toId !== null) {
-    if (stored.some((piece) => piece.id === edit.toId)) {
-      return refused('That garment is already in this outfit.');
-    }
     const found = await getGarment(db, edit.toId);
     if (found === null) return refused('That garment is not in your wardrobe.');
+    // Before the duplicate check, because a garment in the wrong slot is the
+    // more specific thing to say about it even when the outfit already wears it.
     if (found.garment.slot !== edit.slot) {
       return refused(`The ${found.garment.subtype} is a ${found.garment.slot}, not a ${edit.slot}.`);
+    }
+    if (stored.some((piece) => piece.id === edit.toId)) {
+      return refused(`The ${found.garment.subtype} is already in this outfit.`);
     }
     incoming = found.garment;
   }
