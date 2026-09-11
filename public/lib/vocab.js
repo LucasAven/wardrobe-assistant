@@ -167,6 +167,26 @@ export const FIELDS = [
     hint: 'Where the bottom edge falls on the torso.',
   },
   {
+    name: 'accessoryKind',
+    label: 'Kind',
+    type: 'enum',
+    control: 'select',
+    nullable: true,
+    options: options(
+      'ring',
+      'chain',
+      'bracelet',
+      'earrings',
+      'watch',
+      'glasses',
+      'hat',
+      'scarf',
+      'belt',
+      'bag',
+      'other',
+    ),
+  },
+  {
     name: 'shoulderBulk',
     label: 'Shoulder bulk',
     type: 'boolean',
@@ -208,11 +228,13 @@ export function fieldLabel(name) {
 
 const BOTTOM_ONLY = ['rise', 'leg'];
 const TOP_ONLY = ['neckline', 'sleeves', 'hem'];
+const ACCESSORY_ONLY = ['accessoryKind'];
 const TOP_SLOTS = new Set(['base', 'top', 'mid', 'outer']);
 
 export function isRelevant(field, slot) {
   if (BOTTOM_ONLY.includes(field)) return slot === 'bottom';
   if (TOP_ONLY.includes(field)) return TOP_SLOTS.has(slot);
+  if (ACCESSORY_ONLY.includes(field)) return slot === 'accessory';
   return true;
 }
 

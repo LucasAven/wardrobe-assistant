@@ -305,6 +305,7 @@ function garmentLine(entry: MenuEntry): string {
   if (g.hem !== null) parts.push(`hem ${g.hem}`);
   if (g.neckline !== null) parts.push(`neck ${g.neckline}`);
   if (g.sleeves !== null) parts.push(`sleeves ${g.sleeves}`);
+  if (g.accessoryKind !== null) parts.push(`kind ${g.accessoryKind}`);
   parts.push(g.pattern);
   if (g.structured) parts.push('structured');
   if (g.shoulderBulk) parts.push('shoulder bulk');
@@ -382,6 +383,8 @@ export function reasonText(reason: RejectionReason, constraints: Constraints): s
       return `${reason.id} was used twice, as ${reason.slots.join(' and ')}`;
     case 'missing_required_slot':
       return `no ${reason.slot} was named`;
+    case 'doubled_accessory':
+      return `${reason.ids.join(' and ')} are the same kind of accessory, ${reason.accessoryKind}, and only one can be worn`;
     case 'warmth_out_of_band': {
       const band = constraints.warmth[reason.band];
       const named = reason.band === 'core' ? 'core warmth' : 'warmth with the outer layer';

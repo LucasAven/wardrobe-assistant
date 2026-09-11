@@ -3,6 +3,7 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod';
 import { z } from 'zod';
 import type { Env } from './env';
 import type {
+  AccessoryKind,
   Fabric,
   Fit,
   Formality,
@@ -179,6 +180,32 @@ const SLEEVES = {
   },
 } as const satisfies Vocabulary<Sleeves>;
 
+const ACCESSORY_KIND = {
+  values: [
+    'ring',
+    'chain',
+    'bracelet',
+    'earrings',
+    'watch',
+    'glasses',
+    'hat',
+    'scarf',
+    'belt',
+    'bag',
+    'other',
+  ],
+  synonyms: {
+    necklace: 'chain',
+    sunglasses: 'glasses',
+    spectacles: 'glasses',
+    cap: 'hat',
+    beanie: 'hat',
+    purse: 'bag',
+    handbag: 'bag',
+    earring: 'earrings',
+  },
+} as const satisfies Vocabulary<AccessoryKind>;
+
 const WARMTH_SCALE = [0, 1, 2, 3, 4, 5] as const satisfies readonly Warmth[];
 const FORMALITY_SCALE = [1, 2, 3, 4, 5] as const satisfies readonly Formality[];
 
@@ -195,6 +222,7 @@ export const VOCABULARIES = {
   hem: HEM,
   neckline: NECKLINE,
   sleeves: SLEEVES,
+  accessoryKind: ACCESSORY_KIND,
 } as const;
 
 /**
@@ -219,6 +247,7 @@ export const GarmentDraftSchema = z.object({
   hem: z.enum(HEM.values).nullable(),
   neckline: z.enum(NECKLINE.values).nullable(),
   sleeves: z.enum(SLEEVES.values).nullable(),
+  accessoryKind: z.enum(ACCESSORY_KIND.values).nullable(),
   shoulderBulk: z.boolean(),
   waterResistant: z.boolean(),
   seasons: z.array(z.enum(SEASON.values)),
@@ -270,6 +299,10 @@ export const RawGarmentDraftSchema = z.object({
     .string()
     .nullable()
     .describe(`${oneOf(SLEEVES.values)} null unless the slot is base, top, mid or outer.`),
+  accessoryKind: z
+    .string()
+    .nullable()
+    .describe(`${oneOf(ACCESSORY_KIND.values)} null unless the slot is accessory, and never null on one.`),
   shoulderBulk: z.boolean(),
   waterResistant: z.boolean(),
   seasons: z.array(z.string()).describe(`Every season the piece suits. ${oneOf(SEASON.values)}`),
@@ -373,6 +406,7 @@ export function coerceDraft(raw: RawGarmentDraft): GarmentDraft {
     hem: wordOrNull('hem', raw.hem, HEM),
     neckline: wordOrNull('neckline', raw.neckline, NECKLINE),
     sleeves: wordOrNull('sleeves', raw.sleeves, SLEEVES),
+    accessoryKind: wordOrNull('accessoryKind', raw.accessoryKind, ACCESSORY_KIND),
     shoulderBulk: raw.shoulderBulk,
     waterResistant: raw.waterResistant,
     seasons: seasons(raw.seasons),
@@ -412,6 +446,7 @@ export function blankDraft(): GarmentDraft {
     hem: null,
     neckline: null,
     sleeves: null,
+    accessoryKind: null,
     shoulderBulk: false,
     waterResistant: false,
     seasons: [],

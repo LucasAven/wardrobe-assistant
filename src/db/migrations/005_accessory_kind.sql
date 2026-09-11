@@ -1,0 +1,11 @@
+-- A ring, a chain and a pair of glasses all sit in the `accessory` slot, and
+-- `subtype` is free text, so nothing downstream could tell one from another.
+-- `certify` reads this column to refuse two hats on one body.
+--
+-- Nullable with no default: null is what every garment that is not an accessory
+-- holds, and that is every row already stored until someone tags them again.
+--
+-- SQLite has no conditional ADD COLUMN, so a second run of this file is an error
+-- rather than a no-op. The ledger in scripts/migrate.sh is what applies it
+-- exactly once, the same as 003.
+ALTER TABLE garment ADD COLUMN accessory_kind TEXT;

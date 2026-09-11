@@ -15,6 +15,7 @@
 
 import { RULES_BY_ID } from './bookRules';
 import type {
+  AccessoryKind,
   BodyType,
   BookRule,
   CertifiedOutfit,
@@ -39,6 +40,40 @@ const OPTIONAL_LAYERS: readonly ('top' | 'mid' | 'outer')[] = ['top', 'mid', 'ou
  * numbers mean less, not more.
  */
 const CORE_LAYERS: readonly LayerSlot[] = ['base', 'top', 'mid'];
+
+/**
+ * Kinds a body only has one place for. Everything else in the vocabulary may
+ * repeat, because two rings and three bracelets are a normal outfit and how many
+ * is a matter of taste, which this file does not have.
+ */
+const ONE_PER_OUTFIT: readonly AccessoryKind[] = [
+  'glasses',
+  'hat',
+  'scarf',
+  'belt',
+  'bag',
+  'watch',
+  'earrings',
+];
+
+/**
+ * Needs the accessories seen together, so it is here for the same reason the
+ * warmth sum is: no menu filter could catch it.
+ */
+function doubledAccessories(accessories: readonly Garment[]): readonly RejectionReason[] {
+  const byKind = new Map<AccessoryKind, string[]>();
+  for (const garment of accessories) {
+    const kind = garment.accessoryKind;
+    if (kind === null || !ONE_PER_OUTFIT.includes(kind)) continue;
+    const worn = byKind.get(kind);
+    if (worn === undefined) byKind.set(kind, [garment.id]);
+    else worn.push(garment.id);
+  }
+
+  return [...byKind]
+    .filter(([, ids]) => ids.length > 1)
+    .map(([accessoryKind, ids]): RejectionReason => ({ kind: 'doubled_accessory', accessoryKind, ids }));
+}
 
 function findInMenu(menu: Menu, slot: Slot, id: string): Garment | undefined {
   return menu.bySlot[slot].find((entry) => entry.garment.id === id)?.garment;
@@ -158,6 +193,8 @@ export function certify(
   if (outOfBand(warmthWithOuter, constraints.warmth.withOuter)) {
     reasons.push({ kind: 'warmth_out_of_band', band: 'withOuter', got: warmthWithOuter });
   }
+
+  reasons.push(...doubledAccessories(resolved.accessories));
 
   const applicable = [...RULES_BY_ID.values()].filter((rule) => appliesTo(rule, bodyType));
 

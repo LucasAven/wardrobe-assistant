@@ -312,6 +312,13 @@ describe('plan_outfit', () => {
     expect(text).not.toContain('tank-gray |');
   });
 
+  it('says what each accessory is, so four rings do not read as four of one thing', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('belt-brown | leather belt | brown | kind belt');
+    expect(text).toContain('cap-navy | baseball cap | navy | kind hat');
+  });
+
   it('refuses to compose when a required slot cannot be filled', async () => {
     db.garments = [garmentRow(WARDROBE[0]!)];
     const text = textOf(await tool('plan_outfit').call(MOMENT));
@@ -382,6 +389,33 @@ describe('save_outfit', () => {
       { slot: 'shoes', id: 'sneakers-white' },
     ]);
     expect(textOf(result)).toContain(String(stored?.id));
+  });
+
+  it('refuses a second hat and names the kind that was doubled', async () => {
+    db.garments.push(
+      garmentRow(
+        makeGarment({
+          id: 'hat-straw',
+          slot: 'accessory',
+          subtype: 'straw hat',
+          accessoryKind: 'hat',
+        }),
+      ),
+    );
+    const planId = await plan();
+
+    const result = await tool('save_outfit').call({
+      planId,
+      pieces: { ...GOOD_PIECES, accessories: ['cap-navy', 'hat-straw'] },
+      rationale: 'Both hats at once.',
+      citedRules: [],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(
+      'cap-navy and hat-straw are the same kind of accessory, hat, and only one can be worn',
+    );
+    expect(db.outfits).toHaveLength(0);
   });
 
   it('fails on an unknown planId and says to call plan_outfit', async () => {

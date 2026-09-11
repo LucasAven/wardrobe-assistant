@@ -36,6 +36,15 @@ export type Pattern = 'solid' | 'stripe' | 'check' | 'print';
 export type Fabric = 'cotton' | 'wool' | 'linen' | 'denim' | 'leather' | 'synthetic';
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
+/**
+ * What an accessory is, in a word the engine can act on. `subtype` is free text,
+ * so it can say "beanie" and nothing downstream can tell that from a second hat.
+ * Null on everything that is not an accessory.
+ */
+export type AccessoryKind =
+  | 'ring' | 'chain' | 'bracelet' | 'earrings' | 'watch'
+  | 'glasses' | 'hat' | 'scarf' | 'belt' | 'bag' | 'other';
+
 /** The book's vocabulary. Every value here appears in a rule in docs/book/rules.md. */
 export type Fit = 'tight' | 'fitted' | 'regular' | 'relaxed' | 'oversized';
 export type Rise = 'low' | 'mid' | 'high';
@@ -64,6 +73,7 @@ export interface Garment {
   readonly hem: Hem | null;
   readonly neckline: Neckline | null;
   readonly sleeves: Sleeves | null;
+  readonly accessoryKind: AccessoryKind | null;
   /** Padding or shoulder pads. The inverted triangle rules ban these. */
   readonly shoulderBulk: boolean;
   readonly waterResistant: boolean;
@@ -271,6 +281,7 @@ export type RejectionReason =
   | { readonly kind: 'unknown_garment'; readonly slot: Slot; readonly id: string }
   | { readonly kind: 'duplicate_garment'; readonly id: string; readonly slots: readonly Slot[] }
   | { readonly kind: 'missing_required_slot'; readonly slot: RequiredSlot }
+  | { readonly kind: 'doubled_accessory'; readonly accessoryKind: AccessoryKind; readonly ids: readonly string[] }
   | { readonly kind: 'warmth_out_of_band'; readonly band: 'core' | 'withOuter'; readonly got: number }
   | { readonly kind: 'unknown_rule'; readonly id: string }
   | { readonly kind: 'rule_not_for_this_body'; readonly id: string }

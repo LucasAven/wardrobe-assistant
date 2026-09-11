@@ -276,6 +276,48 @@ describe('certify', () => {
   });
 });
 
+describe('accessories a body has one place for', () => {
+  const SPARES = [
+    makeGarment({ id: 'ring-gold', slot: 'accessory', subtype: 'gold ring', accessoryKind: 'ring' }),
+    makeGarment({ id: 'ring-steel', slot: 'accessory', subtype: 'steel ring', accessoryKind: 'ring' }),
+    makeGarment({ id: 'hat-straw', slot: 'accessory', subtype: 'straw hat', accessoryKind: 'hat' }),
+  ];
+  const MENU_WITH_SPARES: Menu = buildMenu(
+    [...WARDROBE, ...SPARES],
+    CONSTRAINTS,
+    [],
+    'rectangle',
+    AUTUMN_DAY,
+  );
+
+  const worn = (accessories: readonly string[]): CertifiedOutfit | RejectionReason[] =>
+    certify(
+      resolved(resolveOutfit(proposal({ ...LAYERED, accessories, citedRules: [] }), MENU_WITH_SPARES)),
+      CONSTRAINTS,
+      'rectangle',
+    );
+
+  it('takes two rings, because a body has ten fingers', () => {
+    expect(certified(worn(['ring-gold', 'ring-steel'])).accessories.map((g) => g.id)).toEqual([
+      'ring-gold',
+      'ring-steel',
+    ]);
+  });
+
+  it('refuses two hats, and the reason says which kind was doubled', () => {
+    expect(certifyRejected(worn(['cap-navy', 'hat-straw']))).toEqual([
+      { kind: 'doubled_accessory', accessoryKind: 'hat', ids: ['cap-navy', 'hat-straw'] },
+    ]);
+  });
+
+  it('takes one hat with one ring', () => {
+    expect(certified(worn(['cap-navy', 'ring-gold'])).accessories.map((g) => g.id)).toEqual([
+      'cap-navy',
+      'ring-gold',
+    ]);
+  });
+});
+
 describe('require rules that need the assembled outfit', () => {
   const SUMMER: Constraints = deriveConstraints(HOT_ERRANDS);
   const TRIANGLE_MENU: Menu = buildMenu(WARDROBE, SUMMER, [], 'triangle', SUMMER_DAY);

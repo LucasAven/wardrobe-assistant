@@ -70,6 +70,7 @@ const PATCHABLE = [
   'hem',
   'neckline',
   'sleeves',
+  'accessoryKind',
   'shoulderBulk',
   'waterResistant',
   'seasons',
@@ -100,6 +101,7 @@ const GARMENT = {
   hem: 'past_waist',
   neckline: 'open',
   sleeves: 'long',
+  accessoryKind: null,
   shoulderBulk: false,
   waterResistant: false,
   seasons: ['spring', 'autumn'],
@@ -218,14 +220,34 @@ test('relevant fields follow the slot', () => {
   ]);
 
   assert.deepEqual(relevantFields('shoes'), common, 'shoes get neither group');
-  assert.deepEqual(relevantFields('accessory'), common);
+
+  assert.deepEqual(relevantFields('accessory'), [
+    'slot',
+    'subtype',
+    'warmth',
+    'formality',
+    'colors',
+    'colorRole',
+    'pattern',
+    'fabric',
+    'fit',
+    'structured',
+    'accessoryKind',
+    'shoulderBulk',
+    'waterResistant',
+    'seasons',
+    'notes',
+  ]);
 
   for (const slot of ['base', 'top', 'mid', 'outer']) {
     assert.ok(isRelevant('neckline', slot), `${slot} is a top`);
     assert.ok(!isRelevant('rise', slot));
+    assert.ok(!isRelevant('accessoryKind', slot));
   }
   assert.ok(!isRelevant('hem', 'bottom'));
   assert.ok(isRelevant('leg', 'bottom'));
+  assert.ok(!isRelevant('accessoryKind', 'shoes'), 'shoes are not an accessory');
+  assert.ok(isRelevant('accessoryKind', 'accessory'));
 });
 
 test('every editable field is a column the PATCH handler accepts', () => {
@@ -852,6 +874,7 @@ const TAGGED_FIELDS = [
   'hem',
   'neckline',
   'sleeves',
+  'accessoryKind',
   'shoulderBulk',
   'waterResistant',
   'seasons',

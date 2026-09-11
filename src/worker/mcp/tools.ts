@@ -271,6 +271,7 @@ The fields, and the exact words each one takes. A word of your own costs that fi
   neckline        ${words(VOCABULARIES.neckline)}. open means a collar or buttons worn open, high means a mock neck or turtleneck. Torso layers only, null on everything else.
   sleeves         ${words(VOCABULARIES.sleeves)}. Torso layers only, null on everything else.
   hem             ${words(VOCABULARIES.hem)}, where the bottom edge falls on the torso. Torso layers only, null on everything else.
+  accessoryKind   ${words(VOCABULARIES.accessoryKind)}. What the piece is, in one word the app can act on. Accessories only, null on everything else, and never null on an accessory. Pick other over a word that is close but wrong.
   notes           one short line, only when something matters that no other field carries: visible damage, a large logo, a cropped length. null otherwise.
   uncertain       the field names you were not confident about, spelled as they are spelled here. The owner reviews every flagged field by hand, so doubt costs nothing and a confident wrong guess costs a lot.
 
@@ -483,6 +484,7 @@ What is checked here and nowhere else:
   - the warmth sums, against both bands the plan gave you
   - the book's donts that need the pieces seen together, which no menu filter could catch
   - every rule id you cite. A cited rule has to exist, apply to this body type, and actually hold for these clothes. Citing a rule the outfit breaks fails the whole save.
+  - the accessories a body has one place for. At most one of glasses, hat, scarf, belt, bag, watch and earrings each. A ring, a chain and a bracelet may repeat as often as you like.
 
 On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new rationale for the new clothes: a rationale carried over from a rejected outfit describes something the owner is not wearing.
 

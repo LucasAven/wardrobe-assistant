@@ -23,6 +23,7 @@ const ROW: Row = {
   hem: 'hip',
   neckline: 'crew',
   sleeves: 'long',
+  accessory_kind: null,
   shoulder_bulk: 0,
   water_resistant: 0,
   seasons: '["autumn","winter"]',
@@ -58,6 +59,7 @@ describe('parseGarmentRow', () => {
       hem: 'hip',
       neckline: 'crew',
       sleeves: 'long',
+      accessoryKind: null,
       shoulderBulk: false,
       waterResistant: false,
       seasons: ['autumn', 'winter'],
@@ -81,6 +83,7 @@ describe('parseGarmentRow', () => {
         hem: null,
         neckline: null,
         sleeves: null,
+        accessory_kind: null,
         notes: null,
       }),
     );
@@ -93,6 +96,7 @@ describe('parseGarmentRow', () => {
     expect(stored.garment.hem).toBeNull();
     expect(stored.garment.neckline).toBeNull();
     expect(stored.garment.sleeves).toBeNull();
+    expect(stored.garment.accessoryKind).toBeNull();
     expect(stored.garment.notes).toBeNull();
   });
 
@@ -157,6 +161,10 @@ describe('parseGarmentRow', () => {
     // What a database that never ran 003_photo_version.sql hands back.
     const { photo_version: _unmigrated, ...unmigrated } = ROW;
     expect(() => parseGarmentRow(unmigrated)).toThrow();
+
+    // And what one that never ran 005_accessory_kind.sql hands back.
+    const { accessory_kind: _noKind, ...withoutKind } = ROW;
+    expect(() => parseGarmentRow(withoutKind)).toThrow();
   });
 });
 

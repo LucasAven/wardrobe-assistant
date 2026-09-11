@@ -42,6 +42,7 @@ const OXFORD: GarmentDraft = {
   hem: 'hip',
   neckline: 'open',
   sleeves: 'long',
+  accessoryKind: null,
   shoulderBulk: false,
   waterResistant: false,
   seasons: ['spring', 'autumn', 'winter'],
@@ -65,6 +66,7 @@ const JEANS: GarmentDraft = {
   hem: null,
   neckline: null,
   sleeves: null,
+  accessoryKind: null,
   shoulderBulk: false,
   waterResistant: false,
   seasons: ['spring', 'summer', 'autumn', 'winter'],
@@ -105,6 +107,7 @@ function rowFrom(draft: GarmentDraft, id = 'row-1') {
     hem: draft.hem,
     neckline: draft.neckline,
     sleeves: draft.sleeves,
+    accessory_kind: draft.accessoryKind,
     shoulder_bulk: draft.shoulderBulk ? 1 : 0,
     water_resistant: draft.waterResistant ? 1 : 0,
     seasons: JSON.stringify(draft.seasons),
@@ -186,6 +189,7 @@ describe('the wire schema', () => {
     expect(shape.neckline.description).toContain('crew, v, open, high, none');
     expect(shape.slot.description).toContain('base, top, mid, outer, bottom, shoes, accessory');
     expect(shape.leg.description).toContain('skinny, tapered, straight, relaxed, wide');
+    expect(shape.accessoryKind.description).toContain('ring, chain, bracelet, earrings, watch');
     expect(shape.seasons.description).toContain('spring, summer, autumn, winter');
     expect(shape.warmth.description).toContain('0 to 5');
     expect(shape.formality.description).toContain('1 to 5');
@@ -293,6 +297,30 @@ describe('coerceDraft', () => {
     expect(coerced.fit).toBeNull();
   });
 
+  it('reads an accessory kind the model spelled its own way', () => {
+    const glasses = coerceDraft(said({ slot: 'accessory', accessoryKind: 'Sunglasses' }));
+    const chain = coerceDraft(said({ slot: 'accessory', accessoryKind: 'necklace' }));
+
+    expect(glasses.accessoryKind).toBe('glasses');
+    expect(chain.accessoryKind).toBe('chain');
+    expect(glasses.uncertain).toEqual([]);
+  });
+
+  it('flags a kind the vocabulary has no word for instead of guessing one', () => {
+    const coerced = coerceDraft(said({ slot: 'accessory', accessoryKind: 'cufflinks' }));
+
+    expect(coerced.accessoryKind).toBeNull();
+    expect(coerced.uncertain).toEqual(['accessoryKind']);
+  });
+
+  it('keeps the kind null on a garment that is not an accessory', () => {
+    const coerced = coerceDraft(said({ accessoryKind: null }));
+
+    expect(coerced.slot).toBe('base');
+    expect(coerced.accessoryKind).toBeNull();
+    expect(coerced.uncertain).toEqual([]);
+  });
+
   it('clamps a warmth of 9 into the scale and flags it', () => {
     const coerced = coerceDraft(said({ warmth: 9 }));
     expect(coerced.warmth).toBe(5);
@@ -310,12 +338,12 @@ describe('coerceDraft', () => {
     expect(coerceDraft(said({ formality: Number.NaN })).formality).toBe(3);
   });
 
-  it('keeps the sixteen good fields when three are outside the vocabulary', () => {
+  it('keeps the seventeen good fields when three are outside the vocabulary', () => {
     const coerced = coerceDraft(said({ neckline: 'scoop', fabric: 'jersey', fit: 'athletic' }));
     const spoiled = ['neckline', 'fabric', 'fit'];
     const kept = TAGGED_FIELDS.filter((field) => !spoiled.includes(field));
 
-    expect(kept).toHaveLength(16);
+    expect(kept).toHaveLength(17);
     for (const field of kept) {
       expect(read(coerced, field), field).toEqual(read(SURE, field));
     }

@@ -49,6 +49,7 @@ export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
     hem: garment.hem,
     neckline: garment.neckline,
     sleeves: garment.sleeves,
+    accessory_kind: garment.accessoryKind,
     shoulder_bulk: bit(garment.shoulderBulk),
     water_resistant: bit(garment.waterResistant),
     seasons: JSON.stringify(garment.seasons),
