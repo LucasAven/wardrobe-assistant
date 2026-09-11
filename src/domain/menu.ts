@@ -126,6 +126,18 @@ function byRecencyThenId(a: MenuEntry, b: MenuEntry): number {
   return a.garment.id < b.garment.id ? -1 : 1;
 }
 
+/**
+ * Held back is read by eye and then cut off at a limit, so it is ordered the way
+ * the menu is rather than the way the loops above happened to fill it. Grouping
+ * it by what removed each garment would put every cooldown row last, which is
+ * the one the owner overrides most and so the worst one to truncate away.
+ */
+function bySlotThenName(a: HeldBack, b: HeldBack): number {
+  const rank = (held: HeldBack) => ALL_SLOTS.indexOf(held.garment.slot);
+  if (rank(a) !== rank(b)) return rank(a) - rank(b);
+  return a.garment.subtype.localeCompare(b.garment.subtype);
+}
+
 /** The seam where ranking goes if the wardrobe reaches ~200 garments. Currently sorts by recency. */
 export function rankSlot(
   entries: readonly MenuEntry[],
@@ -136,14 +148,20 @@ export function rankSlot(
 
 /**
  * Cooldown is waived before a hard constraint is, and a hard constraint is
- * waived for one reason only: the owner asked for that garment by name. A
- * required slot with nothing left after the waivers is reported as starved
- * instead of quietly emptied.
+ * waived for one reason only: the owner asked for that garment by name.
  *
- * `wants` carries those ids. A book dont is never waived by one, because it is a
- * fact about this person's body rather than about today, and because `certify`
- * re-checks every `require` rule and would reject the outfit anyway. A request
- * for such a garment comes back in `refused` rather than being dropped.
+ * `wants` carries those ids, and it is applied last, to the menu as it already
+ * stands. That order is the whole correctness of it. Deciding the request first
+ * would let an asked-for garment fill a required slot, stop the starvation
+ * rescue firing, and quietly delete the garments that rescue would have brought
+ * back, and it would then credit the request with waiving a cooldown that the
+ * rescue had already forgiven. Applied last, a request only ever adds, and what
+ * it says it waived is what was still keeping the garment out.
+ *
+ * A book dont is never waived by one, because it is a fact about this person's
+ * body rather than about today, and because `certify` re-checks every `require`
+ * rule and would reject the outfit anyway. A request for such a garment comes
+ * back in `refused` rather than being dropped.
  */
 export function buildMenu(
   garments: readonly Garment[],
@@ -155,45 +173,22 @@ export function buildMenu(
 ): Menu {
   const freshest = daysSinceByGarment(recentWear, now);
   const bans = bansFor(bodyType);
-  const asked = new Set(wants);
 
   const admitted = emptyBySlot();
   const benched = emptyBySlot();
-  const heldBack: HeldBack[] = [];
-  const refused: RefusedRequest[] = [];
+  const daysById = new Map<string, number>();
+  /** What the filters kept out, by id. A request takes some of it back. */
+  const out = new Map<string, HeldBack>();
 
   for (const garment of garments) {
     const daysSince = freshest.get(garment.id) ?? Infinity;
+    daysById.set(garment.id, daysSince);
     const rested = daysSince >= constraints.cooldownDays[garment.slot];
     const failed = failedFilters(garment, constraints);
     const donts = brokenDonts(garment, bans);
-    const wanted = asked.has(garment.id);
 
-    if (donts.length > 0) {
-      if (wanted) {
-        refused.push({
-          kind: 'book_dont',
-          id: garment.id,
-          subtype: garment.subtype,
-          ruleId: donts[0] as string,
-        });
-      }
-      heldBack.push({
-        garment,
-        why: against(failed, rested),
-        bookDonts: donts,
-      });
-      continue;
-    }
-
-    if (wanted) {
-      const waived = against(failed, rested);
-      admitted[garment.slot].push({ garment, daysSince, admittedBy: { by: 'owner_asked', waived } });
-      continue;
-    }
-
-    if (failed.length > 0) {
-      heldBack.push({ garment, why: against(failed, rested), bookDonts: [] });
+    if (failed.length > 0 || donts.length > 0) {
+      out.set(garment.id, { garment, why: against(failed, rested), bookDonts: donts });
       continue;
     }
 
@@ -201,30 +196,58 @@ export function buildMenu(
     (rested ? admitted : benched)[garment.slot].push(entry);
   }
 
-  const starved: RequiredSlot[] = [];
-  const backEarly = new Set<string>();
   for (const slot of REQUIRED_SLOTS) {
     if (admitted[slot].length > 0) continue;
-    for (const entry of benched[slot]) {
-      admitted[slot].push({ ...entry, admittedBy: STARVED });
-      backEarly.add(entry.garment.id);
-    }
-    if (admitted[slot].length === 0) starved.push(slot);
+    for (const entry of benched[slot]) admitted[slot].push({ ...entry, admittedBy: STARVED });
+    benched[slot] = [];
   }
 
   // Whatever the cooldown benched and starvation did not rescue is held back by
   // the cooldown and nothing else, which is the one the owner overrides most.
   for (const slot of ALL_SLOTS) {
     for (const entry of benched[slot]) {
-      if (backEarly.has(entry.garment.id)) continue;
-      heldBack.push({ garment: entry.garment, why: ['cooldown'], bookDonts: [] });
+      out.set(entry.garment.id, { garment: entry.garment, why: ['cooldown'], bookDonts: [] });
     }
   }
 
-  const known = new Set<string>(garments.map((garment) => garment.id));
-  for (const id of asked) {
-    if (!known.has(id)) refused.push({ kind: 'not_in_wardrobe', id });
+  const refused: RefusedRequest[] = [];
+  const byId = new Map<string, Garment>(garments.map((garment) => [garment.id, garment]));
+  for (const id of new Set(wants.map((want) => want.trim()))) {
+    const garment = byId.get(id);
+    if (garment === undefined) {
+      refused.push({ kind: 'not_in_wardrobe', id });
+      continue;
+    }
+
+    const held = out.get(id);
+    const dont = held?.bookDonts[0];
+    if (dont !== undefined) {
+      refused.push({ kind: 'book_dont', id, subtype: garment.subtype, ruleId: dont });
+      continue;
+    }
+
+    // Already in the menu, so the request waived nothing and says so. It is
+    // still marked, because the owner asking for a garment is worth knowing
+    // about whether or not it cost anything.
+    const seat = admitted[garment.slot].findIndex((entry) => entry.garment.id === id);
+    if (seat >= 0) {
+      const entry = admitted[garment.slot][seat] as MenuEntry;
+      admitted[garment.slot][seat] = { ...entry, admittedBy: { by: 'owner_asked', waived: [] } };
+      continue;
+    }
+
+    admitted[garment.slot].push({
+      garment,
+      daysSince: daysById.get(id) ?? Infinity,
+      admittedBy: { by: 'owner_asked', waived: held?.why ?? [] },
+    });
+    out.delete(id);
   }
+
+  // Read after the request, not before it: a request can be the thing that
+  // fills an otherwise empty required slot, and a plan that still called it
+  // starved would tell the composer no outfit exists while holding one.
+  const starved = REQUIRED_SLOTS.filter((slot) => admitted[slot].length === 0);
 
   return {
     bySlot: {
@@ -237,7 +260,7 @@ export function buildMenu(
       accessory: rankSlot(admitted.accessory, constraints),
     },
     starved,
-    heldBack,
+    heldBack: [...out.values()].sort(bySlotThenName),
     refused,
   };
 }

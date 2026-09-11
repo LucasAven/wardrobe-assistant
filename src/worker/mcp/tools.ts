@@ -342,7 +342,7 @@ What it returns:
   - the body: which of the four types the owner's styling book classifies them as, and the five mirror observations behind it.
   - the book's rules for that body type and no other, each one an id, the part of the outfit it is judged over, and the book's own reason. A rule written for another body type does not exist here, and citing one is rejected.
   - what the outfit has to satisfy: two warmth bands as numbers with what each one means, the formality floor, the season, and whether rain counts today.
-  - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. A garment id that is not in the menu throws away the whole outfit it appears in.
+  - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. The one exception says so on its own line: a garment the owner asked for is marked as theirs and names what it failed. A garment id that is not in the menu throws away the whole outfit it appears in.
   - any required slot the wardrobe cannot fill today, in which case no outfit exists and you should say so rather than compose one.
   - what the owner has corrected by hand on outfits you saved before, and the line they wrote about each change. Read it before you compose: repeating a swap they already made is the mistake that section exists to prevent.
   - what today's filters held back, with the id of each garment and what held it. These are not in the menu and naming one fails the save. They are listed for one reason, below.
@@ -485,7 +485,7 @@ function heldBackSection(heldBack: readonly HeldBack[]): string {
     'To use one, call plan_outfit again with ownerAsked. Only when they asked.',
     '',
     ...shown.map(heldBackLine),
-    ...(rest > 0 ? ['', `and ${rest} more held back the same way.`] : []),
+    ...(rest > 0 ? ['', `and ${rest} more that today also held back.`] : []),
   ].join('\n');
 }
 
@@ -508,7 +508,6 @@ function ownerAskedSection(plan: Plan): string {
   const asked = plan.ownerAsked;
   if (asked === null) return '';
 
-  const refused = new Set(plan.menu.refused.map((one) => one.id));
   const admitted = SLOT_ORDER.flatMap((slot) => plan.menu.bySlot[slot]).filter(
     (entry) => asked.garmentIds.includes(entry.garment.id),
   );
@@ -525,7 +524,7 @@ function ownerAskedSection(plan: Plan): string {
     `They said: "${asked.words}"`,
     '',
     ...lines,
-    ...plan.menu.refused.filter((one) => refused.has(one.id)).map(refusedLine),
+    ...plan.menu.refused.map(refusedLine),
     '',
     'Compose with what they asked for. Where a line above says a filter was turned off, write the second opinion into save_outfit\'s `disagreement` field: what you would have chosen instead and why, in their language, in a sentence or two. They get what they want and your read of it, kept apart from the rationale. It is not a refusal and not a lecture. Where nothing was turned off, leave that field out.',
   ].join('\n');
@@ -761,6 +760,13 @@ function saveTool(context: ToolContext): ToolSpec {
       const pieces = piecesOf(certified);
       const asked = plan.ownerAsked;
       const honored = asked === null ? [] : honoredIn(plan.menu, asked.garmentIds, pieces);
+      // Said out loud rather than stored. A request the outfit does not wear is
+      // not something to show the owner as honored, but it is something the
+      // composer should notice it dropped.
+      const ignored =
+        asked === null
+          ? []
+          : asked.garmentIds.filter((id) => !pieces.some((piece) => piece.id === id));
       const disagreement = args.disagreement?.trim();
       const ownerRequest: NewOwnerRequest | null =
         asked === null || honored.length === 0
@@ -799,6 +805,11 @@ function saveTool(context: ToolContext): ToolSpec {
           ? 'It misses none of the guide preferences for this body.'
           : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${ruleIds(certified.missed).join(', ')}.`,
         ...(ownerRequest === null ? [] : [requestLine(ownerRequest)]),
+        ...(ignored.length === 0
+          ? []
+          : [
+              `The owner asked for ${ignored.join(', ')} and this outfit does not wear ${ignored.length === 1 ? 'it' : 'them'}. Nothing about that is stored, so they are shown no record of having asked.`,
+            ]),
         `Call log_wear with these ids once it is actually worn: ${pieces.map((piece) => piece.id).join(', ')}.`,
       );
     },

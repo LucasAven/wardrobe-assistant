@@ -648,3 +648,22 @@ describe("an owner's request, through the connector", () => {
     expect(text).toContain('rect-06b');
   });
 });
+
+describe('a request the outfit did not honor', () => {
+  it('is said out loud rather than stored as something that happened', async () => {
+    const planId = await plan({
+      ownerAsked: { garmentIds: ['linen-shirt-beige'], words: 'the linen shirt' },
+    });
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: GOOD_PIECES,
+        rationale: 'Plain and easy.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('The owner asked for linen-shirt-beige and this outfit does not wear it');
+    expect(db.outfits[0]?.owner_request).toBeNull();
+  });
+});

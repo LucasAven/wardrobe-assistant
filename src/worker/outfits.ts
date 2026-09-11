@@ -275,6 +275,12 @@ function parseOwnerRequest(
     },
   );
 
+  // An empty list is no request. The words only mean something next to the
+  // garments they let in, which is the same call `readOwnerRequest` makes in
+  // public/lib/outfits.js, and the two have to agree or the card and the API
+  // disagree about whether a request exists.
+  if (honored.length === 0) return null;
+
   return {
     words: row.words,
     disagreement: typeof row.disagreement === 'string' ? row.disagreement : null,
@@ -490,6 +496,36 @@ function resolvedFrom(
  * `created_at` in particular is the UTC day `wasWorn` reads the wear log
  * against, so moving it would detach the outfit from its own day.
  */
+/**
+ * The stored request, minus whatever the swap just took off.
+ *
+ * `honored` means the requested garments this outfit is actually wearing, so a
+ * piece swapped out has to leave it. Taking the last one out takes the whole
+ * record with it: the words and the second opinion were about clothes, and with
+ * none of them left on the outfit they would argue about something nobody is
+ * wearing.
+ */
+function stillHonored(json: string | null, pieces: readonly OutfitPiece[]): string | null {
+  if (json === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+
+  const row = parsed as Record<string, unknown>;
+  const worn = new Set(pieces.map((piece) => piece.id));
+  const honored = (Array.isArray(row.honored) ? row.honored : []).filter(
+    (entry: unknown) =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      worn.has((entry as { id?: unknown }).id as string),
+  );
+  return honored.length === 0 ? null : JSON.stringify({ ...row, honored });
+}
+
 export async function swapPiece(
   db: D1Database,
   id: string,
@@ -546,6 +582,7 @@ export async function swapPiece(
   const resolved = resolvedFrom(nextPieces, wardrobe, row);
   const profile = await getProfile(db);
   const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
+  const request = stillHonored(row.owner_request, nextPieces);
 
   // One batch, so a reason can never be recorded for a swap that did not land,
   // and a swap can never land with nothing saying why.
@@ -553,7 +590,8 @@ export async function swapPiece(
     db
       .prepare(
         `UPDATE outfit
-            SET pieces = ?, cited_rules = ?, missed_rules = ?, warmth_core = ?, warmth_with_outer = ?
+            SET pieces = ?, cited_rules = ?, missed_rules = ?, warmth_core = ?, warmth_with_outer = ?,
+                owner_request = ?
           WHERE id = ?`,
       )
       .bind(
@@ -562,6 +600,7 @@ export async function swapPiece(
         JSON.stringify(checked.missed.map((rule) => rule.id)),
         checked.warmthCore,
         checked.warmthWithOuter,
+        request,
         id,
       ),
     db

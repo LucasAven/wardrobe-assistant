@@ -291,6 +291,54 @@ describe('POST /api/outfits/:id/swap', () => {
     expect((await bodyOf<{ error: string }>(response)).error).toContain('nothing in outer');
   });
 
+  it('drops a request for the piece that was swapped out, and keeps the rest', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      {
+        ...LAYERED,
+        planId: 'p1',
+        ownerRequest: {
+          words: 'the gray cardigan and the indigo jeans',
+          disagreement: 'The blazer was smarter.',
+          honored: [
+            { id: 'cardigan-gray', waived: ['season'] },
+            { id: 'jeans-indigo', waived: [] },
+          ],
+        },
+      },
+      new Date(),
+    );
+
+    const response = await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: 'too casual' });
+    const body = await bodyOf<{ outfit: SavedOutfit }>(response);
+
+    expect(response.status).toBe(200);
+    expect(body.outfit.ownerRequest?.honored.map((one) => one.id)).toEqual(['jeans-indigo']);
+    expect(body.outfit.ownerRequest?.words).toBe('the gray cardigan and the indigo jeans');
+  });
+
+  it('drops the whole request once nothing it asked for is still worn', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      {
+        ...LAYERED,
+        planId: 'p1',
+        ownerRequest: {
+          words: 'the gray cardigan',
+          disagreement: 'The blazer was smarter.',
+          honored: [{ id: 'cardigan-gray', waived: ['season'] }],
+        },
+      },
+      new Date(),
+    );
+
+    const response = await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: 'too casual' });
+
+    expect((await bodyOf<{ outfit: SavedOutfit }>(response)).outfit.ownerRequest).toBeNull();
+  });
+
   it('refuses a reason that is only blank space', async () => {
     const id = await saveLayered();
     expect((await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: '   ' })).status).toBe(400);
