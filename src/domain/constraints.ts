@@ -75,11 +75,14 @@ const RAIN_MIN_HOURS_OUTDOORS = 0.5;
 const COOLDOWN_DAYS: Readonly<Record<Slot, number>> = {
   outer: 5,
   mid: 3,
-  accessory: 3,
   top: 2,
   shoes: 2,
   bottom: 1,
   base: 1,
+  // Wearing the same ring or the same glasses every day is correct, not
+  // repetition to avoid, so nothing is ever benched here. `rankSlot` still sorts
+  // by days since worn, so the least recently worn accessory still comes first.
+  accessory: 0,
 };
 
 /**

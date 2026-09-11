@@ -213,6 +213,19 @@ describe('cooldown', () => {
     expect(idsIn(menu, 'outer')).toContain('trench-navy');
   });
 
+  it('admits an accessory worn yesterday, and still knows when it was worn', () => {
+    const constraints = deriveConstraints(MILD_ERRANDS);
+    const recentWear: readonly WearEvent[] = [
+      { wornOn: daysBefore(AUTUMN_DAY, 1), garmentIds: ['belt-brown'] },
+    ];
+    const menu = buildMenu(WARDROBE, constraints, recentWear, 'rectangle', AUTUMN_DAY);
+    const belt = menu.bySlot.accessory.find((entry) => entry.garment.id === 'belt-brown');
+
+    expect(constraints.cooldownDays.accessory).toBe(0);
+    expect(belt?.daysSince).toBe(1);
+    expect(belt?.reAdmitted).toBe(false);
+  });
+
   it('lets a jacket back once its cooldown has run out', () => {
     const constraints = deriveConstraints(MILD_ERRANDS);
     const recentWear: readonly WearEvent[] = [
