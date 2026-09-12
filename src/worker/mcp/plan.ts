@@ -17,9 +17,11 @@ import type {
   BodyType,
   Constraints,
   EventKind,
+  Admission,
   Garment,
   GarmentId,
   Menu,
+  MenuChoices,
   MenuEntry,
   Moment,
   Slot,
@@ -73,12 +75,24 @@ export interface WeatherInput {
   readonly windKph?: number | undefined;
 }
 
+/**
+ * A garment the owner asked for by name, and the words they asked in. One
+ * object rather than two fields, so a waiver can never exist without the words
+ * that justify it: that pairing is the only thing standing between an override
+ * and a filter the composer turned off by itself.
+ */
+export interface OwnerAsked {
+  readonly garmentIds: readonly string[];
+  readonly words: string;
+}
+
 export interface PlanRequest {
   readonly event: EventKind;
   readonly timeOfDay: TimeOfDay;
   readonly hoursOutdoors: number;
   readonly mood?: string | undefined;
   readonly weather?: WeatherInput | undefined;
+  readonly ownerAsked?: OwnerAsked | undefined;
 }
 
 export interface Plan {
@@ -87,6 +101,7 @@ export interface Plan {
   readonly weather: WeatherResponse;
   readonly constraints: Constraints;
   readonly menu: Menu;
+  readonly ownerAsked: OwnerAsked | null;
 }
 
 /** Why no plan exists, written for the caller to act on rather than to log. */
@@ -169,15 +184,18 @@ export async function buildPlan(
     recentWear(env.DB, day(new Date(now.getTime() - WEAR_WINDOW_DAYS * MS_PER_DAY))),
   ]);
 
+  const ownerAsked = request.ownerAsked ?? null;
+
   const menu = buildMenu(
     stored.map((row) => row.garment),
     constraints,
     recent,
     profile.bodyType,
     now,
+    ownerAsked?.garmentIds ?? [],
   );
 
-  return { profile, moment, weather, constraints, menu };
+  return { profile, moment, weather, constraints, menu, ownerAsked };
 }
 
 // ---------------------------------------------------------------------------
@@ -185,10 +203,22 @@ export async function buildPlan(
 // ---------------------------------------------------------------------------
 
 export interface StoredPlan {
-  readonly menu: Menu;
+  /**
+   * Only what `save_outfit` resolves against. A plan's `heldBack` and `refused`
+   * are its own report to the composer and die with the call that made them, so
+   * carrying them to KV would only give a later reader a second list to confuse
+   * with the menu.
+   */
+  readonly menu: MenuChoices;
   readonly constraints: Constraints;
   readonly bodyType: BodyType;
   readonly event: EventKind;
+  /**
+   * Captured here rather than asked for again at save time. The words are the
+   * owner's, so the composer gets to report them once and never to revise them
+   * into something the waivers fit better.
+   */
+  readonly ownerAsked: OwnerAsked | null;
 }
 
 /**
@@ -211,18 +241,29 @@ const GarmentSchema = GarmentDraftSchema.omit({ uncertain: true })
     }),
   );
 
+const AdmissionSchema = z
+  .discriminatedUnion('by', [
+    z.object({ by: z.literal('rested') }),
+    z.object({ by: z.literal('starved_slot') }),
+    z.object({
+      by: z.literal('owner_asked'),
+      waived: z.array(z.enum(['season', 'formality', 'rain', 'cooldown'])),
+    }),
+  ])
+  .transform((value): Admission => value);
+
 /** `Infinity` has no JSON spelling, so a never-worn garment stores as `null`. */
 const MenuEntrySchema = z
   .object({
     garment: GarmentSchema,
     daysSince: z.number().nullable(),
-    reAdmitted: z.boolean(),
+    admittedBy: AdmissionSchema,
   })
   .transform(
     (entry): MenuEntry => ({
       garment: entry.garment,
       daysSince: entry.daysSince ?? Infinity,
-      reAdmitted: entry.reAdmitted,
+      admittedBy: entry.admittedBy,
     }),
   );
 
@@ -258,11 +299,14 @@ const StoredPlanSchema = z
         shoes: z.array(MenuEntrySchema),
         accessory: z.array(MenuEntrySchema),
       }),
-      starved: z.array(z.enum(['base', 'bottom', 'shoes'])),
     }),
     constraints: ConstraintsSchema,
     bodyType: z.enum(['rectangle', 'triangle', 'inverted_triangle', 'circular']),
     event: z.enum(EVENTS),
+    ownerAsked: z
+      .object({ garmentIds: z.array(z.string()), words: z.string() })
+      .nullable()
+      .transform((value): OwnerAsked | null => value),
   })
   .transform((value): StoredPlan => value);
 
@@ -272,14 +316,15 @@ function forStorage(plan: StoredPlan): unknown {
     bySlot[slot] = plan.menu.bySlot[slot].map((entry) => ({
       garment: entry.garment,
       daysSince: Number.isFinite(entry.daysSince) ? entry.daysSince : null,
-      reAdmitted: entry.reAdmitted,
+      admittedBy: entry.admittedBy,
     }));
   }
   return {
-    menu: { bySlot, starved: plan.menu.starved },
+    menu: { bySlot },
     constraints: plan.constraints,
     bodyType: plan.bodyType,
     event: plan.event,
+    ownerAsked: plan.ownerAsked,
   };
 }
 

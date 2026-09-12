@@ -1166,3 +1166,41 @@ test('the screens hit the routes the worker registers', async () => {
   assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
   assert.equal(calls[10].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
 });
+
+const REQUEST = {
+  words: 'I want to wear the beige linen shirt',
+  disagreement: 'I would have kept the oxford.',
+  honored: [{ id: 't1', subtype: 'linen shirt', waived: ['season'] }],
+};
+
+test("an owner's request is read whole, or not at all", () => {
+  const read = readOutfit({ ...SAVED, ownerRequest: REQUEST });
+  assert.deepEqual(read.ownerRequest, REQUEST);
+
+  assert.equal(readOutfit(SAVED).ownerRequest, null, 'an outfit nobody overrode a filter for');
+  assert.equal(
+    readOutfit({ ...SAVED, ownerRequest: { ...REQUEST, words: '' } }).ownerRequest,
+    null,
+    'a waiver with no words behind it is the one thing this section must never draw',
+  );
+  assert.equal(
+    readOutfit({ ...SAVED, ownerRequest: { ...REQUEST, honored: [] } }).ownerRequest,
+    null,
+    'words with nothing they let in say nothing',
+  );
+});
+
+test('a waiver code the app does not know is dropped, not drawn', () => {
+  const read = readOutfit({
+    ...SAVED,
+    ownerRequest: { ...REQUEST, honored: [{ id: 't1', waived: ['season', 'vibes'] }] },
+  });
+
+  assert.deepEqual(read.ownerRequest.honored, [{ id: 't1', subtype: null, waived: ['season'] }]);
+  assert.equal(
+    readOutfit({ ...SAVED, ownerRequest: { words: 'x', honored: [{ id: 't1' }] } }).ownerRequest
+      .disagreement,
+    '',
+    'a request with no second opinion still draws',
+  );
+});

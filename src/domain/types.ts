@@ -217,13 +217,61 @@ export interface WearEvent {
 // Menu
 // ---------------------------------------------------------------------------
 
+/**
+ * A filter an owner's request is allowed to override, and nothing else. Every
+ * one of these is a fact about today: what season it is, what the day asks for,
+ * whether it rains, how recently the garment was worn. A book dont is a fact
+ * about the owner's body, it does not change between Tuesday and Friday, and it
+ * is the one filter no request waives.
+ */
+export type Waived = 'season' | 'formality' | 'rain' | 'cooldown';
+
+/**
+ * Why a garment is in the menu. `rested` is the ordinary answer and is what the
+ * menu's guarantee is about. The other two are the two exceptions, and each one
+ * is told to the model rather than hidden, because a garment that is here by
+ * exception is a garment the model should have an opinion about.
+ */
+export type Admission =
+  | { readonly by: 'rested' }
+  /** Cooldown waived because a required slot would otherwise have emptied. */
+  | { readonly by: 'starved_slot' }
+  /** The owner named this garment, so the filters it fails were waived for it. */
+  | { readonly by: 'owner_asked'; readonly waived: readonly Waived[] };
+
 export interface MenuEntry {
   readonly garment: Garment;
   /** `Infinity` when never worn, so it sorts first with no special case. */
   readonly daysSince: number;
-  /** Cooldown waived because the slot would otherwise have emptied. */
-  readonly reAdmitted: boolean;
+  readonly admittedBy: Admission;
 }
+
+/**
+ * A garment a filter removed, and what removed it. The menu's shadow.
+ *
+ * It exists so an owner can ask for a garment by name at all. Nothing outside
+ * the menu has a visible id, so without this the override could only reach
+ * garments it did not need to reach. Held back is not admitted: `resolveOutfit`
+ * reads `bySlot` and never this, so naming one of these in an outfit fails the
+ * same way naming a garment that does not exist fails.
+ */
+export interface HeldBack {
+  readonly garment: Garment;
+  /** Every filter this garment fails, so the owner is told the whole cost of asking. */
+  readonly why: readonly Waived[];
+  /** Book donts it fails, by rule id. These are the ones a request cannot waive. */
+  readonly bookDonts: readonly string[];
+}
+
+/** A garment the owner asked for that the menu would not admit even so. */
+export type RefusedRequest =
+  | { readonly kind: 'not_in_wardrobe'; readonly id: string }
+  | {
+      readonly kind: 'book_dont';
+      readonly id: string;
+      readonly subtype: string;
+      readonly ruleId: string;
+    };
 
 /**
  * The invariant everything rests on. Every entry already satisfies every
@@ -231,11 +279,29 @@ export interface MenuEntry {
  * under-formal, out of season, wrong for rain, or against a book dont that no
  * other garment could cover. The donts about how a covered layer looks are
  * `require` OutfitRules, checked by `certify`.
+ *
+ * The one hole in that is deliberate and is named in every entry: a garment the
+ * owner asked for by name carries `admittedBy.by === 'owner_asked'` and the list
+ * of filters it failed. Book donts are never on that list, so `certify` still
+ * enforces every `require` rule without a waiver to know about.
  */
 export interface Menu {
+  /** The guarantee above is about these entries and about nothing else in here. */
   readonly bySlot: Readonly<Record<Slot, readonly MenuEntry[]>>;
   readonly starved: readonly RequiredSlot[];
+  /** What the filters removed. Shown to the model, never resolvable against. */
+  readonly heldBack: readonly HeldBack[];
+  /** Requests that were not honored, so a dropped one is never silent. */
+  readonly refused: readonly RefusedRequest[];
 }
+
+/**
+ * The half of a Menu an outfit is resolved against, which is the half that
+ * carries the guarantee. `heldBack` and `refused` are the plan call's report to
+ * the composer and nothing resolves against them, so a stored plan keeps this
+ * much and lets the rest go.
+ */
+export type MenuChoices = Pick<Menu, 'bySlot'>;
 
 // ---------------------------------------------------------------------------
 // Outfits

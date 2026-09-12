@@ -1,5 +1,5 @@
 /**
- * The six connector tools, driven without a transport: every tool is parsed and
+ * The seven connector tools, driven without a transport: every tool is parsed and
  * run the way `tools/call` would run it, and nothing here opens a socket.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { BodyProfile } from '../src/domain/types';
 import type { Env } from '../src/worker/env';
 import { wardrobeTools } from '../src/worker/mcp/tools';
+import { MAX_OUTFITS } from '../src/worker/outfits';
 import type { ToolSpec } from '../src/worker/mcp/tools';
 import { AUTUMN_DAY, WARDROBE, makeGarment } from './fixtures';
 import { FAKE_IMAGES, FAKE_PHOTOS, FakeDb, FakeKv, garmentRow } from './stubs/fake-env';
@@ -93,8 +94,8 @@ function corrected(row: Record<string, unknown>): void {
   db.feedback.push({ outfit_id: 'o1', created_at: '2026-05-10T07:30:00.000Z', ...row });
 }
 
-async function plan(): Promise<string> {
-  const result = await tool('plan_outfit').call(MOMENT);
+async function plan(args: Record<string, unknown> = {}): Promise<string> {
+  const result = await tool('plan_outfit').call({ ...MOMENT, ...args });
   const planId = /PLAN (\S+)/.exec(textOf(result))?.[1];
   if (planId === undefined) throw new Error(`no planId in:\n${textOf(result)}`);
   return planId;
@@ -106,13 +107,14 @@ beforeEach(() => {
 });
 
 describe('the tool surface', () => {
-  it('exposes exactly the six tools the design names, each with a real description', () => {
+  it('exposes exactly the seven tools the design names, each with a real description', () => {
     expect([...tools.keys()]).toEqual([
       'wardrobe_status',
       'next_untagged',
       'set_garment_tags',
       'plan_outfit',
       'save_outfit',
+      'past_outfits',
       'log_wear',
     ]);
     for (const spec of tools.values()) {
@@ -133,6 +135,7 @@ describe('argument schemas', () => {
       rationale: 'Layered for a mild morning.',
       citedRules: ['rect-01'],
     },
+    past_outfits: { limit: 3, from: '2026-09-01', to: '2026-09-11' },
     log_wear: { garmentIds: ['tee-white'] },
   };
 
@@ -147,6 +150,7 @@ describe('argument schemas', () => {
       rationale: 'x',
       citedRules: ['rect-01'],
     },
+    past_outfits: { from: 'last friday' },
     log_wear: { garmentIds: [] },
   };
 
@@ -304,12 +308,14 @@ describe('plan_outfit', () => {
 
   it('lists the menu and says that nothing outside it may be named', async () => {
     const text = textOf(await tool('plan_outfit').call(MOMENT));
+    const menu = text.slice(text.indexOf('THE MENU'), text.indexOf('HELD BACK BY TODAY'));
 
     expect(text).toContain('THE MENU');
     expect(text).toContain('Every garment you may name, and nothing else.');
-    expect(text).toContain('tee-white | cotton t-shirt');
-    // Summer only, so an autumn menu cannot hold it.
-    expect(text).not.toContain('tank-gray |');
+    expect(menu).toContain('tee-white | cotton t-shirt');
+    // Summer only, so an autumn menu cannot hold it. It is still named further
+    // down, under held back, which is the one place an unusable id is allowed.
+    expect(menu).not.toContain('tank-gray |');
   });
 
   it('says what each accessory is, so four rings do not read as four of one thing', async () => {
@@ -528,5 +534,317 @@ describe('log_wear', () => {
 
     expect(result.isError).toBe(true);
     expect(db.wear).toHaveLength(0);
+  });
+});
+
+describe("an owner's request, through the connector", () => {
+  /** Spring and summer only, so an autumn plan cannot offer it without being asked. */
+  const ASKED = {
+    ownerAsked: { garmentIds: ['linen-shirt-beige'], words: 'I want to wear the beige linen shirt' },
+  };
+  const WITH_ASKED = { ...GOOD_PIECES, top: 'linen-shirt-beige' };
+
+  it('lists what today held back, apart from the menu and marked as unusable', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('HELD BACK BY TODAY, AND NOT IN THE MENU');
+    expect(text).toContain('linen-shirt-beige | linen shirt | beige | top | out of season');
+    expect(text).toContain('throws away the whole outfit');
+  });
+
+  it('says a guide ban is one a request cannot turn off, in the held back list itself', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain("the guide's rect-05a, which a request cannot override");
+  });
+
+  it("quotes the owner's words back and names the filter the request turned off", async () => {
+    const text = textOf(await tool('plan_outfit').call({ ...MOMENT, ...ASKED }));
+
+    expect(text).toContain('WHAT THE OWNER ASKED FOR');
+    expect(text).toContain('They said: "I want to wear the beige linen shirt"');
+    expect(text).toContain('there only because they asked. It is out of season');
+  });
+
+  it('puts the asked-for garment in the menu, which is what makes it savable', async () => {
+    const text = textOf(await tool('plan_outfit').call({ ...MOMENT, ...ASKED }));
+    const menu = text.slice(text.indexOf('THE MENU'), text.indexOf('HELD BACK BY TODAY'));
+
+    expect(menu).toContain('linen-shirt-beige | linen shirt');
+    expect(menu).toContain('the owner asked for this one and it is here only because they did');
+  });
+
+  it('reports a request the guide refuses instead of quietly dropping it', async () => {
+    const text = textOf(
+      await tool('plan_outfit').call({
+        ...MOMENT,
+        ownerAsked: { garmentIds: ['jeans-black-skinny'], words: 'the black skinny jeans' },
+      }),
+    );
+
+    expect(text).toContain("not admitted. It breaks the guide's rect-05a");
+    expect(text).toContain('a request does not override the guide');
+  });
+
+  it('stores the words, the waiver and the second opinion on the outfit it saved', async () => {
+    const planId = await plan(ASKED);
+    const result = await tool('save_outfit').call({
+      planId,
+      pieces: WITH_ASKED,
+      rationale: 'Light and easy.',
+      citedRules: [],
+      disagreement: 'I would have kept the oxford, linen reads thin for sixteen degrees.',
+    });
+
+    expect(result.isError).toBeFalsy();
+    const stored = JSON.parse(String(db.outfits[0]?.owner_request));
+    expect(stored.words).toBe('I want to wear the beige linen shirt');
+    expect(stored.disagreement).toContain('oxford');
+    expect(stored.honored).toEqual([{ id: 'linen-shirt-beige', waived: ['season'] }]);
+  });
+
+  it('says out loud when a filter was waived and no second opinion was written', async () => {
+    const planId = await plan(ASKED);
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: WITH_ASKED,
+        rationale: 'Light and easy.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('No second opinion was written');
+  });
+
+  it('records nothing when the composer did not use what was asked for', async () => {
+    const planId = await plan(ASKED);
+    await tool('save_outfit').call({
+      planId,
+      pieces: GOOD_PIECES,
+      rationale: 'Plain and easy.',
+      citedRules: [],
+    });
+
+    expect(db.outfits[0]?.owner_request).toBeNull();
+  });
+
+  /**
+   * The whole hole in the menu, tested from the outside. A request waives the
+   * four filters that are about today and nothing else, so the warmth sum and
+   * the guide's donts still reject an outfit built on one.
+   */
+  it('still rejects a requested garment that breaks the warmth band or a guide dont', async () => {
+    const planId = await plan({
+      ownerAsked: { garmentIds: ['knit-cream-heavy'], words: 'the cream knit' },
+    });
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: { ...GOOD_PIECES, mid: 'knit-cream-heavy' },
+        rationale: 'Warm.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('Rejected. Nothing was stored.');
+    expect(text).toContain('core warmth came to 7');
+    expect(text).toContain('rect-06b');
+  });
+});
+
+describe('a request the outfit did not honor', () => {
+  it('is said out loud rather than stored as something that happened', async () => {
+    const planId = await plan({
+      ownerAsked: { garmentIds: ['linen-shirt-beige'], words: 'the linen shirt' },
+    });
+    const text = textOf(
+      await tool('save_outfit').call({
+        planId,
+        pieces: GOOD_PIECES,
+        rationale: 'Plain and easy.',
+        citedRules: [],
+      }),
+    );
+
+    expect(text).toContain('The owner asked for linen-shirt-beige and this outfit does not wear it');
+    expect(db.outfits[0]?.owner_request).toBeNull();
+  });
+});
+
+describe('past_outfits', () => {
+  /** Saved straight into the table `past_outfits` reads, the way `corrected` does. */
+  function savedOutfit(row: Record<string, unknown>): void {
+    db.outfits.push({
+      id: 'o-x',
+      plan_id: 'p1',
+      event: 'work',
+      pieces: JSON.stringify([
+        { slot: 'base', id: 'tee-white' },
+        { slot: 'bottom', id: 'jeans-indigo' },
+        { slot: 'shoes', id: 'sneakers-white' },
+        { slot: 'accessory', id: 'belt-brown' },
+      ]),
+      rationale: 'Plain and easy for a mild morning.',
+      cited_rules: JSON.stringify(['rect-01']),
+      missed_rules: JSON.stringify(['rect-02']),
+      warmth_core: 1,
+      warmth_with_outer: 1,
+      owner_request: null,
+      created_at: '2026-09-04T08:00:00.000Z',
+      ...row,
+    });
+  }
+
+  it('says what day it is before anything else, because the model cannot know', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text.startsWith('TODAY IS 2026-05-12, UTC.')).toBe(true);
+    expect(text).toContain('Measure any day the owner named from it.');
+  });
+
+  it('reads the newest few and names every piece by id and by name', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('2026-09-04 | work | not logged as worn');
+    expect(text).toContain('base      tee-white | cotton t-shirt');
+    expect(text).toContain('accessory belt-brown | leather belt');
+    expect(text).toContain('"Plain and easy for a mild morning."');
+    expect(text).toContain('follows rect-01');
+    expect(text).toContain('misses rect-02');
+    expect(text).toContain('warmth 1 at the core, 1 with the outer layer');
+  });
+
+  it('says how many matched, so three out of eight does not read as all of them', async () => {
+    for (let day = 1; day <= 8; day += 1) {
+      savedOutfit({ id: `o-${day}`, created_at: `2026-09-0${day}T08:00:00.000Z` });
+    }
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('3 of 8 outfits in the whole history, newest first');
+    expect(text).toContain('Call again with a higher limit');
+  });
+
+  it('reads one day when from and to are the same', async () => {
+    savedOutfit({ id: 'o-1', created_at: '2026-09-04T08:00:00.000Z' });
+    savedOutfit({ id: 'o-2', created_at: '2026-09-05T08:00:00.000Z' });
+    const text = textOf(await tool('past_outfits').call({ from: '2026-09-04', to: '2026-09-04' }));
+
+    expect(text).toContain('1 outfit on 2026-09-04, newest first.');
+    expect(text).not.toContain('2026-09-05');
+  });
+
+  it('reads a range, and counts the day at each end as inside it', async () => {
+    for (let day = 1; day <= 5; day += 1) {
+      savedOutfit({ id: `o-${day}`, created_at: `2026-09-0${day}T08:00:00.000Z` });
+    }
+    const text = textOf(
+      await tool('past_outfits').call({ from: '2026-09-02', to: '2026-09-04', limit: 20 }),
+    );
+
+    expect(text).toContain('3 outfits between 2026-09-02 and 2026-09-04, newest first.');
+  });
+
+  it('says what it searched when it found nothing', async () => {
+    const text = textOf(await tool('past_outfits').call({ from: '2026-01-01', to: '2026-01-31' }));
+
+    expect(text).toContain('No saved outfits between 2026-01-01 and 2026-01-31.');
+    expect(text).toContain('an outfit that was only talked about is not one this can find');
+  });
+
+  it('carries the corrections and the request, which is why the tool exists', async () => {
+    savedOutfit({
+      owner_request: JSON.stringify({
+        words: 'I want the beige linen shirt',
+        disagreement: 'The oxford was warmer.',
+        honored: [{ id: 'linen-shirt-beige', waived: ['season'] }],
+      }),
+    });
+    db.feedback.push({
+      outfit_id: 'o-x',
+      slot: 'bottom',
+      from_id: 'jeans-indigo',
+      to_id: 'chinos-stone',
+      reason: 'the jeans were too warm',
+      created_at: '2026-09-04T09:00:00.000Z',
+    });
+
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('they asked: "I want the beige linen shirt"');
+    expect(text).toContain('linen shirt (linen-shirt-beige), in only because they asked: out of season');
+    expect(text).toContain('you said back: "The oxford was warmer."');
+    expect(text).toContain('they changed bottom: jeans out, chinos in. "the jeans were too warm"');
+  });
+
+  it("says these ids are not today's menu, which is the mistake it would otherwise cause", async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain("the same string everywhere in this app");
+    expect(text).toContain("plan_outfit's ownerAsked");
+  });
+
+  it('refuses a date it cannot read rather than searching for nothing', async () => {
+    const result = await tool('past_outfits').call({ from: 'last friday' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('YYYY-MM-DD');
+  });
+});
+
+describe('what past_outfits says when the read is partial or impossible', () => {
+  function savedOn(day: string, id: string): void {
+    db.outfits.push({
+      id, plan_id: 'p1', event: 'work',
+      pieces: JSON.stringify([{ slot: 'base', id: 'tee-white' }, { slot: 'bottom', id: 'jeans-indigo' }]),
+      rationale: 'Plain.', cited_rules: '[]', missed_rules: '[]',
+      warmth_core: 1, warmth_with_outer: 1, owner_request: null,
+      created_at: `${day}T08:00:00.000Z`,
+    });
+  }
+
+  it('points at the date range rather than a limit it would refuse', async () => {
+    for (let n = 1; n <= 25; n += 1) savedOn(`2026-09-${String(n).padStart(2, '0')}`, `o-${n}`);
+    const text = textOf(await tool('past_outfits').call({ limit: MAX_OUTFITS }));
+
+    expect(text).toContain(`${MAX_OUTFITS} of 25 outfits`);
+
+    expect(text).not.toContain('Call again with a higher limit');
+    expect(text).toContain('narrow it with from and to');
+  });
+
+  it('offers a higher limit while one is still available', async () => {
+    for (let n = 1; n <= 9; n += 1) savedOn(`2026-09-0${n}`, `o-${n}`);
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain(`Call again with a higher limit for the rest, up to ${MAX_OUTFITS}.`);
+  });
+
+  it('says a backwards range is backwards instead of reporting an empty wardrobe', async () => {
+    savedOn('2026-09-04', 'o-1');
+    const result = await tool('past_outfits').call({ from: '2026-09-10', to: '2026-09-01' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('the range runs backwards');
+    expect(textOf(result)).not.toContain('No saved outfits');
+  });
+
+  it('names a garment archived since, so the outfit is not short a slot', async () => {
+    savedOn('2026-09-04', 'o-1');
+    db.garments = db.garments.filter((row) => row.id !== 'jeans-indigo');
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('bottom    jeans-indigo | gone from the wardrobe since');
+    expect(text).toContain('base      tee-white | cotton t-shirt');
+  });
+
+  it('says an outfit misses nothing rather than saying nothing about what it misses', async () => {
+    savedOn('2026-09-04', 'o-1');
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('misses none of the guide preferences for this body');
   });
 });

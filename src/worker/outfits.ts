@@ -11,7 +11,7 @@
 
 import { RULES_BY_ID } from '../domain/bookRules';
 import { recheck } from '../domain/certify';
-import type { EventKind, Garment, ResolvedOutfit, Slot } from '../domain/types';
+import type { EventKind, Garment, ResolvedOutfit, Slot, Waived } from '../domain/types';
 import { ruleView } from './compose';
 import type { OutfitView, RuleView } from './contract';
 import { getProfile } from './profile';
@@ -70,6 +70,37 @@ export interface OutfitPiece {
   readonly id: string;
 }
 
+/** One garment the owner asked for, and the filters admitting it turned off. */
+export interface Waiver {
+  readonly id: string;
+  /** Empty when the garment passed today's filters anyway and the request changed nothing. */
+  readonly waived: readonly Waived[];
+}
+
+/**
+ * An owner's request as it is stored. The words are theirs, captured when the
+ * plan was made, so the outfit records what was asked rather than a later
+ * account of it.
+ */
+export interface NewOwnerRequest {
+  readonly words: string;
+  /** The composer's own read on the pieces it was asked for. Null when it wrote none. */
+  readonly disagreement: string | null;
+  /** Only the requested garments this outfit actually wears. */
+  readonly honored: readonly Waiver[];
+}
+
+/** The same, as the app reads it. `subtype` is null for a garment archived since. */
+export interface HonoredRequest extends Waiver {
+  readonly subtype: string | null;
+}
+
+export interface OwnerRequest {
+  readonly words: string;
+  readonly disagreement: string | null;
+  readonly honored: readonly HonoredRequest[];
+}
+
 export interface NewOutfit {
   readonly planId: string;
   readonly event: EventKind;
@@ -79,6 +110,8 @@ export interface NewOutfit {
   readonly missedRules: readonly string[];
   readonly warmthCore: number;
   readonly warmthWithOuter: number;
+  /** Null for the ordinary outfit, which is one nobody overrode a filter for. */
+  readonly ownerRequest: NewOwnerRequest | null;
 }
 
 export async function insertOutfit(
@@ -90,8 +123,8 @@ export async function insertOutfit(
   await db
     .prepare(
       `INSERT INTO outfit
-         (id, plan_id, event, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, plan_id, event, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, owner_request, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -103,6 +136,7 @@ export async function insertOutfit(
       JSON.stringify(outfit.missedRules),
       outfit.warmthCore,
       outfit.warmthWithOuter,
+      outfit.ownerRequest === null ? null : JSON.stringify(outfit.ownerRequest),
       // ISO rather than SQLite's `datetime('now')`, so the first ten characters
       // are the same UTC day the wear log writes and the two can be compared.
       savedAt.toISOString(),
@@ -142,6 +176,18 @@ export interface SavedOutfit extends OutfitView {
    * are the record, so no column repeats it.
    */
   readonly corrections: readonly Correction[];
+  /**
+   * Pieces whose garment has been archived since. The card cannot draw one, it
+   * has no photo left, but leaving them out of a reader's count would show an
+   * outfit missing a slot every outfit is required to have.
+   */
+  readonly gone: readonly OutfitPiece[];
+  /**
+   * What the owner asked for by name on the day this was planned, and what
+   * admitting it turned off. Null for every outfit nobody overrode a filter for,
+   * which is almost all of them.
+   */
+  readonly ownerRequest: OwnerRequest | null;
 }
 
 interface OutfitRow {
@@ -153,6 +199,7 @@ interface OutfitRow {
   readonly missed_rules: string;
   readonly warmth_core: number;
   readonly warmth_with_outer: number;
+  readonly owner_request: string | null;
   readonly created_at: string;
 }
 
@@ -196,6 +243,55 @@ function named(
   wardrobe: ReadonlyMap<string, Garment>,
 ): { readonly id: string; readonly subtype: string | null } {
   return { id, subtype: wardrobe.get(id)?.subtype ?? null };
+}
+
+const WAIVED: readonly Waived[] = ['season', 'formality', 'rain', 'cooldown'];
+
+/**
+ * Read the way `parsePieces` reads its column: this app wrote the JSON, but a
+ * row written by an older version of it is still a row this one has to draw.
+ * Anything unreadable comes back as no request rather than as a broken one.
+ */
+function parseOwnerRequest(
+  json: string | null,
+  wardrobe: ReadonlyMap<string, Garment>,
+): OwnerRequest | null {
+  if (json === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+
+  const row = parsed as Record<string, unknown>;
+  if (typeof row.words !== 'string' || row.words === '') return null;
+
+  const honored = (Array.isArray(row.honored) ? row.honored : []).flatMap(
+    (entry: unknown): HonoredRequest[] => {
+      if (entry === null || typeof entry !== 'object') return [];
+      const one = entry as Record<string, unknown>;
+      if (typeof one.id !== 'string') return [];
+      const waived = (Array.isArray(one.waived) ? one.waived : []).filter(
+        (value: unknown): value is Waived =>
+          typeof value === 'string' && WAIVED.includes(value as Waived),
+      );
+      return [{ id: one.id, subtype: wardrobe.get(one.id)?.subtype ?? null, waived }];
+    },
+  );
+
+  // An empty list is no request. The words only mean something next to the
+  // garments they let in, which is the same call `readOwnerRequest` makes in
+  // public/lib/outfits.js, and the two have to agree or the card and the API
+  // disagree about whether a request exists.
+  if (honored.length === 0) return null;
+
+  return {
+    words: row.words,
+    disagreement: typeof row.disagreement === 'string' ? row.disagreement : null,
+    honored,
+  };
 }
 
 function toCorrection(
@@ -255,7 +351,8 @@ function toSaved(
   const hydrated = stored.flatMap((piece) => {
     const garment = wardrobe.get(piece.id);
     // A garment archived after the outfit was saved drops out of the render
-    // rather than taking the whole outfit down with it.
+    // rather than taking the whole outfit down with it. It is still named in
+    // `gone`, so a reader is not shown an outfit that is short a slot.
     return garment === undefined ? [] : [{ slot: piece.slot, garment }];
   });
 
@@ -270,8 +367,10 @@ function toSaved(
     missed: ruleViews(ruleIds(row.missed_rules)),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
+    gone: stored.filter((piece) => !wardrobe.has(piece.id)),
     worn: wasWorn(stored, row.created_at, byDay),
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe)),
+    ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
 }
 
@@ -336,12 +435,67 @@ export async function todayOutfit(db: D1Database, now: Date): Promise<SavedOutfi
   return hydrated[0] ?? null;
 }
 
-export async function recentOutfits(db: D1Database, limit: number): Promise<readonly SavedOutfit[]> {
-  const result = await db
-    .prepare('SELECT * FROM outfit ORDER BY created_at DESC LIMIT ?')
-    .bind(Math.min(Math.max(Math.trunc(limit), 1), MAX_OUTFITS))
+/**
+ * Which outfits to read. Days are `YYYY-MM-DD` and UTC, the same day the wear
+ * log writes, and both ends are inclusive. Leaving both out reads the newest
+ * `limit`.
+ */
+export interface OutfitQuery {
+  readonly limit: number;
+  readonly from?: string | undefined;
+  readonly to?: string | undefined;
+}
+
+/**
+ * `total` counts everything in the range and ignores `limit`, so a caller that
+ * asked for three out of eight is told there are eight rather than left to
+ * assume it saw all of them.
+ */
+export interface OutfitPage {
+  readonly outfits: readonly SavedOutfit[];
+  readonly total: number;
+}
+
+/**
+ * The range is compared on the day rather than on the whole timestamp. It is
+ * the same first ten characters `dayOf` reads, so a caller never has to know
+ * that the column holds a time as well, and it cannot pick up an outfit saved
+ * late on the day before the range starts.
+ */
+function rangeOf(query: OutfitQuery): { readonly where: string; readonly binds: readonly string[] } {
+  const clauses: string[] = [];
+  const binds: string[] = [];
+  if (query.from !== undefined) {
+    clauses.push('substr(created_at, 1, 10) >= ?');
+    binds.push(query.from);
+  }
+  if (query.to !== undefined) {
+    clauses.push('substr(created_at, 1, 10) <= ?');
+    binds.push(query.to);
+  }
+  return { where: clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`, binds };
+}
+
+export async function readOutfits(db: D1Database, query: OutfitQuery): Promise<OutfitPage> {
+  const { where, binds } = rangeOf(query);
+  const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_OUTFITS);
+
+  const page = await db
+    .prepare(`SELECT * FROM outfit${where} ORDER BY created_at DESC LIMIT ?`)
+    .bind(...binds, limit)
     .all<OutfitRow>();
-  return hydrate(db, result.results);
+  const outfits = await hydrate(db, page.results);
+
+  // A short page is the whole of the range, so counting it again would be a
+  // second read of the table to learn a number already in hand. The web app's
+  // history screen asks for the maximum and takes this path every time.
+  if (page.results.length < limit) return { outfits, total: outfits.length };
+
+  const counted = await db
+    .prepare(`SELECT count(*) AS total FROM outfit${where}`)
+    .bind(...binds)
+    .first<{ total: number }>();
+  return { outfits, total: counted?.total ?? outfits.length };
 }
 
 async function outfitRow(db: D1Database, id: string): Promise<OutfitRow | null> {
@@ -405,6 +559,36 @@ function resolvedFrom(
  * `created_at` in particular is the UTC day `wasWorn` reads the wear log
  * against, so moving it would detach the outfit from its own day.
  */
+/**
+ * The stored request, minus whatever the swap just took off.
+ *
+ * `honored` means the requested garments this outfit is actually wearing, so a
+ * piece swapped out has to leave it. Taking the last one out takes the whole
+ * record with it: the words and the second opinion were about clothes, and with
+ * none of them left on the outfit they would argue about something nobody is
+ * wearing.
+ */
+function stillHonored(json: string | null, pieces: readonly OutfitPiece[]): string | null {
+  if (json === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object') return null;
+
+  const row = parsed as Record<string, unknown>;
+  const worn = new Set(pieces.map((piece) => piece.id));
+  const honored = (Array.isArray(row.honored) ? row.honored : []).filter(
+    (entry: unknown) =>
+      entry !== null &&
+      typeof entry === 'object' &&
+      worn.has((entry as { id?: unknown }).id as string),
+  );
+  return honored.length === 0 ? null : JSON.stringify({ ...row, honored });
+}
+
 export async function swapPiece(
   db: D1Database,
   id: string,
@@ -461,6 +645,7 @@ export async function swapPiece(
   const resolved = resolvedFrom(nextPieces, wardrobe, row);
   const profile = await getProfile(db);
   const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
+  const request = stillHonored(row.owner_request, nextPieces);
 
   // One batch, so a reason can never be recorded for a swap that did not land,
   // and a swap can never land with nothing saying why.
@@ -468,7 +653,8 @@ export async function swapPiece(
     db
       .prepare(
         `UPDATE outfit
-            SET pieces = ?, cited_rules = ?, missed_rules = ?, warmth_core = ?, warmth_with_outer = ?
+            SET pieces = ?, cited_rules = ?, missed_rules = ?, warmth_core = ?, warmth_with_outer = ?,
+                owner_request = ?
           WHERE id = ?`,
       )
       .bind(
@@ -477,6 +663,7 @@ export async function swapPiece(
         JSON.stringify(checked.missed.map((rule) => rule.id)),
         checked.warmthCore,
         checked.warmthWithOuter,
+        request,
         id,
       ),
     db

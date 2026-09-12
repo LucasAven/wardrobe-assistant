@@ -81,6 +81,60 @@ function changeList(corrections) {
 }
 
 /**
+ * The same four sentences `FILTER_WORDS` holds in src/worker/compose.ts. Four
+ * fixed words rather than a table with rules in it, so the copy cannot drift
+ * into saying something the engine does not do.
+ */
+const FILTER_WORDS = {
+  season: 'out of season',
+  formality: "under the day's formality floor",
+  rain: 'not water resistant on a wet day',
+  cooldown: 'worn too recently to come back yet',
+};
+
+function honoredLine(honored) {
+  const name = honored.subtype ?? MISSING_NAME;
+  if (honored.waived.length === 0) return `${name}, which fit the day anyway`;
+  return `${name}: in only because you asked, ${honored.waived.map((one) => FILTER_WORDS[one]).join(' and ')}`;
+}
+
+/**
+ * The premise of the outfit rather than a note on it, so it sits above the
+ * rationale. What the owner said carries the section the way their reason
+ * carries a correction, and the garments it let in are the small line under it.
+ */
+function requestSection(request) {
+  return el('section', { class: 'section' }, [
+    el('h3', { class: 'section__title' }, 'What you asked for'),
+    el('p', { class: 'change__why' }, `"${request.words}"`),
+    el(
+      'ul',
+      { class: 'changes' },
+      request.honored.map((honored) =>
+        el('li', { class: 'change' }, el('p', { class: 'change__what' }, honoredLine(honored))),
+      ),
+    ),
+    el('p', { class: 'source' }, 'Your own words, as Claude wrote them down.'),
+  ]);
+}
+
+/**
+ * A fourth voice, and the only one that argues. It sits after the rationale
+ * because it is the assistant's second thought about the outfit it just
+ * explained, and under a title of its own so the two never read as one
+ * paragraph.
+ */
+function disagreementSection(request) {
+  return el('section', { class: 'section' }, [
+    el('h3', { class: 'section__title' }, 'What Claude would have changed'),
+    el('p', { class: 'rationale__text' }, request.disagreement),
+    // Not the rationale's caption again: that one says these words are the
+    // assistant's and not the book's, and the title above already said it here.
+    el('p', { class: 'source source--model' }, "The assistant's own read of what you asked for."),
+  ]);
+}
+
+/**
  * The tap is logged on the phone as well as on the server: whether saving a
  * wear also flips the outfit's own `worn` flag is the Worker's business, and
  * leaving the screen and coming back must not offer to log the same day twice.
@@ -305,6 +359,7 @@ export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
         ),
       ),
       accessories,
+      current.ownerRequest === null ? null : requestSection(current.ownerRequest),
       current.rationale === ''
         ? null
         : el('div', { class: 'rationale' }, [
@@ -317,6 +372,9 @@ export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
                 : 'The assistant wrote this for the pieces it chose, before you changed one. It is not from the book.',
             ),
           ]),
+      current.ownerRequest === null || current.ownerRequest.disagreement === ''
+        ? null
+        : disagreementSection(current.ownerRequest),
       current.corrections.length === 0 ? null : changeList(current.corrections),
       cited.length === 0
         ? null

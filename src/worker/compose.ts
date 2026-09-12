@@ -27,6 +27,7 @@ import type {
   OutfitProposal,
   RejectionReason,
   Slot,
+  Waived,
 } from '../domain/types';
 import type { OutfitView, RuleView } from './contract';
 import type { Env } from './env';
@@ -283,6 +284,22 @@ ${OUTFITS_ASKED_FOR} outfits, different from each other in more than one piece. 
 const MENU_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];
 const VIEW_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes'];
 
+/**
+ * What a filter would have said about this garment, in the words the owner would
+ * use. Shared with the plan tool, which says the same thing about the garments
+ * the filters kept out, so the two sides of one decision read alike.
+ */
+const FILTER_WORDS: Readonly<Record<Waived, string>> = {
+  season: 'out of season',
+  formality: "under today's formality floor",
+  rain: 'not water resistant on a wet day',
+  cooldown: 'worn too recently to come back yet',
+};
+
+export function waivedText(waived: readonly Waived[]): string {
+  return waived.map((one) => FILTER_WORDS[one]).join(' and ');
+}
+
 function lastWorn(entry: MenuEntry): string {
   const when =
     entry.daysSince === Infinity
@@ -292,7 +309,15 @@ function lastWorn(entry: MenuEntry): string {
         : entry.daysSince === 1
           ? 'worn yesterday'
           : `worn ${entry.daysSince} days ago`;
-  return entry.reAdmitted ? `${when}, back early because the slot would be empty` : when;
+
+  const admission = entry.admittedBy;
+  if (admission.by === 'starved_slot') return `${when}, back early because the slot would be empty`;
+  if (admission.by === 'owner_asked') {
+    return admission.waived.length === 0
+      ? `${when}, the owner asked for this one`
+      : `${when}, the owner asked for this one and it is here only because they did: it is ${waivedText(admission.waived)}`;
+  }
+  return when;
 }
 
 function garmentLine(entry: MenuEntry): string {

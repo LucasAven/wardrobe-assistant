@@ -1,9 +1,12 @@
 /**
- * The six tools the connector exposes, and their descriptions.
+ * The seven tools the connector exposes, and their descriptions.
  *
- * The descriptions are the interface. Nothing else reaches the model: there is
- * no system prompt on this path, so a fact left out of a description or a
- * result is a fact the composer does not have.
+ * The descriptions are the interface. Almost nothing else reaches the model: the
+ * one other channel is `INSTRUCTIONS` in `server.ts`, which is handed over once
+ * at initialize and decides whether a tool is reached for at all. A tool added
+ * here and left out of there is a tool the model may never look for. Everything
+ * past that first look is these descriptions, so a fact left out of one, or out
+ * of a result, is a fact the composer does not have.
  *
  * Every renderer here is borrowed from `compose.ts`, which already writes the
  * menu, the constraints, the body and the book rules for the model that used to
@@ -14,13 +17,17 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { certify, resolveOutfit } from '../../domain/certify';
-import { rulesFor } from '../../domain/bookRules';
+import { RULES_BY_ID, rulesFor } from '../../domain/bookRules';
 import type {
   BookRule,
   CertifiedOutfit,
+  HeldBack,
+  MenuChoices,
   OutfitProposal,
+  RefusedRequest,
   RejectionReason,
   Slot,
+  Waived,
 } from '../../domain/types';
 import {
   LANGUAGE_NAMES,
@@ -29,10 +36,19 @@ import {
   reasonText,
   ruleLine,
   userMessage,
+  waivedText,
 } from '../compose';
 import type { Env } from '../env';
-import type { Correction, OutfitPiece } from '../outfits';
-import { homeLocation, insertOutfit, recentCorrections } from '../outfits';
+import type {
+  Correction,
+  HonoredRequest,
+  NewOwnerRequest,
+  OutfitPiece,
+  OwnerRequest,
+  SavedOutfit,
+  Waiver,
+} from '../outfits';
+import { MAX_OUTFITS, homeLocation, insertOutfit, readOutfits, recentCorrections } from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
 import { getProfile } from '../profile';
@@ -47,7 +63,7 @@ import type { StoredGarment } from '../repo';
 import { recordWear } from '../routes/wear';
 import { VOCABULARIES } from '../vision';
 import { EVENTS, TIMES_OF_DAY, buildPlan, planFailed, readPlan, savePlan } from './plan';
-import type { PlanRequest } from './plan';
+import type { Plan, PlanRequest } from './plan';
 
 export interface ToolContext {
   readonly env: Env;
@@ -117,9 +133,9 @@ const words = (vocabulary: { readonly values: readonly string[] }): string =>
 
 const SLOT_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];
 
-const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other five tools can do anything yet.
+const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other six tools can do anything yet.
 
-It answers four questions.
+It answers five questions.
   - How many garments are stored, and how they split across the slots an outfit is built from.
   - How many are still untagged. An untagged garment is a photo nobody has described yet, so it cannot appear in any outfit. next_untagged works through them.
   - How many you have described that the owner has not confirmed yet. They are usable already, and the owner clears them on the Review screen.
@@ -337,9 +353,14 @@ What it returns:
   - the body: which of the four types the owner's styling book classifies them as, and the five mirror observations behind it.
   - the book's rules for that body type and no other, each one an id, the part of the outfit it is judged over, and the book's own reason. A rule written for another body type does not exist here, and citing one is rejected.
   - what the outfit has to satisfy: two warmth bands as numbers with what each one means, the formality floor, the season, and whether rain counts today.
-  - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. A garment id that is not in the menu throws away the whole outfit it appears in.
+  - the menu, grouped by slot. This is every garment you may name and nothing else. Formality, season, rain and the book's outright donts have already been applied to it, so anything in the menu is safe on those counts and you never have to check them. The one exception says so on its own line: a garment the owner asked for is marked as theirs and names what it failed. A garment id that is not in the menu throws away the whole outfit it appears in.
   - any required slot the wardrobe cannot fill today, in which case no outfit exists and you should say so rather than compose one.
   - what the owner has corrected by hand on outfits you saved before, and the line they wrote about each change. Read it before you compose: repeating a swap they already made is the mistake that section exists to prevent.
+  - what today's filters held back, with the id of each garment and what held it. These are not in the menu and naming one fails the save. They are listed for one reason, below.
+
+When the owner names a garment by an outfit rather than by its name, "the same jacket as last Friday", read that outfit with past_outfits first. It gives you the id, which is the only thing that lets you look the garment up here.
+
+The owner's own request is the one thing that overrides a filter. If they ask for a specific garment and it is in the held back list, call plan_outfit a second time with ownerAsked filled in. That garment then enters the menu marked as theirs, with the filters it failed named on its line, and every other garment stays filtered exactly as before. Season, the formality floor, rain and the recency cooldown are the four that a request waives. The guide's donts are not: they are about this person's body rather than about today, and save_outfit rejects an outfit that breaks one whatever the menu says. Warmth is not waived either, so the two warmth bands still hold.
 
 Weather: pass it when you know it. Leave it out and the app reads it from the owner's stored home location, and tells you plainly when no location is stored.`;
 
@@ -362,6 +383,25 @@ const PlanArgs = z.object({
     .optional()
     .describe(
       'Anything the owner said about how they want to look or feel today, in their own words. Free text, read by you and by nothing else.',
+    ),
+  ownerAsked: z
+    .object({
+      garmentIds: z
+        .array(z.string().min(1))
+        .min(1)
+        .describe(
+          'The ids of the garments they named. Take them from the held back list of an earlier plan, from a menu, or from an outfit past_outfits read back. One request covers one outfit and expires with the plan.',
+        ),
+      words: z
+        .string()
+        .min(1)
+        .describe(
+          'What the owner said, in their own words, as close to verbatim as you have them. It is stored on the outfit and shown to them next to the filters it turned off, so a sentence they did not say is a sentence they will read back.',
+        ),
+    })
+    .optional()
+    .describe(
+      'Fill this in only when the owner asked for a specific garment. It is the one thing in this app that turns a filter off, so it is theirs alone: never set it because the outfit would look better, because the menu is thin, or because you want a garment you saw earlier. A mood is not a request. "Something warm" is not a request. "I want to wear the mustard sweater" is.',
     ),
   weather: z
     .object({
@@ -425,6 +465,84 @@ function correctionsSection(corrections: readonly Correction[]): string {
   ].join('\n');
 }
 
+/**
+ * Long enough that the garment the owner has in mind is almost always on it,
+ * short enough that it never crowds out the menu it sits under.
+ */
+const HELD_BACK_SHOWN = 40;
+
+function heldBackLine(held: HeldBack): string {
+  const garment = held.garment;
+  const parts = [garment.id, garment.subtype];
+  if (garment.colors.length > 0) parts.push(garment.colors.join(' and '));
+  parts.push(garment.slot);
+  parts.push(
+    held.bookDonts.length > 0
+      ? `the guide's ${held.bookDonts.join(' and ')}, which a request cannot override`
+      : waivedText(held.why),
+  );
+  return `  ${parts.join(' | ')}`;
+}
+
+/**
+ * The menu's shadow, and the only place a garment outside the menu has a visible
+ * id. It says what it is not before it says what it is, because a list of ids
+ * next to a menu of ids is the easiest thing in this whole result to misread.
+ */
+function heldBackSection(heldBack: readonly HeldBack[]): string {
+  const shown = heldBack.slice(0, HELD_BACK_SHOWN);
+  const rest = heldBack.length - shown.length;
+  return [
+    'HELD BACK BY TODAY, AND NOT IN THE MENU',
+    'Garments this person owns that today filtered out. None of these is in the menu, so naming one in save_outfit throws away the whole outfit exactly as an invented id would. They are listed so that when the owner asks for one by name you can find its id and say which it is.',
+    'To use one, call plan_outfit again with ownerAsked. Only when they asked.',
+    '',
+    ...shown.map(heldBackLine),
+    ...(rest > 0 ? ['', `and ${rest} more that today also held back.`] : []),
+  ].join('\n');
+}
+
+function refusedLine(refused: RefusedRequest): string {
+  if (refused.kind === 'not_in_wardrobe') {
+    return `  ${refused.id}: no garment in this wardrobe has that id, so nothing was admitted for it.`;
+  }
+  const rule = RULES_BY_ID.get(refused.ruleId);
+  const because = rule === undefined ? '' : ` The guide says: ${rule.because}`;
+  return `  ${refused.subtype} (${refused.id}): not admitted. It breaks the guide's ${refused.ruleId}, and a request does not override the guide.${because}`;
+}
+
+/**
+ * What the request actually did, garment by garment. A request that changed
+ * nothing and a request that was refused both have to be visible: the whole
+ * point of this feature is that the owner gets what they asked for or is told
+ * plainly why not, and a silent drop is the one outcome that breaks it.
+ */
+function ownerAskedSection(plan: Plan): string {
+  const asked = plan.ownerAsked;
+  if (asked === null) return '';
+
+  const admitted = SLOT_ORDER.flatMap((slot) => plan.menu.bySlot[slot]).filter(
+    (entry) => asked.garmentIds.includes(entry.garment.id),
+  );
+
+  const lines = admitted.map((entry) => {
+    const waived = entry.admittedBy.by === 'owner_asked' ? entry.admittedBy.waived : [];
+    return waived.length === 0
+      ? `  ${entry.garment.subtype} (${entry.garment.id}): in the ${entry.garment.slot} menu. It passed today's filters anyway, so the request turned nothing off and there is nothing to disagree with.`
+      : `  ${entry.garment.subtype} (${entry.garment.id}): in the ${entry.garment.slot} menu, and there only because they asked. It is ${waivedText(waived)}.`;
+  });
+
+  return [
+    'WHAT THE OWNER ASKED FOR',
+    `They said: "${asked.words}"`,
+    '',
+    ...lines,
+    ...plan.menu.refused.map(refusedLine),
+    '',
+    'Compose with what they asked for. Where a line above says a filter was turned off, write the second opinion into save_outfit\'s `disagreement` field: what you would have chosen instead and why, in their language, in a sentence or two. They get what they want and your read of it, kept apart from the rationale. It is not a refusal and not a lecture. Where nothing was turned off, leave that field out.',
+  ].join('\n');
+}
+
 function planTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -444,6 +562,7 @@ function planTool(context: ToolContext): ToolSpec {
         constraints,
         bodyType: profile.bodyType,
         event: moment.event,
+        ownerAsked: plan.ownerAsked,
       });
 
       const sections = [
@@ -466,6 +585,8 @@ function planTool(context: ToolContext): ToolSpec {
       );
 
       if (corrections.length > 0) sections.push(correctionsSection(corrections));
+      if (menu.heldBack.length > 0) sections.push(heldBackSection(menu.heldBack));
+      if (plan.ownerAsked !== null) sections.push(ownerAskedSection(plan));
 
       sections.push(
         `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them. Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
@@ -491,6 +612,8 @@ What is checked here and nowhere else:
   - the accessories a body has one place for. At most one of glasses, hat, scarf, belt, bag, watch and earrings each. A ring, a chain and a bracelet may repeat as often as you like.
 
 On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new rationale for the new clothes: a rationale carried over from a rejected outfit describes something the owner is not wearing.
+
+If the plan carried an ownerAsked request, this is where the second opinion on it goes. Write it into the disagreement field. The owner is shown what they asked for and which filters it turned off whether or not you write one, so an empty field is their request standing on its own.
 
 On success you get the saved outfit's id and a link to it in the web app.`;
 
@@ -535,6 +658,12 @@ const SaveArgs = z.object({
     .describe(
       'Ids of the guide rules from this plan that this outfit actually follows. An empty list is allowed and is better than a rule you cannot defend. Rule ids are ids in every language: never translate one and never invent one.',
     ),
+  disagreement: z
+    .string()
+    .optional()
+    .describe(
+      'Only for an outfit built on a plan whose ownerAsked turned a filter off. A sentence or two, written to the wearer in the language the plan named, saying what you would have picked instead and why. It is stored beside their own words and shown under a heading of its own, so it never reads as part of the rationale. Leave it out when the plan waived nothing: there is nothing to disagree with.',
+    ),
 });
 
 function proposalFrom(args: z.infer<typeof SaveArgs>): OutfitProposal {
@@ -569,6 +698,47 @@ function piecesOf(outfit: CertifiedOutfit): readonly OutfitPiece[] {
 
 const ruleIds = (rules: readonly BookRule[]): readonly string[] => rules.map((rule) => rule.id);
 
+/**
+ * What the request actually bought, read off the menu rather than off the
+ * arguments. The composer says which garments it used and the plan says what
+ * admitting each one turned off, so neither side can write the other's half.
+ *
+ * Only the requested garments that are really in the outfit are recorded. A
+ * request the composer ignored is not something to show the owner as honored.
+ */
+function honoredIn(
+  menu: MenuChoices,
+  askedFor: readonly string[],
+  pieces: readonly OutfitPiece[],
+): readonly Waiver[] {
+  return pieces.flatMap((piece): Waiver[] => {
+    if (!askedFor.includes(piece.id)) return [];
+    const admission = menu.bySlot[piece.slot].find(
+      (entry) => entry.garment.id === piece.id,
+    )?.admittedBy;
+    const waived: readonly Waived[] =
+      admission !== undefined && admission.by === 'owner_asked' ? admission.waived : [];
+    return [{ id: piece.id, waived }];
+  });
+}
+
+/**
+ * Said back rather than checked, because the second opinion is the owner's to
+ * want and not this server's to require. What it does do is make the silence
+ * audible: a waived filter with nothing written next to it is a thing the owner
+ * reads alone.
+ */
+function requestLine(request: NewOwnerRequest): string {
+  const waived = request.honored.filter((one) => one.waived.length > 0);
+  if (waived.length === 0) {
+    return 'It records what the owner asked for. Every piece they named fit the day anyway, so no filter was turned off.';
+  }
+  const turned = `It records what the owner asked for, and the ${waived.length === 1 ? 'filter' : 'filters'} that turned off for ${waived.map((one) => one.id).join(', ')}.`;
+  return request.disagreement === null
+    ? `${turned} No second opinion was written, so they see the waiver with nothing from you beside it.`
+    : `${turned} Your second opinion is stored beside it.`;
+}
+
 function saveTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -601,6 +771,25 @@ function saveTool(context: ToolContext): ToolSpec {
       if (Array.isArray(certified)) return rejected(certified);
 
       const pieces = piecesOf(certified);
+      const asked = plan.ownerAsked;
+      const honored = asked === null ? [] : honoredIn(plan.menu, asked.garmentIds, pieces);
+      // Said out loud rather than stored. A request the outfit does not wear is
+      // not something to show the owner as honored, but it is something the
+      // composer should notice it dropped.
+      const ignored =
+        asked === null
+          ? []
+          : asked.garmentIds.filter((id) => !pieces.some((piece) => piece.id === id));
+      const disagreement = args.disagreement?.trim();
+      const ownerRequest: NewOwnerRequest | null =
+        asked === null || honored.length === 0
+          ? null
+          : {
+              words: asked.words,
+              disagreement: disagreement === undefined || disagreement === '' ? null : disagreement,
+              honored,
+            };
+
       const id = await insertOutfit(
         context.env.DB,
         {
@@ -612,6 +801,7 @@ function saveTool(context: ToolContext): ToolSpec {
           missedRules: ruleIds(certified.missed),
           warmthCore: certified.warmthCore,
           warmthWithOuter: certified.warmthWithOuter,
+          ownerRequest,
         },
         context.now(),
       );
@@ -627,7 +817,185 @@ function saveTool(context: ToolContext): ToolSpec {
         certified.missed.length === 0
           ? 'It misses none of the guide preferences for this body.'
           : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${ruleIds(certified.missed).join(', ')}.`,
+        ...(ownerRequest === null ? [] : [requestLine(ownerRequest)]),
+        ...(ignored.length === 0
+          ? []
+          : [
+              `The owner asked for ${ignored.join(', ')} and this outfit does not wear ${ignored.length === 1 ? 'it' : 'them'}. Nothing about that is stored, so they are shown no record of having asked.`,
+            ]),
         `Call log_wear with these ids once it is actually worn: ${pieces.map((piece) => piece.id).join(', ')}.`,
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
+// past_outfits
+// ---------------------------------------------------------------------------
+
+const PAST_DESCRIPTION = `Reads outfits you saved before, so the owner can talk about one instead of starting over. "The last three", "what I wore on Friday", "the one with the brown boots", a variation on any of them.
+
+Selection is by count or by date, and it does both at once: three by default, newest first, and a from and a to date narrow it to a range. One day is from and to set to the same date.
+
+Dates are UTC and spelled YYYY-MM-DD. The result states today's UTC date before anything else, because you cannot know it and every relative date the owner says is measured from it. Work out "last Friday" yourself and pass the day. This tool does no date parsing and would rather be given a wrong date it can echo back than guess at a right one.
+
+What comes back for each outfit: the day, the event, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
+
+Reading one of these does not make its garments wearable today. The ids are wardrobe ids, and every plan builds its menu from today's weather, today's event and today's cooldowns, so a garment from an old outfit may be out of season now, too casual for today, or still resting. Look for it in today's menu first. If the owner asks for it and it is not there, that is what plan_outfit's ownerAsked is for.`;
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const dayArg = (what: string) =>
+  z
+    .string()
+    .regex(DAY_PATTERN, 'A day is spelled YYYY-MM-DD.')
+    .optional()
+    .describe(what);
+
+const PastArgs = z.object({
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_OUTFITS)
+    .optional()
+    .describe(
+      `How many to read, newest first. Three unless you say otherwise, and ${MAX_OUTFITS} at most. The result says how many matched, so a truncated read is never mistaken for the whole of it.`,
+    ),
+  from: dayArg(
+    'The oldest day to read, UTC, YYYY-MM-DD, inclusive. Leave it out to read back from the newest.',
+  ),
+  to: dayArg(
+    'The newest day to read, UTC, YYYY-MM-DD, inclusive. Set it equal to from for one day.',
+  ),
+});
+
+/** Three is what "the last few" means in a conversation. More is a deliberate ask. */
+const PAST_SHOWN = 3;
+
+/** Wide enough for `accessory`, the longest slot there is, plus a space. */
+const SLOT_COLUMN = 10;
+
+/**
+ * Every garment the outfit was saved with, including the ones since archived.
+ * Leaving those out would show an outfit with no bottom, which this app says
+ * cannot exist, and a variation composed from that reading would be a variation
+ * on clothes the owner never wore.
+ */
+function pieceLines(outfit: SavedOutfit): readonly string[] {
+  const line = (slot: Slot, id: string, name: string) =>
+    `    ${slot.padEnd(SLOT_COLUMN)}${id} | ${name}`;
+  return [
+    ...outfit.pieces.map((piece) => line(piece.slot, piece.garment.id, piece.garment.subtype)),
+    ...outfit.accessories.map((garment) => line('accessory', garment.id, garment.subtype)),
+    ...outfit.gone.map((piece: OutfitPiece) =>
+      line(piece.slot, piece.id, 'gone from the wardrobe since'),
+    ),
+  ];
+}
+
+function honoredText(honored: HonoredRequest): string {
+  const name = honored.subtype ?? 'a garment gone from the wardrobe';
+  return honored.waived.length === 0
+    ? `${name} (${honored.id}), which fit that day anyway`
+    : `${name} (${honored.id}), in only because they asked: ${waivedText(honored.waived)}`;
+}
+
+function requestLines(request: OwnerRequest | null): readonly string[] {
+  if (request === null) return [];
+  const lines = [`    they asked: "${request.words}"`, ...request.honored.map((one) => `      ${honoredText(one)}`)];
+  if (request.disagreement !== null) lines.push(`    you said back: "${request.disagreement}"`);
+  return lines;
+}
+
+function correctedLines(corrections: readonly Correction[]): readonly string[] {
+  return corrections.map((correction) => {
+    const out = correction.from.subtype ?? 'a garment gone from the wardrobe';
+    const into = correction.to === null ? 'nothing' : (correction.to.subtype ?? 'a garment gone from the wardrobe');
+    return `    they changed ${correction.slot}: ${out} out, ${into} in. "${correction.reason}"`;
+  });
+}
+
+function outfitBlock(outfit: SavedOutfit): string {
+  const day = outfit.createdAt.slice(0, 10);
+  const head = [day, outfit.event ?? 'no event recorded', outfit.worn ? 'worn' : 'not logged as worn'];
+
+  return [
+    `  ${head.join(' | ')}`,
+    ...pieceLines(outfit),
+    `    "${outfit.rationale}"`,
+    outfit.cited.length === 0
+      ? '    cites no guide rules'
+      : `    follows ${outfit.cited.map((rule) => rule.id).join(', ')}`,
+    outfit.missed.length === 0
+      ? '    misses none of the guide preferences for this body'
+      : `    misses ${outfit.missed.map((rule) => rule.id).join(', ')}`,
+    `    warmth ${outfit.warmthCore} at the core, ${outfit.warmthWithOuter} with the outer layer`,
+    ...requestLines(outfit.ownerRequest),
+    ...correctedLines(outfit.corrections),
+  ].join('\n');
+}
+
+function searched(args: z.infer<typeof PastArgs>): string {
+  if (args.from !== undefined && args.to !== undefined) {
+    return args.from === args.to ? `on ${args.from}` : `between ${args.from} and ${args.to}`;
+  }
+  if (args.from !== undefined) return `on or after ${args.from}`;
+  if (args.to !== undefined) return `on or before ${args.to}`;
+  return 'in the whole history';
+}
+
+function pastTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'past_outfits',
+      title: 'Read past outfits',
+      description: PAST_DESCRIPTION,
+      inputSchema: PastArgs,
+    },
+    async (args) => {
+      const today = context.now().toISOString().slice(0, 10);
+      const dated = `TODAY IS ${today}, UTC.\nEvery date below is UTC and so is that one. Measure any day the owner named from it.`;
+
+      // Comparing two strings is not parsing a date, so this stays inside the
+      // rule that dates are the model's business. Left alone it would run a
+      // range that cannot match and report an empty wardrobe.
+      if (args.from !== undefined && args.to !== undefined && args.from > args.to) {
+        return failed(
+          dated,
+          '',
+          `from is ${args.from} and to is ${args.to}, so the range runs backwards and nothing could be inside it. Swap them and call again.`,
+        );
+      }
+
+      const limit = args.limit ?? PAST_SHOWN;
+      const page = await readOutfits(context.env.DB, { limit, from: args.from, to: args.to });
+
+      if (page.outfits.length === 0) {
+        return ok(
+          dated,
+          '',
+          `No saved outfits ${searched(args)}. Outfits get here through save_outfit, so an outfit that was only talked about is not one this can find.`,
+        );
+      }
+
+      const more =
+        limit < MAX_OUTFITS
+          ? `Call again with a higher limit for the rest, up to ${MAX_OUTFITS}.`
+          : `${MAX_OUTFITS} is the most one call reads, so narrow it with from and to for the rest.`;
+      const counted =
+        page.total > page.outfits.length
+          ? `${page.outfits.length} of ${page.total} outfits ${searched(args)}, newest first. ${more}`
+          : `${page.outfits.length} outfit${page.outfits.length === 1 ? '' : 's'} ${searched(args)}, newest first.`;
+
+      return ok(
+        dated,
+        '',
+        counted,
+        '',
+        page.outfits.map(outfitBlock).join('\n\n'),
+        '',
+        "A garment's id is the same string everywhere in this app, so match one of these against today's menu by hand to see whether it is wearable today. Today's menu is the part of the wardrobe that passed today's filters, and it is rebuilt on every plan_outfit call, so a garment worn last week may be out of it now. If it is not there and the owner asked for it, name it in plan_outfit's ownerAsked.",
       );
     },
   );
@@ -690,6 +1058,7 @@ export function wardrobeTools(context: ToolContext): readonly ToolSpec[] {
     setTagsTool(context),
     planTool(context),
     saveTool(context),
+    pastTool(context),
     logWearTool(context),
   ];
 }
