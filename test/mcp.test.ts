@@ -16,6 +16,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server';
 import type { BodyProfile } from '../src/domain/types';
 import type { Env } from '../src/worker/env';
 import { wardrobeTools } from '../src/worker/mcp/tools';
+import { MAX_OUTFITS } from '../src/worker/outfits';
 import type { ToolSpec } from '../src/worker/mcp/tools';
 import { AUTUMN_DAY, WARDROBE, makeGarment } from './fixtures';
 import { FAKE_IMAGES, FAKE_PHOTOS, FakeDb, FakeKv, garmentRow } from './stubs/fake-env';
@@ -782,7 +783,7 @@ describe('past_outfits', () => {
     savedOutfit({});
     const text = textOf(await tool('past_outfits').call({}));
 
-    expect(text).toContain("wardrobe ids, not ids from today's menu");
+    expect(text).toContain("the same string everywhere in this app");
     expect(text).toContain("plan_outfit's ownerAsked");
   });
 
@@ -791,5 +792,59 @@ describe('past_outfits', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('YYYY-MM-DD');
+  });
+});
+
+describe('what past_outfits says when the read is partial or impossible', () => {
+  function savedOn(day: string, id: string): void {
+    db.outfits.push({
+      id, plan_id: 'p1', event: 'work',
+      pieces: JSON.stringify([{ slot: 'base', id: 'tee-white' }, { slot: 'bottom', id: 'jeans-indigo' }]),
+      rationale: 'Plain.', cited_rules: '[]', missed_rules: '[]',
+      warmth_core: 1, warmth_with_outer: 1, owner_request: null,
+      created_at: `${day}T08:00:00.000Z`,
+    });
+  }
+
+  it('points at the date range rather than a limit it would refuse', async () => {
+    for (let n = 1; n <= 25; n += 1) savedOn(`2026-09-${String(n).padStart(2, '0')}`, `o-${n}`);
+    const text = textOf(await tool('past_outfits').call({ limit: MAX_OUTFITS }));
+
+    expect(text).toContain(`${MAX_OUTFITS} of 25 outfits`);
+
+    expect(text).not.toContain('Call again with a higher limit');
+    expect(text).toContain('narrow it with from and to');
+  });
+
+  it('offers a higher limit while one is still available', async () => {
+    for (let n = 1; n <= 9; n += 1) savedOn(`2026-09-0${n}`, `o-${n}`);
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain(`Call again with a higher limit for the rest, up to ${MAX_OUTFITS}.`);
+  });
+
+  it('says a backwards range is backwards instead of reporting an empty wardrobe', async () => {
+    savedOn('2026-09-04', 'o-1');
+    const result = await tool('past_outfits').call({ from: '2026-09-10', to: '2026-09-01' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('the range runs backwards');
+    expect(textOf(result)).not.toContain('No saved outfits');
+  });
+
+  it('names a garment archived since, so the outfit is not short a slot', async () => {
+    savedOn('2026-09-04', 'o-1');
+    db.garments = db.garments.filter((row) => row.id !== 'jeans-indigo');
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('bottom    jeans-indigo | gone from the wardrobe since');
+    expect(text).toContain('base      tee-white | cotton t-shirt');
+  });
+
+  it('says an outfit misses nothing rather than saying nothing about what it misses', async () => {
+    savedOn('2026-09-04', 'o-1');
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('misses none of the guide preferences for this body');
   });
 });

@@ -177,6 +177,12 @@ export interface SavedOutfit extends OutfitView {
    */
   readonly corrections: readonly Correction[];
   /**
+   * Pieces whose garment has been archived since. The card cannot draw one, it
+   * has no photo left, but leaving them out of a reader's count would show an
+   * outfit missing a slot every outfit is required to have.
+   */
+  readonly gone: readonly OutfitPiece[];
+  /**
    * What the owner asked for by name on the day this was planned, and what
    * admitting it turned off. Null for every outfit nobody overrode a filter for,
    * which is almost all of them.
@@ -345,7 +351,8 @@ function toSaved(
   const hydrated = stored.flatMap((piece) => {
     const garment = wardrobe.get(piece.id);
     // A garment archived after the outfit was saved drops out of the render
-    // rather than taking the whole outfit down with it.
+    // rather than taking the whole outfit down with it. It is still named in
+    // `gone`, so a reader is not shown an outfit that is short a slot.
     return garment === undefined ? [] : [{ slot: piece.slot, garment }];
   });
 
@@ -360,6 +367,7 @@ function toSaved(
     missed: ruleViews(ruleIds(row.missed_rules)),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
+    gone: stored.filter((piece) => !wardrobe.has(piece.id)),
     worn: wasWorn(stored, row.created_at, byDay),
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe)),
     ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
@@ -472,15 +480,22 @@ export async function readOutfits(db: D1Database, query: OutfitQuery): Promise<O
   const { where, binds } = rangeOf(query);
   const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_OUTFITS);
 
-  const [page, counted] = await Promise.all([
-    db
-      .prepare(`SELECT * FROM outfit${where} ORDER BY created_at DESC LIMIT ?`)
-      .bind(...binds, limit)
-      .all<OutfitRow>(),
-    db.prepare(`SELECT count(*) AS total FROM outfit${where}`).bind(...binds).first<{ total: number }>(),
-  ]);
+  const page = await db
+    .prepare(`SELECT * FROM outfit${where} ORDER BY created_at DESC LIMIT ?`)
+    .bind(...binds, limit)
+    .all<OutfitRow>();
+  const outfits = await hydrate(db, page.results);
 
-  return { outfits: await hydrate(db, page.results), total: counted?.total ?? 0 };
+  // A short page is the whole of the range, so counting it again would be a
+  // second read of the table to learn a number already in hand. The web app's
+  // history screen asks for the maximum and takes this path every time.
+  if (page.results.length < limit) return { outfits, total: outfits.length };
+
+  const counted = await db
+    .prepare(`SELECT count(*) AS total FROM outfit${where}`)
+    .bind(...binds)
+    .first<{ total: number }>();
+  return { outfits, total: counted?.total ?? outfits.length };
 }
 
 async function outfitRow(db: D1Database, id: string): Promise<OutfitRow | null> {

@@ -1,9 +1,12 @@
 /**
  * The seven tools the connector exposes, and their descriptions.
  *
- * The descriptions are the interface. Nothing else reaches the model: there is
- * no system prompt on this path, so a fact left out of a description or a
- * result is a fact the composer does not have.
+ * The descriptions are the interface. Almost nothing else reaches the model: the
+ * one other channel is `INSTRUCTIONS` in `server.ts`, which is handed over once
+ * at initialize and decides whether a tool is reached for at all. A tool added
+ * here and left out of there is a tool the model may never look for. Everything
+ * past that first look is these descriptions, so a fact left out of one, or out
+ * of a result, is a fact the composer does not have.
  *
  * Every renderer here is borrowed from `compose.ts`, which already writes the
  * menu, the constraints, the body and the book rules for the model that used to
@@ -132,7 +135,7 @@ const SLOT_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 's
 
 const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other six tools can do anything yet.
 
-It answers four questions.
+It answers five questions.
   - How many garments are stored, and how they split across the slots an outfit is built from.
   - How many are still untagged. An untagged garment is a photo nobody has described yet, so it cannot appear in any outfit. next_untagged works through them.
   - How many you have described that the owner has not confirmed yet. They are usable already, and the owner clears them on the Review screen.
@@ -355,6 +358,8 @@ What it returns:
   - what the owner has corrected by hand on outfits you saved before, and the line they wrote about each change. Read it before you compose: repeating a swap they already made is the mistake that section exists to prevent.
   - what today's filters held back, with the id of each garment and what held it. These are not in the menu and naming one fails the save. They are listed for one reason, below.
 
+When the owner names a garment by an outfit rather than by its name, "the same jacket as last Friday", read that outfit with past_outfits first. It gives you the id, which is the only thing that lets you look the garment up here.
+
 The owner's own request is the one thing that overrides a filter. If they ask for a specific garment and it is in the held back list, call plan_outfit a second time with ownerAsked filled in. That garment then enters the menu marked as theirs, with the filters it failed named on its line, and every other garment stays filtered exactly as before. Season, the formality floor, rain and the recency cooldown are the four that a request waives. The guide's donts are not: they are about this person's body rather than about today, and save_outfit rejects an outfit that breaks one whatever the menu says. Warmth is not waived either, so the two warmth bands still hold.
 
 Weather: pass it when you know it. Leave it out and the app reads it from the owner's stored home location, and tells you plainly when no location is stored.`;
@@ -385,7 +390,7 @@ const PlanArgs = z.object({
         .array(z.string().min(1))
         .min(1)
         .describe(
-          'The ids of the garments they named. Take them from the held back list of an earlier plan, or from a menu. One request covers one outfit and expires with the plan.',
+          'The ids of the garments they named. Take them from the held back list of an earlier plan, from a menu, or from an outfit past_outfits read back. One request covers one outfit and expires with the plan.',
         ),
       words: z
         .string()
@@ -871,14 +876,22 @@ const PAST_SHOWN = 3;
 /** Wide enough for `accessory`, the longest slot there is, plus a space. */
 const SLOT_COLUMN = 10;
 
+/**
+ * Every garment the outfit was saved with, including the ones since archived.
+ * Leaving those out would show an outfit with no bottom, which this app says
+ * cannot exist, and a variation composed from that reading would be a variation
+ * on clothes the owner never wore.
+ */
 function pieceLines(outfit: SavedOutfit): readonly string[] {
-  const worn = outfit.pieces.map(
-    (piece) => `    ${piece.slot.padEnd(SLOT_COLUMN)}${piece.garment.id} | ${piece.garment.subtype}`,
-  );
-  const accessories = outfit.accessories.map(
-    (garment) => `    ${'accessory'.padEnd(SLOT_COLUMN)}${garment.id} | ${garment.subtype}`,
-  );
-  return [...worn, ...accessories];
+  const line = (slot: Slot, id: string, name: string) =>
+    `    ${slot.padEnd(SLOT_COLUMN)}${id} | ${name}`;
+  return [
+    ...outfit.pieces.map((piece) => line(piece.slot, piece.garment.id, piece.garment.subtype)),
+    ...outfit.accessories.map((garment) => line('accessory', garment.id, garment.subtype)),
+    ...outfit.gone.map((piece: OutfitPiece) =>
+      line(piece.slot, piece.id, 'gone from the wardrobe since'),
+    ),
+  ];
 }
 
 function honoredText(honored: HonoredRequest): string {
@@ -914,9 +927,9 @@ function outfitBlock(outfit: SavedOutfit): string {
     outfit.cited.length === 0
       ? '    cites no guide rules'
       : `    follows ${outfit.cited.map((rule) => rule.id).join(', ')}`,
-    ...(outfit.missed.length === 0
-      ? []
-      : [`    misses ${outfit.missed.map((rule) => rule.id).join(', ')}`]),
+    outfit.missed.length === 0
+      ? '    misses none of the guide preferences for this body'
+      : `    misses ${outfit.missed.map((rule) => rule.id).join(', ')}`,
     `    warmth ${outfit.warmthCore} at the core, ${outfit.warmthWithOuter} with the outer layer`,
     ...requestLines(outfit.ownerRequest),
     ...correctedLines(outfit.corrections),
@@ -944,6 +957,17 @@ function pastTool(context: ToolContext): ToolSpec {
       const today = context.now().toISOString().slice(0, 10);
       const dated = `TODAY IS ${today}, UTC.\nEvery date below is UTC and so is that one. Measure any day the owner named from it.`;
 
+      // Comparing two strings is not parsing a date, so this stays inside the
+      // rule that dates are the model's business. Left alone it would run a
+      // range that cannot match and report an empty wardrobe.
+      if (args.from !== undefined && args.to !== undefined && args.from > args.to) {
+        return failed(
+          dated,
+          '',
+          `from is ${args.from} and to is ${args.to}, so the range runs backwards and nothing could be inside it. Swap them and call again.`,
+        );
+      }
+
       const limit = args.limit ?? PAST_SHOWN;
       const page = await readOutfits(context.env.DB, { limit, from: args.from, to: args.to });
 
@@ -955,9 +979,13 @@ function pastTool(context: ToolContext): ToolSpec {
         );
       }
 
+      const more =
+        limit < MAX_OUTFITS
+          ? `Call again with a higher limit for the rest, up to ${MAX_OUTFITS}.`
+          : `${MAX_OUTFITS} is the most one call reads, so narrow it with from and to for the rest.`;
       const counted =
         page.total > page.outfits.length
-          ? `${page.outfits.length} of ${page.total} outfits ${searched(args)}, newest first. Call again with a higher limit for the rest.`
+          ? `${page.outfits.length} of ${page.total} outfits ${searched(args)}, newest first. ${more}`
           : `${page.outfits.length} outfit${page.outfits.length === 1 ? '' : 's'} ${searched(args)}, newest first.`;
 
       return ok(
@@ -967,7 +995,7 @@ function pastTool(context: ToolContext): ToolSpec {
         '',
         page.outfits.map(outfitBlock).join('\n\n'),
         '',
-        "These ids are wardrobe ids, not ids from today's menu. A garment here is wearable today only if today's plan_outfit puts it in the menu. If the owner asks for one that is not there, name it in plan_outfit's ownerAsked.",
+        "A garment's id is the same string everywhere in this app, so match one of these against today's menu by hand to see whether it is wearable today. Today's menu is the part of the wardrobe that passed today's filters, and it is rebuilt on every plan_outfit call, so a garment worn last week may be out of it now. If it is not there and the owner asked for it, name it in plan_outfit's ownerAsked.",
       );
     },
   );

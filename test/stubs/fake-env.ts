@@ -173,13 +173,22 @@ export class FakeDb {
 
       const rest = [...args];
       let rows = ordered;
+      let read = 0;
       if (sql.includes('substr(created_at, 1, 10) >= ?')) {
         const from = String(rest.shift());
         rows = rows.filter((row) => String(row.created_at).slice(0, 10) >= from);
+        read += 1;
       }
       if (sql.includes('substr(created_at, 1, 10) <= ?')) {
         const to = String(rest.shift());
         rows = rows.filter((row) => String(row.created_at).slice(0, 10) <= to);
+        read += 1;
+      }
+      // The clauses are matched by their exact spelling, so reformatting one in
+      // the real query would leave this stub quietly returning the whole table
+      // and every range test passing on a filter that never ran.
+      if (sql.includes('WHERE') && read === 0) {
+        throw new Error(`unrecognised outfit filter, so this stub would not have filtered: ${sql}`);
       }
       if (sql.includes('count(*)')) return [{ total: rows.length }];
       return rows.slice(0, Number(rest[0]));

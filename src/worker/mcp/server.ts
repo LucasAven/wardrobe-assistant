@@ -21,11 +21,15 @@ const SERVER_INFO = {
 
 const INSTRUCTIONS = `One person's wardrobe: their photographed clothes, their body type, and the rules of the men's styling guide they own.
 
-Two jobs live here.
+Three jobs live here.
 
 Cataloguing. A photo uploaded from the web app arrives with no description. next_untagged shows you one, you look at it, set_garment_tags writes what you saw. An untagged garment cannot appear in any outfit, so this comes first.
 
 Dressing. plan_outfit does everything a computer can decide about today: the weather, the warmth bands, the formality floor, the season, the recency cooldown, and the guide's outright donts. It hands back a menu of garments that already pass all of it. You choose from that menu, which is the part no filter can do, and save_outfit checks the result and stores it. log_wear records what was actually put on, which is the only thing that keeps the same coat from coming back every day.
+
+Remembering. past_outfits reads outfits you saved before, by count or by date. Reach for it whenever the owner points at one instead of describing clothes: "what did I wear on Friday", "the same jacket as last time", "something like Tuesday's but warmer". It is also where you find the id of a garment you only know by having seen it in an old outfit. The dates are UTC and it states today's date in the result, because you cannot know it.
+
+The owner's own request is the one thing that overrides a filter. When they ask for a specific garment and today's menu does not have it, plan_outfit's held back list gives you its id and plan_outfit's ownerAsked puts it in the menu, marked as theirs, with the filters it failed named on the line. Never set it because you think the outfit would be better. It is theirs and it is stored under their own words.
 
 Call wardrobe_status first when you are not sure what state any of this is in.
 
