@@ -161,6 +161,16 @@ export interface Correction {
   readonly from: { readonly id: string; readonly subtype: string | null };
   readonly to: { readonly id: string; readonly subtype: string | null } | null;
   readonly reason: string;
+  /**
+   * The rest of the outfit the rejected garment was standing in, newest state.
+   *
+   * Without it a reason like "too many layers" names no layers and cannot be
+   * acted on: the reader is told a garment was taken out and never told what it
+   * was taken out of. Derived rather than stored, by dropping the incoming
+   * garment from the outfit as it stands, which is exact for one correction and
+   * approximate once an outfit has been corrected twice.
+   */
+  readonly alongside: readonly { readonly slot: Slot; readonly subtype: string }[];
 }
 
 /** What the web app reads. `OutfitView` plus the state only a stored outfit has. */
@@ -212,8 +222,19 @@ interface FeedbackRow {
   readonly created_at: string;
 }
 
-function parsePieces(json: string): readonly OutfitPiece[] {
-  const parsed: unknown = JSON.parse(json);
+/**
+ * Reads a column, so it never throws. A LEFT JOIN can hand this a null, and an
+ * unreadable `pieces` on one old row should cost that row its garments rather
+ * than cost the whole plan call its answer.
+ */
+function parsePieces(json: string | null | undefined): readonly OutfitPiece[] {
+  if (typeof json !== 'string') return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return [];
+  }
   if (!Array.isArray(parsed)) return [];
   return parsed.filter(
     (piece): piece is OutfitPiece =>
@@ -298,6 +319,7 @@ function toCorrection(
   row: FeedbackRow,
   event: EventKind | null,
   wardrobe: ReadonlyMap<string, Garment>,
+  pieces: readonly OutfitPiece[],
 ): Correction {
   return {
     at: row.created_at,
@@ -306,6 +328,11 @@ function toCorrection(
     from: named(row.from_id, wardrobe),
     to: row.to_id === null ? null : named(row.to_id, wardrobe),
     reason: row.reason,
+    alongside: pieces.flatMap((piece) => {
+      if (piece.id === row.to_id) return [];
+      const garment = wardrobe.get(piece.id);
+      return garment === undefined ? [] : [{ slot: piece.slot, subtype: garment.subtype }];
+    }),
   };
 }
 
@@ -369,7 +396,7 @@ function toSaved(
     warmthWithOuter: row.warmth_with_outer,
     gone: stored.filter((piece) => !wardrobe.has(piece.id)),
     worn: wasWorn(stored, row.created_at, byDay),
-    corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe)),
+    corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe, stored)),
     ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
 }
@@ -685,17 +712,24 @@ export async function recentCorrections(
 ): Promise<readonly Correction[]> {
   const result = await db
     .prepare(
-      `SELECT f.outfit_id, f.slot, f.from_id, f.to_id, f.reason, f.created_at, o.event
+      `SELECT f.outfit_id, f.slot, f.from_id, f.to_id, f.reason, f.created_at, o.event, o.pieces
          FROM outfit_feedback f
          LEFT JOIN outfit o ON o.id = f.outfit_id
         ORDER BY f.created_at DESC
         LIMIT ?`,
     )
     .bind(limit)
-    .all<FeedbackRow & { readonly event: string | null }>();
+    .all<FeedbackRow & { readonly event: string | null; readonly pieces: string | null }>();
 
   if (result.results.length === 0) return [];
 
   const wardrobe = await wardrobeById(db);
-  return result.results.map((row) => toCorrection(row, row.event as EventKind | null, wardrobe));
+  return result.results.map((row) =>
+    toCorrection(
+      row,
+      row.event as EventKind | null,
+      wardrobe,
+      parsePieces(row.pieces),
+    ),
+  );
 }

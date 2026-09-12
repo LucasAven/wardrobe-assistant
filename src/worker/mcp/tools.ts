@@ -447,19 +447,36 @@ function correctionLine(correction: Correction): string {
         : `they changed it to the ${correction.to.subtype}`;
   }
 
-  return `- ${when}: ${picked}, ${changed}. "${correction.reason}"`;
+  // The rest of the outfit, because a reason like "too many layers" names no
+  // layers. Without it the reader is told a garment was taken out and never told
+  // what it was taken out of, which is most of what they need to not do it again.
+  const rest =
+    correction.alongside.length === 0
+      ? ''
+      : `\n  the rest of that outfit: ${correction.alongside.map((piece) => `${piece.slot} ${piece.subtype}`).join(', ')}`;
+
+  return `- ${when}: ${picked}, ${changed}. "${correction.reason}"${rest}`;
 }
 
 /**
- * The one thing in this app that carries an opinion the guide does not have. It
- * says what these words are not before it says what they are, because a note
- * from the owner read as an instruction would have the composer explaining the
- * app to them instead of dressing them.
+ * The one thing in this app that carries an opinion the guide does not have, and
+ * the only section that says what the owner does not want.
+ *
+ * It used to open by hedging these into "preferences to weigh, the way you weigh
+ * their mood", with a line saying a correction may not apply today. Lucas then
+ * watched an outfit come back holding the exact combination he had taken apart
+ * and explained in writing, which is the one outcome that makes the whole
+ * feature pointless. The hedge is gone. What is left still keeps a correction
+ * from being read as a guide rule, because it is not one, and still allows going
+ * against one, because the owner is not always right about a different day. What
+ * it no longer allows is doing it in silence.
  */
 function correctionsSection(corrections: readonly Correction[]): string {
   return [
     'WHAT THE OWNER CORRECTED',
-    'After you saved an outfit, the owner sometimes changed one piece of it in the app and said why. Their newest corrections, in their own words. These are preferences to weigh, the way you weigh their mood. They are not from the guide, nothing filtered the menu on them, and a correction made on a rainy day may not apply today.',
+    'After you saved an outfit, the owner changed a piece of it in the app and wrote down why. Their words, newest first. This is the only section here that tells you what they do not want.',
+    'Read every line before you compose, then read your finished outfit back against them. Putting back together a combination they already took apart is the specific mistake this section exists to stop, and it is the one they notice, because they are the one who wrote the sentence saying not to.',
+    'These are not from the guide, so never cite one as a rule id. If today genuinely calls for something a correction argues against, you may still do it. Say so to them in the rationale rather than doing it quietly.',
     '',
     ...corrections.map(correctionLine),
   ].join('\n');
@@ -589,7 +606,7 @@ function planTool(context: ToolContext): ToolSpec {
       if (plan.ownerAsked !== null) sections.push(ownerAskedSection(plan));
 
       sections.push(
-        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them. Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
+        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.${corrections.length === 0 ? '' : ' Before you send it, read it back against WHAT THE OWNER CORRECTED above, piece by piece: that section is the only record of what they have already rejected, and it is worth more to them than anything you can add.'} Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
       );
 
       return ok(sections.join('\n\n'));

@@ -402,6 +402,11 @@ describe('POST /api/outfits/:id/swap', () => {
         from: { id: 'cardigan-gray', subtype: 'cardigan' },
         to: { id: 'knit-cream-heavy', subtype: 'heavy knit sweater' },
         reason: 'the cardigan itches at the office',
+        alongside: [
+          { slot: 'base', subtype: 'cotton t-shirt' },
+          { slot: 'bottom', subtype: 'jeans' },
+          { slot: 'shoes', subtype: 'leather sneakers' },
+        ],
       },
     ]);
   });

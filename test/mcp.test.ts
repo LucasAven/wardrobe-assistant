@@ -90,7 +90,19 @@ function build(profile: BodyProfile | null): void {
 
 /** One correction the owner made, straight into the table `plan_outfit` reads. */
 function corrected(row: Record<string, unknown>): void {
-  db.outfits = [{ id: 'o1', event: 'work' }];
+  db.outfits = [
+    {
+      id: 'o1',
+      event: 'work',
+      // The outfit the corrected piece was standing in. A reason like "too many
+      // layers" names no layers without it.
+      pieces: JSON.stringify([
+        { slot: 'base', id: 'tee-white' },
+        { slot: 'bottom', id: 'jeans-indigo' },
+        { slot: 'shoes', id: 'sneakers-white' },
+      ]),
+    },
+  ];
   db.feedback.push({ outfit_id: 'o1', created_at: '2026-05-10T07:30:00.000Z', ...row });
 }
 
@@ -350,7 +362,11 @@ describe('plan_outfit', () => {
     const text = textOf(await tool('plan_outfit').call(MOMENT));
 
     expect(text).toContain('WHAT THE OWNER CORRECTED');
-    expect(text).toContain('They are not from the guide, nothing filtered the menu on them');
+    expect(text).toContain('These are not from the guide, so never cite one as a rule id.');
+    expect(text).toContain('Putting back together a combination they already took apart');
+    // The shape the rejected piece was standing in, without which a reason like
+    // "too many layers" names no layers.
+    expect(text).toContain('the rest of that outfit: base cotton t-shirt, bottom jeans, shoes leather sneakers');
     expect(text).toContain(
       '- 2026-05-10, work: you picked the cardigan for mid, they changed it to the heavy knit sweater. "the cardigan itches at the office"',
     );

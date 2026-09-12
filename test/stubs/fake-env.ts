@@ -207,13 +207,15 @@ export class FakeDb {
     );
 
     if (sql.includes('LEFT JOIN outfit')) {
+      // The join carries the outfit's own columns, and a miss yields null for
+      // each of them the way a real LEFT JOIN does.
       return ordered
         .reverse()
         .slice(0, Number(args[0]))
-        .map((row) => ({
-          ...row,
-          event: this.outfits.find((outfit) => outfit.id === row.outfit_id)?.event ?? null,
-        }));
+        .map((row) => {
+          const outfit = this.outfits.find((one) => one.id === row.outfit_id);
+          return { ...row, event: outfit?.event ?? null, pieces: outfit?.pieces ?? null };
+        });
     }
 
     const wanted = new Set(args.map(String));
