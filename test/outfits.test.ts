@@ -16,7 +16,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import type { BodyProfile } from '../src/domain/types';
 import worker from '../src/worker/index';
 import type { NewOutfit, SavedOutfit } from '../src/worker/outfits';
-import { clearHome, homeLocation, insertOutfit, putHome, recentOutfits } from '../src/worker/outfits';
+import { clearHome, homeLocation, insertOutfit, putHome, readOutfits } from '../src/worker/outfits';
 import { WARDROBE } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
@@ -467,7 +467,7 @@ describe("an owner's request on a stored outfit", () => {
       new Date('2026-05-10T08:00:00.000Z'),
     );
 
-    const saved = await recentOutfits(db as unknown as D1Database, 5);
+    const saved = (await readOutfits(db as unknown as D1Database, { limit: 5 })).outfits;
 
     expect(saved[0]?.ownerRequest).toEqual({
       words: 'I want the beige linen shirt',
@@ -485,7 +485,8 @@ describe("an owner's request on a stored outfit", () => {
       new Date('2026-05-10T08:00:00.000Z'),
     );
 
-    expect((await recentOutfits(db as unknown as D1Database, 5))[0]?.ownerRequest).toBeNull();
+    const page = await readOutfits(db as unknown as D1Database, { limit: 5 });
+    expect(page.outfits[0]?.ownerRequest).toBeNull();
   });
 });
 

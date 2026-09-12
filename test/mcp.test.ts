@@ -1,5 +1,5 @@
 /**
- * The six connector tools, driven without a transport: every tool is parsed and
+ * The seven connector tools, driven without a transport: every tool is parsed and
  * run the way `tools/call` would run it, and nothing here opens a socket.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -106,13 +106,14 @@ beforeEach(() => {
 });
 
 describe('the tool surface', () => {
-  it('exposes exactly the six tools the design names, each with a real description', () => {
+  it('exposes exactly the seven tools the design names, each with a real description', () => {
     expect([...tools.keys()]).toEqual([
       'wardrobe_status',
       'next_untagged',
       'set_garment_tags',
       'plan_outfit',
       'save_outfit',
+      'past_outfits',
       'log_wear',
     ]);
     for (const spec of tools.values()) {
@@ -133,6 +134,7 @@ describe('argument schemas', () => {
       rationale: 'Layered for a mild morning.',
       citedRules: ['rect-01'],
     },
+    past_outfits: { limit: 3, from: '2026-09-01', to: '2026-09-11' },
     log_wear: { garmentIds: ['tee-white'] },
   };
 
@@ -147,6 +149,7 @@ describe('argument schemas', () => {
       rationale: 'x',
       citedRules: ['rect-01'],
     },
+    past_outfits: { from: 'last friday' },
     log_wear: { garmentIds: [] },
   };
 
@@ -665,5 +668,128 @@ describe('a request the outfit did not honor', () => {
 
     expect(text).toContain('The owner asked for linen-shirt-beige and this outfit does not wear it');
     expect(db.outfits[0]?.owner_request).toBeNull();
+  });
+});
+
+describe('past_outfits', () => {
+  /** Saved straight into the table `past_outfits` reads, the way `corrected` does. */
+  function savedOutfit(row: Record<string, unknown>): void {
+    db.outfits.push({
+      id: 'o-x',
+      plan_id: 'p1',
+      event: 'work',
+      pieces: JSON.stringify([
+        { slot: 'base', id: 'tee-white' },
+        { slot: 'bottom', id: 'jeans-indigo' },
+        { slot: 'shoes', id: 'sneakers-white' },
+        { slot: 'accessory', id: 'belt-brown' },
+      ]),
+      rationale: 'Plain and easy for a mild morning.',
+      cited_rules: JSON.stringify(['rect-01']),
+      missed_rules: JSON.stringify(['rect-02']),
+      warmth_core: 1,
+      warmth_with_outer: 1,
+      owner_request: null,
+      created_at: '2026-09-04T08:00:00.000Z',
+      ...row,
+    });
+  }
+
+  it('says what day it is before anything else, because the model cannot know', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text.startsWith('TODAY IS 2026-05-12, UTC.')).toBe(true);
+    expect(text).toContain('Measure any day the owner named from it.');
+  });
+
+  it('reads the newest few and names every piece by id and by name', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('2026-09-04 | work | not logged as worn');
+    expect(text).toContain('base      tee-white | cotton t-shirt');
+    expect(text).toContain('accessory belt-brown | leather belt');
+    expect(text).toContain('"Plain and easy for a mild morning."');
+    expect(text).toContain('follows rect-01');
+    expect(text).toContain('misses rect-02');
+    expect(text).toContain('warmth 1 at the core, 1 with the outer layer');
+  });
+
+  it('says how many matched, so three out of eight does not read as all of them', async () => {
+    for (let day = 1; day <= 8; day += 1) {
+      savedOutfit({ id: `o-${day}`, created_at: `2026-09-0${day}T08:00:00.000Z` });
+    }
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('3 of 8 outfits in the whole history, newest first');
+    expect(text).toContain('Call again with a higher limit');
+  });
+
+  it('reads one day when from and to are the same', async () => {
+    savedOutfit({ id: 'o-1', created_at: '2026-09-04T08:00:00.000Z' });
+    savedOutfit({ id: 'o-2', created_at: '2026-09-05T08:00:00.000Z' });
+    const text = textOf(await tool('past_outfits').call({ from: '2026-09-04', to: '2026-09-04' }));
+
+    expect(text).toContain('1 outfit on 2026-09-04, newest first.');
+    expect(text).not.toContain('2026-09-05');
+  });
+
+  it('reads a range, and counts the day at each end as inside it', async () => {
+    for (let day = 1; day <= 5; day += 1) {
+      savedOutfit({ id: `o-${day}`, created_at: `2026-09-0${day}T08:00:00.000Z` });
+    }
+    const text = textOf(
+      await tool('past_outfits').call({ from: '2026-09-02', to: '2026-09-04', limit: 20 }),
+    );
+
+    expect(text).toContain('3 outfits between 2026-09-02 and 2026-09-04, newest first.');
+  });
+
+  it('says what it searched when it found nothing', async () => {
+    const text = textOf(await tool('past_outfits').call({ from: '2026-01-01', to: '2026-01-31' }));
+
+    expect(text).toContain('No saved outfits between 2026-01-01 and 2026-01-31.');
+    expect(text).toContain('an outfit that was only talked about is not one this can find');
+  });
+
+  it('carries the corrections and the request, which is why the tool exists', async () => {
+    savedOutfit({
+      owner_request: JSON.stringify({
+        words: 'I want the beige linen shirt',
+        disagreement: 'The oxford was warmer.',
+        honored: [{ id: 'linen-shirt-beige', waived: ['season'] }],
+      }),
+    });
+    db.feedback.push({
+      outfit_id: 'o-x',
+      slot: 'bottom',
+      from_id: 'jeans-indigo',
+      to_id: 'chinos-stone',
+      reason: 'the jeans were too warm',
+      created_at: '2026-09-04T09:00:00.000Z',
+    });
+
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('they asked: "I want the beige linen shirt"');
+    expect(text).toContain('linen shirt (linen-shirt-beige), in only because they asked: out of season');
+    expect(text).toContain('you said back: "The oxford was warmer."');
+    expect(text).toContain('they changed bottom: jeans out, chinos in. "the jeans were too warm"');
+  });
+
+  it("says these ids are not today's menu, which is the mistake it would otherwise cause", async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain("wardrobe ids, not ids from today's menu");
+    expect(text).toContain("plan_outfit's ownerAsked");
+  });
+
+  it('refuses a date it cannot read rather than searching for nothing', async () => {
+    const result = await tool('past_outfits').call({ from: 'last friday' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('YYYY-MM-DD');
   });
 });

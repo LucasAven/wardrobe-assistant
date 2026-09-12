@@ -1,5 +1,5 @@
 /**
- * The six tools the connector exposes, and their descriptions.
+ * The seven tools the connector exposes, and their descriptions.
  *
  * The descriptions are the interface. Nothing else reaches the model: there is
  * no system prompt on this path, so a fact left out of a description or a
@@ -36,8 +36,16 @@ import {
   waivedText,
 } from '../compose';
 import type { Env } from '../env';
-import type { Correction, NewOwnerRequest, OutfitPiece, Waiver } from '../outfits';
-import { homeLocation, insertOutfit, recentCorrections } from '../outfits';
+import type {
+  Correction,
+  HonoredRequest,
+  NewOwnerRequest,
+  OutfitPiece,
+  OwnerRequest,
+  SavedOutfit,
+  Waiver,
+} from '../outfits';
+import { MAX_OUTFITS, homeLocation, insertOutfit, readOutfits, recentCorrections } from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
 import { getProfile } from '../profile';
@@ -122,7 +130,7 @@ const words = (vocabulary: { readonly values: readonly string[] }): string =>
 
 const SLOT_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];
 
-const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other five tools can do anything yet.
+const STATUS_DESCRIPTION = `Orientation for one person's wardrobe. Call it first: it takes no arguments, it is cheap, and it tells you whether the other six tools can do anything yet.
 
 It answers four questions.
   - How many garments are stored, and how they split across the slots an outfit is built from.
@@ -817,6 +825,155 @@ function saveTool(context: ToolContext): ToolSpec {
 }
 
 // ---------------------------------------------------------------------------
+// past_outfits
+// ---------------------------------------------------------------------------
+
+const PAST_DESCRIPTION = `Reads outfits you saved before, so the owner can talk about one instead of starting over. "The last three", "what I wore on Friday", "the one with the brown boots", a variation on any of them.
+
+Selection is by count or by date, and it does both at once: three by default, newest first, and a from and a to date narrow it to a range. One day is from and to set to the same date.
+
+Dates are UTC and spelled YYYY-MM-DD. The result states today's UTC date before anything else, because you cannot know it and every relative date the owner says is measured from it. Work out "last Friday" yourself and pass the day. This tool does no date parsing and would rather be given a wrong date it can echo back than guess at a right one.
+
+What comes back for each outfit: the day, the event, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
+
+Reading one of these does not make its garments wearable today. The ids are wardrobe ids, and every plan builds its menu from today's weather, today's event and today's cooldowns, so a garment from an old outfit may be out of season now, too casual for today, or still resting. Look for it in today's menu first. If the owner asks for it and it is not there, that is what plan_outfit's ownerAsked is for.`;
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const dayArg = (what: string) =>
+  z
+    .string()
+    .regex(DAY_PATTERN, 'A day is spelled YYYY-MM-DD.')
+    .optional()
+    .describe(what);
+
+const PastArgs = z.object({
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_OUTFITS)
+    .optional()
+    .describe(
+      `How many to read, newest first. Three unless you say otherwise, and ${MAX_OUTFITS} at most. The result says how many matched, so a truncated read is never mistaken for the whole of it.`,
+    ),
+  from: dayArg(
+    'The oldest day to read, UTC, YYYY-MM-DD, inclusive. Leave it out to read back from the newest.',
+  ),
+  to: dayArg(
+    'The newest day to read, UTC, YYYY-MM-DD, inclusive. Set it equal to from for one day.',
+  ),
+});
+
+/** Three is what "the last few" means in a conversation. More is a deliberate ask. */
+const PAST_SHOWN = 3;
+
+/** Wide enough for `accessory`, the longest slot there is, plus a space. */
+const SLOT_COLUMN = 10;
+
+function pieceLines(outfit: SavedOutfit): readonly string[] {
+  const worn = outfit.pieces.map(
+    (piece) => `    ${piece.slot.padEnd(SLOT_COLUMN)}${piece.garment.id} | ${piece.garment.subtype}`,
+  );
+  const accessories = outfit.accessories.map(
+    (garment) => `    ${'accessory'.padEnd(SLOT_COLUMN)}${garment.id} | ${garment.subtype}`,
+  );
+  return [...worn, ...accessories];
+}
+
+function honoredText(honored: HonoredRequest): string {
+  const name = honored.subtype ?? 'a garment gone from the wardrobe';
+  return honored.waived.length === 0
+    ? `${name} (${honored.id}), which fit that day anyway`
+    : `${name} (${honored.id}), in only because they asked: ${waivedText(honored.waived)}`;
+}
+
+function requestLines(request: OwnerRequest | null): readonly string[] {
+  if (request === null) return [];
+  const lines = [`    they asked: "${request.words}"`, ...request.honored.map((one) => `      ${honoredText(one)}`)];
+  if (request.disagreement !== null) lines.push(`    you said back: "${request.disagreement}"`);
+  return lines;
+}
+
+function correctedLines(corrections: readonly Correction[]): readonly string[] {
+  return corrections.map((correction) => {
+    const out = correction.from.subtype ?? 'a garment gone from the wardrobe';
+    const into = correction.to === null ? 'nothing' : (correction.to.subtype ?? 'a garment gone from the wardrobe');
+    return `    they changed ${correction.slot}: ${out} out, ${into} in. "${correction.reason}"`;
+  });
+}
+
+function outfitBlock(outfit: SavedOutfit): string {
+  const day = outfit.createdAt.slice(0, 10);
+  const head = [day, outfit.event ?? 'no event recorded', outfit.worn ? 'worn' : 'not logged as worn'];
+
+  return [
+    `  ${head.join(' | ')}`,
+    ...pieceLines(outfit),
+    `    "${outfit.rationale}"`,
+    outfit.cited.length === 0
+      ? '    cites no guide rules'
+      : `    follows ${outfit.cited.map((rule) => rule.id).join(', ')}`,
+    ...(outfit.missed.length === 0
+      ? []
+      : [`    misses ${outfit.missed.map((rule) => rule.id).join(', ')}`]),
+    `    warmth ${outfit.warmthCore} at the core, ${outfit.warmthWithOuter} with the outer layer`,
+    ...requestLines(outfit.ownerRequest),
+    ...correctedLines(outfit.corrections),
+  ].join('\n');
+}
+
+function searched(args: z.infer<typeof PastArgs>): string {
+  if (args.from !== undefined && args.to !== undefined) {
+    return args.from === args.to ? `on ${args.from}` : `between ${args.from} and ${args.to}`;
+  }
+  if (args.from !== undefined) return `on or after ${args.from}`;
+  if (args.to !== undefined) return `on or before ${args.to}`;
+  return 'in the whole history';
+}
+
+function pastTool(context: ToolContext): ToolSpec {
+  return defineTool(
+    {
+      name: 'past_outfits',
+      title: 'Read past outfits',
+      description: PAST_DESCRIPTION,
+      inputSchema: PastArgs,
+    },
+    async (args) => {
+      const today = context.now().toISOString().slice(0, 10);
+      const dated = `TODAY IS ${today}, UTC.\nEvery date below is UTC and so is that one. Measure any day the owner named from it.`;
+
+      const limit = args.limit ?? PAST_SHOWN;
+      const page = await readOutfits(context.env.DB, { limit, from: args.from, to: args.to });
+
+      if (page.outfits.length === 0) {
+        return ok(
+          dated,
+          '',
+          `No saved outfits ${searched(args)}. Outfits get here through save_outfit, so an outfit that was only talked about is not one this can find.`,
+        );
+      }
+
+      const counted =
+        page.total > page.outfits.length
+          ? `${page.outfits.length} of ${page.total} outfits ${searched(args)}, newest first. Call again with a higher limit for the rest.`
+          : `${page.outfits.length} outfit${page.outfits.length === 1 ? '' : 's'} ${searched(args)}, newest first.`;
+
+      return ok(
+        dated,
+        '',
+        counted,
+        '',
+        page.outfits.map(outfitBlock).join('\n\n'),
+        '',
+        "These ids are wardrobe ids, not ids from today's menu. A garment here is wearable today only if today's plan_outfit puts it in the menu. If the owner asks for one that is not there, name it in plan_outfit's ownerAsked.",
+      );
+    },
+  );
+}
+
+// ---------------------------------------------------------------------------
 // log_wear
 // ---------------------------------------------------------------------------
 
@@ -873,6 +1030,7 @@ export function wardrobeTools(context: ToolContext): readonly ToolSpec[] {
     setTagsTool(context),
     planTool(context),
     saveTool(context),
+    pastTool(context),
     logWearTool(context),
   ];
 }

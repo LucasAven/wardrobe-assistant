@@ -427,12 +427,60 @@ export async function todayOutfit(db: D1Database, now: Date): Promise<SavedOutfi
   return hydrated[0] ?? null;
 }
 
-export async function recentOutfits(db: D1Database, limit: number): Promise<readonly SavedOutfit[]> {
-  const result = await db
-    .prepare('SELECT * FROM outfit ORDER BY created_at DESC LIMIT ?')
-    .bind(Math.min(Math.max(Math.trunc(limit), 1), MAX_OUTFITS))
-    .all<OutfitRow>();
-  return hydrate(db, result.results);
+/**
+ * Which outfits to read. Days are `YYYY-MM-DD` and UTC, the same day the wear
+ * log writes, and both ends are inclusive. Leaving both out reads the newest
+ * `limit`.
+ */
+export interface OutfitQuery {
+  readonly limit: number;
+  readonly from?: string | undefined;
+  readonly to?: string | undefined;
+}
+
+/**
+ * `total` counts everything in the range and ignores `limit`, so a caller that
+ * asked for three out of eight is told there are eight rather than left to
+ * assume it saw all of them.
+ */
+export interface OutfitPage {
+  readonly outfits: readonly SavedOutfit[];
+  readonly total: number;
+}
+
+/**
+ * The range is compared on the day rather than on the whole timestamp. It is
+ * the same first ten characters `dayOf` reads, so a caller never has to know
+ * that the column holds a time as well, and it cannot pick up an outfit saved
+ * late on the day before the range starts.
+ */
+function rangeOf(query: OutfitQuery): { readonly where: string; readonly binds: readonly string[] } {
+  const clauses: string[] = [];
+  const binds: string[] = [];
+  if (query.from !== undefined) {
+    clauses.push('substr(created_at, 1, 10) >= ?');
+    binds.push(query.from);
+  }
+  if (query.to !== undefined) {
+    clauses.push('substr(created_at, 1, 10) <= ?');
+    binds.push(query.to);
+  }
+  return { where: clauses.length === 0 ? '' : ` WHERE ${clauses.join(' AND ')}`, binds };
+}
+
+export async function readOutfits(db: D1Database, query: OutfitQuery): Promise<OutfitPage> {
+  const { where, binds } = rangeOf(query);
+  const limit = Math.min(Math.max(Math.trunc(query.limit), 1), MAX_OUTFITS);
+
+  const [page, counted] = await Promise.all([
+    db
+      .prepare(`SELECT * FROM outfit${where} ORDER BY created_at DESC LIMIT ?`)
+      .bind(...binds, limit)
+      .all<OutfitRow>(),
+    db.prepare(`SELECT count(*) AS total FROM outfit${where}`).bind(...binds).first<{ total: number }>(),
+  ]);
+
+  return { outfits: await hydrate(db, page.results), total: counted?.total ?? 0 };
 }
 
 async function outfitRow(db: D1Database, id: string): Promise<OutfitRow | null> {

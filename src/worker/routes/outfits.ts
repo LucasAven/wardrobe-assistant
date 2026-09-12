@@ -9,7 +9,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../env';
-import { MAX_OUTFITS, recentOutfits, swapPiece, todayOutfit } from '../outfits';
+import { MAX_OUTFITS, readOutfits, swapPiece, todayOutfit } from '../outfits';
 import { VOCABULARIES } from '../vision';
 
 /**
@@ -35,7 +35,7 @@ outfits.get('/today', async (c) => {
 outfits.get('/', async (c) => {
   const asked = Number(c.req.query('limit') ?? MAX_OUTFITS);
   const limit = Number.isFinite(asked) && asked > 0 ? asked : MAX_OUTFITS;
-  return c.json({ outfits: await recentOutfits(c.env.DB, limit) });
+  return c.json({ outfits: (await readOutfits(c.env.DB, { limit })).outfits });
 });
 
 outfits.post('/:id/swap', async (c) => {

@@ -165,11 +165,24 @@ export class FakeDb {
       const ordered = [...this.outfits].sort((left, right) =>
         descending(String(left.created_at), String(right.created_at)),
       );
+      // todayOutfit, which compares the whole timestamp rather than the day.
       if (sql.includes('created_at >= ?')) {
         const since = String(args[0]);
         return ordered.filter((row) => String(row.created_at) >= since).slice(0, 1);
       }
-      return ordered.slice(0, Number(args[0]));
+
+      const rest = [...args];
+      let rows = ordered;
+      if (sql.includes('substr(created_at, 1, 10) >= ?')) {
+        const from = String(rest.shift());
+        rows = rows.filter((row) => String(row.created_at).slice(0, 10) >= from);
+      }
+      if (sql.includes('substr(created_at, 1, 10) <= ?')) {
+        const to = String(rest.shift());
+        rows = rows.filter((row) => String(row.created_at).slice(0, 10) <= to);
+      }
+      if (sql.includes('count(*)')) return [{ total: rows.length }];
+      return rows.slice(0, Number(rest[0]));
     }
 
     if (sql.startsWith('UPDATE garment SET')) return this.updateGarment(sql, args);
