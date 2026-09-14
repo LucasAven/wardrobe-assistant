@@ -628,7 +628,7 @@ What is checked here and nowhere else:
   - every rule id you cite. A cited rule has to exist, apply to this body type, and actually hold for these clothes. Citing a rule the outfit breaks fails the whole save.
   - the accessories a body has one place for. At most one of glasses, hat, scarf, belt, bag, watch and earrings each. A ring, a chain and a bracelet may repeat as often as you like.
 
-On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new rationale for the new clothes: a rationale carried over from a rejected outfit describes something the owner is not wearing.
+On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new title and a new rationale for the new clothes. Either one carried over from a rejected outfit describes something the owner is not wearing.
 
 If the plan carried an ownerAsked request, this is where the second opinion on it goes. Write it into the disagreement field. The owner is shown what they asked for and which filters it turned off whether or not you write one, so an empty field is their request standing on its own.
 
@@ -664,6 +664,13 @@ const SaveArgs = z.object({
         ),
     })
     .describe("The outfit, one garment id per slot. Every id must be in this plan's menu."),
+  title: z
+    .string()
+    .min(1)
+    .max(48)
+    .describe(
+      'A short name for this outfit, in the language the plan named. It says what the outfit is for, not what is in it: "Dinner without trying too hard" is a title, "orange tee and navy chinos" is the piece list the card already shows. At most 48 characters, and shorter reads better on a phone. It is your own words, like the rationale, and it is the first thing the owner sees on the card.',
+    ),
   rationale: z
     .string()
     .min(1)
@@ -778,7 +785,7 @@ function saveTool(context: ToolContext): ToolSpec {
           'Rejected. Nothing was stored.',
           ...reasons.map((reason) => `- ${reasonText(reason, plan.constraints)}`),
           '',
-          `Compose again from the menu in plan ${args.planId} and write a new rationale for the new pieces. A rationale carried over from a rejected outfit describes clothes nobody is wearing.`,
+          `Compose again from the menu in plan ${args.planId} and write a new title and a new rationale for the new pieces. Either one carried over from a rejected outfit describes clothes nobody is wearing.`,
         );
 
       const resolved = resolveOutfit(proposalFrom(args), plan.menu);
@@ -812,6 +819,7 @@ function saveTool(context: ToolContext): ToolSpec {
         {
           planId: args.planId,
           event: plan.event,
+          title: args.title,
           pieces,
           rationale: args.rationale,
           citedRules: ruleIds(certified.cited),
@@ -856,7 +864,7 @@ Selection is by count or by date, and it does both at once: three by default, ne
 
 Dates are UTC and spelled YYYY-MM-DD. The result states today's UTC date before anything else, because you cannot know it and every relative date the owner says is measured from it. Work out "last Friday" yourself and pass the day. This tool does no date parsing and would rather be given a wrong date it can echo back than guess at a right one.
 
-What comes back for each outfit: the day, the event, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
+What comes back for each outfit: the day, the event, the title you gave it, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
 
 Reading one of these does not make its garments wearable today. The ids are wardrobe ids, and every plan builds its menu from today's weather, today's event and today's cooldowns, so a garment from an old outfit may be out of season now, too casual for today, or still resting. Look for it in today's menu first. If the owner asks for it and it is not there, that is what plan_outfit's ownerAsked is for.`;
 
@@ -939,6 +947,7 @@ function outfitBlock(outfit: SavedOutfit): string {
 
   return [
     `  ${head.join(' | ')}`,
+    ...(outfit.title === null ? [] : [`    you called it "${outfit.title}"`]),
     ...pieceLines(outfit),
     `    "${outfit.rationale}"`,
     outfit.cited.length === 0

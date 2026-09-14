@@ -25,6 +25,7 @@ const PASSWORD = 'pw';
 
 const OUTFIT: Omit<NewOutfit, 'planId'> = {
   event: 'errands',
+  title: 'Errands without trying too hard',
   pieces: [
     { slot: 'base', id: 'tee-white' },
     { slot: 'bottom', id: 'jeans-indigo' },
@@ -45,6 +46,7 @@ const OUTFIT: Omit<NewOutfit, 'planId'> = {
  */
 const LAYERED: Omit<NewOutfit, 'planId'> = {
   event: 'work',
+  title: 'A client day, layered',
   pieces: [
     { slot: 'base', id: 'tee-white' },
     { slot: 'mid', id: 'cardigan-gray' },
@@ -447,6 +449,38 @@ describe('POST /api/outfits/:id/swap', () => {
     expect(outfit.cited).toEqual([]);
     expect(outfit.missed).toEqual([]);
     expect(outfit.warmthCore).toBe(1);
+  });
+});
+
+describe('the title on a stored outfit', () => {
+  it('reads back the words it was saved under', async () => {
+    const db = new FakeDb();
+    db.garments = WARDROBE.map((garment) => garmentRow(garment));
+    await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1' },
+      new Date('2026-05-10T08:00:00.000Z'),
+    );
+
+    expect(db.outfits[0]?.title).toBe('Errands without trying too hard');
+
+    const page = await readOutfits(db as unknown as D1Database, { limit: 5 });
+    expect(page.outfits[0]?.title).toBe('Errands without trying too hard');
+  });
+
+  it('is null on a row stored before the column existed', async () => {
+    const db = new FakeDb();
+    db.garments = WARDROBE.map((garment) => garmentRow(garment));
+    await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1' },
+      new Date('2026-05-10T08:00:00.000Z'),
+    );
+    // What the migration leaves on every outfit that was stored before it ran.
+    db.outfits = db.outfits.map((row) => ({ ...row, title: null }));
+
+    const page = await readOutfits(db as unknown as D1Database, { limit: 5 });
+    expect(page.outfits[0]?.title).toBeNull();
   });
 });
 

@@ -144,6 +144,7 @@ describe('argument schemas', () => {
     save_outfit: {
       planId: 'p1',
       pieces: GOOD_PIECES,
+      title: 'A mild morning',
       rationale: 'Layered for a mild morning.',
       citedRules: ['rect-01'],
     },
@@ -159,6 +160,7 @@ describe('argument schemas', () => {
     save_outfit: {
       planId: 'p1',
       pieces: { base: 'tee-white' },
+      title: 'x',
       rationale: 'x',
       citedRules: ['rect-01'],
     },
@@ -391,6 +393,7 @@ describe('save_outfit', () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: GOOD_PIECES,
+      title: 'Errands without trying too hard',
       rationale: 'Three layers so the shape reads, and nothing here fights the weather.',
       citedRules: ['rect-01'],
     });
@@ -401,6 +404,7 @@ describe('save_outfit', () => {
 
     expect(db.outfits).toHaveLength(1);
     const stored = db.outfits[0];
+    expect(stored?.title).toBe('Errands without trying too hard');
     expect(stored?.rationale).toContain('Three layers');
     expect(stored?.cited_rules).toBe('["rect-01"]');
     expect(JSON.parse(String(stored?.pieces))).toEqual([
@@ -429,6 +433,7 @@ describe('save_outfit', () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: { ...GOOD_PIECES, accessories: ['cap-navy', 'hat-straw'] },
+      title: 'Both hats at once',
       rationale: 'Both hats at once.',
       citedRules: [],
     });
@@ -440,10 +445,43 @@ describe('save_outfit', () => {
     expect(db.outfits).toHaveLength(0);
   });
 
+  it('refuses a save with no title, so nothing stored from here is nameless', async () => {
+    const planId = await plan();
+    const result = await tool('save_outfit').call({
+      planId,
+      pieces: GOOD_PIECES,
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('cannot read');
+    expect(db.outfits).toHaveLength(0);
+  });
+
+  it('refuses a title too long for the card, and takes one of exactly 48', async () => {
+    const planId = await plan();
+    const long = (length: number) => ({
+      planId,
+      pieces: GOOD_PIECES,
+      title: 'a'.repeat(length),
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    });
+
+    expect(tool('save_outfit').inputSchema.safeParse(long(48)).success).toBe(true);
+
+    const result = await tool('save_outfit').call(long(49));
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('cannot read');
+    expect(db.outfits).toHaveLength(0);
+  });
+
   it('fails on an unknown planId and says to call plan_outfit', async () => {
     const result = await tool('save_outfit').call({
       planId: 'not-a-plan',
       pieces: GOOD_PIECES,
+      title: 'Whatever',
       rationale: 'Whatever.',
       citedRules: [],
     });
@@ -459,6 +497,7 @@ describe('save_outfit', () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: { ...GOOD_PIECES, bottom: 'jeans-black-skinny' },
+      title: 'Skinny jeans day',
       rationale: 'Skinny jeans this time.',
       citedRules: [],
     });
@@ -474,6 +513,7 @@ describe('save_outfit', () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: tooLight,
+      title: 'Just a shirt',
       rationale: 'Just a shirt today.',
       citedRules: [],
     });
@@ -493,6 +533,7 @@ describe('save_outfit', () => {
       pieces: GOOD_PIECES,
       // A rule for another body type, which does not exist for this one.
       citedRules: ['tri-05'],
+      title: 'Belted',
       rationale: 'Belted.',
     });
 
@@ -510,6 +551,7 @@ describe('save_outfit', () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: GOOD_PIECES,
+      title: 'Straight from the plan',
       rationale: 'Composed from the plan that was handed to me.',
       citedRules: [],
     });
@@ -607,6 +649,7 @@ describe("an owner's request, through the connector", () => {
     const result = await tool('save_outfit').call({
       planId,
       pieces: WITH_ASKED,
+      title: 'Light and easy',
       rationale: 'Light and easy.',
       citedRules: [],
       disagreement: 'I would have kept the oxford, linen reads thin for sixteen degrees.',
@@ -625,6 +668,7 @@ describe("an owner's request, through the connector", () => {
       await tool('save_outfit').call({
         planId,
         pieces: WITH_ASKED,
+        title: 'Light and easy',
         rationale: 'Light and easy.',
         citedRules: [],
       }),
@@ -638,6 +682,7 @@ describe("an owner's request, through the connector", () => {
     await tool('save_outfit').call({
       planId,
       pieces: GOOD_PIECES,
+      title: 'Plain and easy',
       rationale: 'Plain and easy.',
       citedRules: [],
     });
@@ -658,6 +703,7 @@ describe("an owner's request, through the connector", () => {
       await tool('save_outfit').call({
         planId,
         pieces: { ...GOOD_PIECES, mid: 'knit-cream-heavy' },
+        title: 'Warm enough',
         rationale: 'Warm.',
         citedRules: [],
       }),
@@ -678,6 +724,7 @@ describe('a request the outfit did not honor', () => {
       await tool('save_outfit').call({
         planId,
         pieces: GOOD_PIECES,
+        title: 'Plain and easy',
         rationale: 'Plain and easy.',
         citedRules: [],
       }),
@@ -701,6 +748,7 @@ describe('past_outfits', () => {
         { slot: 'shoes', id: 'sneakers-white' },
         { slot: 'accessory', id: 'belt-brown' },
       ]),
+      title: null,
       rationale: 'Plain and easy for a mild morning.',
       cited_rules: JSON.stringify(['rect-01']),
       missed_rules: JSON.stringify(['rect-02']),
@@ -731,6 +779,20 @@ describe('past_outfits', () => {
     expect(text).toContain('follows rect-01');
     expect(text).toContain('misses rect-02');
     expect(text).toContain('warmth 1 at the core, 1 with the outer layer');
+  });
+
+  it('names the outfit with the words it was saved under', async () => {
+    savedOutfit({ title: 'Errands without trying too hard' });
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('you called it "Errands without trying too hard"');
+  });
+
+  it('says nothing about a name for an outfit saved before titles existed', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).not.toContain('you called it');
   });
 
   it('says how many matched, so three out of eight does not read as all of them', async () => {
@@ -816,7 +878,7 @@ describe('what past_outfits says when the read is partial or impossible', () => 
     db.outfits.push({
       id, plan_id: 'p1', event: 'work',
       pieces: JSON.stringify([{ slot: 'base', id: 'tee-white' }, { slot: 'bottom', id: 'jeans-indigo' }]),
-      rationale: 'Plain.', cited_rules: '[]', missed_rules: '[]',
+      title: null, rationale: 'Plain.', cited_rules: '[]', missed_rules: '[]',
       warmth_core: 1, warmth_with_outer: 1, owner_request: null,
       created_at: `${day}T08:00:00.000Z`,
     });

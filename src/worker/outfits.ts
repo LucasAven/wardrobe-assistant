@@ -104,6 +104,7 @@ export interface OwnerRequest {
 export interface NewOutfit {
   readonly planId: string;
   readonly event: EventKind;
+  readonly title: string;
   readonly pieces: readonly OutfitPiece[];
   readonly rationale: string;
   readonly citedRules: readonly string[];
@@ -123,13 +124,14 @@ export async function insertOutfit(
   await db
     .prepare(
       `INSERT INTO outfit
-         (id, plan_id, event, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, owner_request, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, plan_id, event, title, pieces, rationale, cited_rules, missed_rules, warmth_core, warmth_with_outer, owner_request, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       outfit.planId,
       outfit.event,
+      outfit.title,
       JSON.stringify(outfit.pieces),
       outfit.rationale,
       JSON.stringify(outfit.citedRules),
@@ -177,6 +179,11 @@ export interface Correction {
 export interface SavedOutfit extends OutfitView {
   readonly id: string;
   readonly event: EventKind | null;
+  /**
+   * What the assistant called this outfit, its own words the way the rationale
+   * is. Null on anything saved before the column existed.
+   */
+  readonly title: string | null;
   readonly createdAt: string;
   /** Every garment in it was logged as worn on the day it was saved. */
   readonly worn: boolean;
@@ -203,6 +210,7 @@ export interface SavedOutfit extends OutfitView {
 interface OutfitRow {
   readonly id: string;
   readonly event: string | null;
+  readonly title: string | null;
   readonly pieces: string;
   readonly rationale: string;
   readonly cited_rules: string;
@@ -386,6 +394,7 @@ function toSaved(
   return {
     id: row.id,
     event,
+    title: row.title,
     createdAt: row.created_at,
     pieces: hydrated.filter((piece) => piece.slot !== 'accessory'),
     accessories: hydrated.filter((piece) => piece.slot === 'accessory').map((piece) => piece.garment),
