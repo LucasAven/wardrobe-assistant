@@ -977,6 +977,7 @@ const SAVED = {
     { slot: 'mid', garment: garment('m1', 'grey overshirt') },
   ],
   accessories: [garment('a2', 'leather belt')],
+  title: 'Errands without trying too hard',
   rationale: 'The overshirt gives the torso a second layer.',
   cited: [RULE_LAYERS, RULE_TIGHT],
   missed: [RULE_LEGS],
@@ -1006,10 +1007,20 @@ test('an outfit with no pieces is not drawn as an empty card', () => {
 
   const loose = readOutfit({ pieces: SAVED.pieces });
   assert.deepEqual(
-    { id: loose.id, rationale: loose.rationale, cited: loose.cited, missed: loose.missed, worn: loose.worn },
-    { id: '', rationale: '', cited: [], missed: [], worn: false },
+    { id: loose.id, title: loose.title, rationale: loose.rationale, cited: loose.cited, missed: loose.missed, worn: loose.worn },
+    { id: '', title: '', rationale: '', cited: [], missed: [], worn: false },
     'the fields a chat can leave out read as empty, never as undefined on screen',
   );
+});
+
+test('an outfit carries the name it was saved under', () => {
+  assert.equal(readOutfit(SAVED).title, 'Errands without trying too hard');
+  assert.equal(
+    readOutfit({ ...SAVED, title: undefined }).title,
+    '',
+    'an outfit saved before titles existed, which the card shows no line for',
+  );
+  assert.equal(readOutfit({ ...SAVED, title: 12 }).title, '');
 });
 
 test('a cited rule is never also a missed one', () => {

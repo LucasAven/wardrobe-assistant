@@ -288,8 +288,33 @@ function picker(ctx, outfit, piece, done) {
   ]);
 }
 
-/** `title` is null where the screen already says which outfit this is. */
-export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
+/**
+ * The outfit's own title takes the heading, and the screen's caption drops to
+ * the small line under it: the name the assistant gave the outfit is the more
+ * useful thing to read first. An outfit with no title keeps the caption as its
+ * heading, so nothing saved before titles existed loses one.
+ */
+function cardHead(named, caption, meta) {
+  const heading = named ?? caption;
+  const under = named === null ? null : caption;
+  if (heading === null && under === null && meta === '') return null;
+
+  const sub =
+    under === null && meta === ''
+      ? null
+      : el('div', { class: 'outfit__when' }, [
+          under === null ? null : el('span', {}, under),
+          meta === '' ? null : el('span', { class: 'outfit__meta' }, meta),
+        ]);
+
+  return el('div', { class: 'outfit__head' }, [
+    heading === null ? null : el('h2', { class: 'outfit__title' }, heading),
+    sub,
+  ]);
+}
+
+/** `caption` is null where the screen already says which outfit this is. */
+export function outfitCard(ctx, outfit, { caption = null, meta = '' } = {}) {
   const node = el('section', { class: 'outfit' });
   let current = outfit;
 
@@ -327,13 +352,7 @@ export function outfitCard(ctx, outfit, { title = null, meta = '' } = {}) {
     // offers no tap.
     const worn = current.worn || ctx.worn.isWorn(current.id);
 
-    const head =
-      title === null
-        ? null
-        : el('div', { class: 'outfit__head' }, [
-            el('h2', { class: 'outfit__title' }, title),
-            el('span', { class: 'outfit__meta' }, meta),
-          ]);
+    const head = cardHead(current.title === '' ? null : current.title, caption, meta);
 
     const accessories =
       current.accessories.length === 0

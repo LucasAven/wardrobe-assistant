@@ -1007,13 +1007,21 @@ p {
 
 .outfit__head {
   display: flex;
-  align-items: baseline;
-  gap: 10px;
+  flex-direction: column;
+  gap: 3px;
 }
 
 .outfit__title {
   font-size: 18px;
   font-weight: 650;
+}
+
+.outfit__when {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--muted);
 }
 
 .outfit__meta {

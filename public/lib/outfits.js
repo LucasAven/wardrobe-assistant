@@ -128,6 +128,7 @@ export function readOutfit(value) {
     createdAt: asText(value.createdAt),
     pieces,
     accessories: asArray(value.accessories).filter(isObject),
+    title: asText(value.title),
     rationale: asText(value.rationale),
     cited: readRules(value.cited),
     missed: readRules(value.missed),

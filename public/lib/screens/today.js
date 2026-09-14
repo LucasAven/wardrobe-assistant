@@ -103,7 +103,7 @@ export function mountToday(ctx) {
 
   function showOutfit(outfit) {
     const clock = savedClock(outfit.createdAt);
-    show(outfitCard(ctx, outfit, { title: 'Today', meta: clock === '' ? '' : `saved ${clock}` }));
+    show(outfitCard(ctx, outfit, { caption: 'Today', meta: clock === '' ? '' : `saved ${clock}` }));
   }
 
   async function load() {
