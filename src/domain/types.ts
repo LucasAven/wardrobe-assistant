@@ -120,6 +120,12 @@ export interface GarmentRule {
   readonly appliesTo: BodyType | 'all';
   readonly severity: Severity;
   readonly slots: readonly Slot[];
+  /**
+   * What the rule asks for, in a few of the book's own words: the THEN half of
+   * its line, where `because` is the BECAUSE half. Never a paraphrase of
+   * `because`, so a card that shows both never says one thing twice.
+   */
+  readonly short: string;
   /** Verbatim from the book, shown to the user. Never paraphrased. */
   readonly because: string;
   /** `true` means the garment satisfies the rule. */
@@ -168,6 +174,8 @@ export interface OutfitRule {
    * build, not a predicate over one garment.
    */
   readonly wants?: GarmentWant;
+  /** The THEN half of the book's line, as on `GarmentRule`. Never a paraphrase of `because`. */
+  readonly short: string;
   readonly because: string;
   /** `true` means the outfit satisfies the rule. */
   readonly test: (o: ResolvedOutfit) => boolean;

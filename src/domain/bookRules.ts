@@ -244,6 +244,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'all',
     severity: 'prefer',
     scope: PRINCIPLE,
+    short: 'Balance the silhouette',
     because:
       'Every per-type goal in the book is to balance the silhouette, so add visual volume where the body has little and lower the visual prominence of the zone where the body concentrates volume.',
     // Prompt only. Which zone gains and which one loses depends on the body
@@ -256,6 +257,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'all',
     severity: 'prefer',
     scope: PRINCIPLE,
+    short: 'Light attracts the eye',
     because:
       "Light attracts the eye and dark lowers a zone's visual prominence, so light tones go on the zone that should gain attention and dark tones on the zone to lower.",
     // Prompt only, for the same reason as all-01: the placement is per type.
@@ -268,6 +270,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'prefer',
     scope: 'every torso layer',
+    short: 'Layers or a V-neckline',
     because: 'Layers and V-necks add depth and volume so the torso reads as having shape.',
     test: (o) => {
       const torso = torsoLayers(o);
@@ -280,6 +283,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'prefer',
     slots: CLOTHING_SLOTS,
+    short: 'Structured garments',
     because:
       'With no curve to mark, tight fabric only highlights the flatness and loose fabric amplifies it.',
     test: (g) => g.structured && g.fit !== 'tight' && g.fit !== 'oversized',
@@ -290,6 +294,10 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'prefer',
     slots: TOP_SLOTS,
+    // The book's line also names a neckline that adds verticality. That is
+    // rect-01's V-neckline, already on the same card, so the label keeps the
+    // other two.
+    short: 'Marked shoulders, hem near the hip',
     because: 'Wider shoulders plus hem volume near the hip read as a marked waist and a dynamic figure.',
     test: (g) => g.shoulderBulk || g.neckline === 'v' || g.hem === 'hip',
   },
@@ -299,12 +307,14 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Trousers that widen at the ankle',
     because: 'Straight fitted legs add no volume at the hip and leave the body without curves or angles.',
     test: (g) => g.leg === 'wide',
   },
   // Every `a`/`b` pair below is one book line split in two: the `a` half filters
   // the slots nothing can cover, the `b` half judges the layer that ends up
-  // visible. Both halves carry the book's sentence, because both are shown.
+  // visible. Both halves carry the book's sentence and its short line, because
+  // both are shown.
   // circ-05, circ-06, circ-07 and tri-08 were split this way and have been
   // rejoined, so a stored citation of `circ-05a` or `tri-08b` resolves to
   // nothing.
@@ -314,6 +324,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'require',
     slots: ON_SHOW_SLOTS,
+    short: 'Nothing very tight',
     because: 'Very tight garments highlight the flatness.',
     test: (g) => g.fit !== 'tight',
   },
@@ -323,6 +334,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'require',
     scope: 'the layer on show',
+    short: 'Nothing very tight',
     because: 'Very tight garments highlight the flatness.',
     test: onOutermostTorso((g) => g.fit !== 'tight'),
   },
@@ -332,6 +344,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'require',
     slots: ON_SHOW_SLOTS,
+    short: 'Nothing very loose',
     because: 'Very loose garments amplify the flatness.',
     test: (g) => g.fit !== 'oversized',
   },
@@ -341,6 +354,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'require',
     scope: 'the layer on show',
+    short: 'Nothing very loose',
     because: 'Very loose garments amplify the flatness.',
     test: onOutermostTorso((g) => g.fit !== 'oversized'),
   },
@@ -350,6 +364,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'rectangle',
     severity: 'prefer',
     scope: 'the tops with the trousers',
+    short: 'No tight tank with straight jeans',
     because:
       'A tight tank top with slightly fitted straight jeans leaves the figure uniform, without curves or angles.',
     test: (o) => !(hasTightTankTop(o) && hasStraightLegBottom(o)),
@@ -361,6 +376,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     scope: 'the torso layers with the trousers',
+    short: 'Light top, dark trousers',
     because: 'The eye goes to the light, so the shoulders gain the visual weight the type lacks.',
     test: (o) => {
       const bottom = o.pieces.bottom;
@@ -376,6 +392,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Dark high-rise trousers, wide below',
     because:
       'A wide dark leg lowers the visual prominence of the lower body without adding bulk, and the belt raises the perceived waistline.',
     // The belt half of this line is carried by tri-05, which can see the
@@ -388,6 +405,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     scope: 'the layers and accessories at the shoulders',
+    short: 'Dark layer around the shoulders',
     because:
       'A dark layer around the neck and shoulders builds volume exactly in the zone where the figure lacks it.',
     test: (o) => {
@@ -401,6 +419,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Wide trouser ankles',
     because: 'Wide ankles match the hip volume and rebalance the figure.',
     test: (g) => g.leg === 'wide',
   },
@@ -410,6 +429,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     scope: 'the accessories',
+    short: 'Worn with a belt',
     because: 'The belt helps a lot for this type because it raises the visual waistline.',
     ...contains(BELT),
   },
@@ -419,6 +439,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'require',
     slots: BOTTOM_SLOT,
+    short: 'Nothing tight on the lower body',
     because:
       'The lower body is the zone to lower in visual prominence, so nothing tight or clingy belongs there.',
     test: (g) => g.fit !== 'tight',
@@ -429,6 +450,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'prefer',
     scope: 'the tops with the trousers',
+    short: 'No tight top with tight trousers',
     because: 'A tight top tucked into tight trousers highlights hip width.',
     // Tucking is a way of wearing a garment and no field records it, so the
     // pairing of the two tight pieces is what gets tested.
@@ -440,6 +462,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'require',
     scope: 'every torso layer',
+    short: 'No bare shoulders',
     because: 'Sleeveless tops leave the shoulders bare and unbalance the figure further.',
     // `sleeves: 'none'` cannot tell a tank top apart from a gilet, so only a
     // sleeved layer counts as cover: a gilet over a long sleeve tee passes on
@@ -456,6 +479,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'triangle',
     severity: 'require',
     slots: BOTTOM_SLOT,
+    short: 'No tight ankles',
     because: 'Tight ankles work against the wide ankle that matches the hip volume.',
     // Only `skinny` is read as a tight ankle. This is a hard filter, and a
     // tapered leg is narrower at the ankle without being tight.
@@ -468,6 +492,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Trousers with volume',
     because:
       'Volume below balances the silhouette and tight legs accentuate the top-heavy contrast even more.',
     test: (g) => g.fit === 'relaxed' || g.leg === 'relaxed' || g.leg === 'wide',
@@ -478,6 +503,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     slots: TOP_SLOTS,
+    short: 'Structured but plain tops',
     because:
       'The top already has plenty of volume, and padded jackets, bulky sweaters and shoulder pads amplify what is already there.',
     // The avoid half of this line does name a jacket, and inv-08a and inv-08b
@@ -491,6 +517,10 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     scope: 'the tops with the trousers',
+    // The book's line also asks for an open neckline. Naming all three ran the
+    // pill the full width of the card, and the pairing is what the rule is
+    // about, so the neckline stays in the sentence a tap behind it.
+    short: 'Fitted tops, volume below',
     because:
       'The fitted top flatters this type only when the lower half compensates, and the open neckline adds verticality.',
     test: (o) => {
@@ -505,6 +535,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     scope: 'the tops with the trousers',
+    short: 'No fitted tee with tight trousers',
     because:
       'A fitted tee with tight trousers emphasizes the size difference between upper and lower body the most, and thin legs make the trouser volume stricter still.',
     // `thinLegs` lives on the body profile, which a rule test never sees. The
@@ -518,6 +549,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Trousers wide at the ankle',
     because: 'Wide ankles balance the shoulders and the belt marks the waist, giving a more dynamic figure.',
     test: (g) => g.leg === 'wide',
   },
@@ -527,6 +559,9 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
     scope: 'the accessories',
+    // The book's line says a belt with relaxed trousers. The trousers are
+    // inv-01's and only the belt is in scope here, so only the belt is named.
+    short: 'Worn with a belt',
     because: 'The belt marks the waist over relaxed trousers, giving a more dynamic figure.',
     ...contains(BELT),
   },
@@ -536,6 +571,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'require',
     slots: BOTTOM_SLOT,
+    short: 'No very tight trousers',
     because: 'Very tight trousers accentuate the contrast.',
     test: (g) => g.fit !== 'tight',
   },
@@ -545,6 +581,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'require',
     slots: OUTER_SLOT,
+    short: 'No padding or shoulder pads',
     because: 'Padded jackets, bulky sweaters and shoulder pads add volume where the top already has plenty.',
     // Bulk has no field of its own, so only the padding part of this dont can
     // be checked. The sweater half stays in the prompt through the reason.
@@ -556,6 +593,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'inverted_triangle',
     severity: 'require',
     scope: 'the layer on show',
+    short: 'No padding or shoulder pads',
     because: 'Padded jackets, bulky sweaters and shoulder pads add volume where the top already has plenty.',
     test: onOutermostTorso((g) => !g.shoulderBulk),
   },
@@ -566,6 +604,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'prefer',
     slots: TORSO_SLOTS,
+    short: 'Vertical lines in dark colors',
     because: 'The eye follows the vertical line and does not stop at the center.',
     // `pattern` records that a garment is striped but not which way the stripes
     // run, so a stripe counts as the vertical line the book asks for.
@@ -577,6 +616,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'prefer',
     slots: TOP_SLOTS,
+    short: 'Regular or boxy tops',
     because:
       'Tops that cling to the torso or fall past the waistline wrap the midsection and make the body look wider than it is.',
     test: (g) =>
@@ -589,6 +629,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'prefer',
     scope: 'the tops, coats and trousers together',
+    short: 'A monochromatic outfit',
     because: 'One color unifies and balances all the body zones.',
     // Shoes and accessories are left out because the book's reason is about the
     // body zones, which are the clothing slots.
@@ -606,6 +647,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'prefer',
     slots: BOTTOM_SLOT,
+    short: 'Trousers that widen down the leg',
     because:
       'Widening legs distribute visual weight along the body, while straight legs add no volume to compensate the midsection.',
     test: (g) => g.leg === 'wide',
@@ -616,6 +658,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'require',
     scope: 'the top on show when no coat is worn',
+    short: 'No tops that cling',
     because: 'Tops that cling to the torso wrap the midsection and make the body look wider than it is.',
     test: onOutermostTop((g) => g.fit !== 'tight'),
   },
@@ -625,6 +668,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'require',
     scope: 'the top on show when no coat is worn',
+    short: 'No tops past the waistline',
     because: 'Tops that fall past the waistline wrap the midsection and make the body look wider than it is.',
     test: onOutermostTop((g) => g.hem !== 'past_waist' && g.hem !== 'hip' && g.hem !== 'below_hip'),
   },
@@ -634,6 +678,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'require',
     scope: 'the top on show when no coat is worn',
+    short: 'No tight tank tops',
     because: 'Tight tank tops shrink the shoulders and emphasize the abdomen.',
     test: onOutermostTop((g) => !(g.fit === 'tight' && g.sleeves === 'none')),
   },
@@ -643,6 +688,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'require',
     slots: BOTTOM_SLOT,
+    short: 'No straight-leg trousers',
     because: 'Straight-leg trousers add no leg volume to compensate the midsection.',
     test: (g) => g.leg !== 'straight',
   },
@@ -652,6 +698,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     appliesTo: 'circular',
     severity: 'prefer',
     scope: 'the tops with the trousers',
+    short: 'No tight tank with straight jeans',
     because:
       'A tight tank top with straight jeans emphasizes the abdominal zone and shortens the legs, which the book calls the worst combination for this type.',
     test: (o) => !(hasTightTankTop(o) && hasStraightLegBottom(o)),
