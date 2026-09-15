@@ -140,14 +140,20 @@ export class FakeDb {
     }
 
     if (sql.includes('INSERT INTO wear_log')) {
-      this.wear.unshift({ worn_on: args[1], garment_ids: args[2], event: args[3] ?? null });
+      this.wear.unshift(rowFrom(columnsOf(sql, 'wear_log'), args));
       return [];
     }
     if (sql.includes('FROM wear_log')) {
       const since = String(args[0]);
-      return this.wear
-        .filter((row) => String(row.worn_on) >= since)
-        .sort((left, right) => descending(String(left.worn_on), String(right.worn_on)));
+      return (
+        this.wear
+          .filter((row) => String(row.worn_on) >= since)
+          // A row written before 009 carries no `outfit_id` key, which is the
+          // shape a test gives a pre-009 row. SQLite reads a column added by
+          // ALTER TABLE back as null on exactly those rows.
+          .map((row): Row => ({ outfit_id: null, ...row }))
+          .sort((left, right) => descending(String(left.worn_on), String(right.worn_on)))
+      );
     }
 
     if (sql.includes('INSERT INTO outfit_feedback')) {

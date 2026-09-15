@@ -48,7 +48,12 @@ class FakeDb {
       return [];
     }
     if (sql.includes('INSERT INTO wear_log')) {
-      this.wear.unshift({ worn_on: args[1], garment_ids: args[2], event: args[3] });
+      this.wear.unshift({
+        worn_on: args[1],
+        garment_ids: args[2],
+        event: args[3],
+        outfit_id: args[4] ?? null,
+      });
       return [];
     }
     if (sql.includes('FROM wear_log')) return this.wear;

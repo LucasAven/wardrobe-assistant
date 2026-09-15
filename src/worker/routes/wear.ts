@@ -14,13 +14,19 @@ const EVENTS = ['home', 'errands', 'work', 'social', 'dinner', 'formal', 'active
 const WearRequestSchema = z.object({
   garmentIds: z.array(z.string().min(1)).min(1),
   event: z.enum(EVENTS).optional(),
+  outfitId: z.string().min(1).optional(),
 });
 
 /** The return type is the compiler's check that the route still speaks the contract. */
 function wearRequestFrom(input: z.infer<typeof WearRequestSchema>): WearRequest {
-  return input.event === undefined
-    ? { garmentIds: input.garmentIds }
-    : { garmentIds: input.garmentIds, event: input.event };
+  // Spread rather than assigned, because `exactOptionalPropertyTypes` reads a
+  // field set to undefined as a field the caller sent, which is not what a
+  // request that left it out said.
+  return {
+    garmentIds: input.garmentIds,
+    ...(input.event === undefined ? {} : { event: input.event }),
+    ...(input.outfitId === undefined ? {} : { outfitId: input.outfitId }),
+  };
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -29,11 +35,18 @@ const WearRowSchema = z.object({
   worn_on: z.string(),
   garment_ids: z.string(),
   event: z.enum(EVENTS).nullable(),
+  outfit_id: z.string().nullable(),
 });
 
-/** A `WearEvent` the cooldown can read, plus the column only the log view wants. */
+/** A `WearEvent` the cooldown can read, plus the columns the cooldown never asks about. */
 export interface LoggedWear extends WearEvent {
   readonly event: EventKind | null;
+  /**
+   * The outfit this wear was, and null for a wear that names none. Every row
+   * written before the column existed reads null here, which is why an outfit
+   * is still read as worn off the day and the garments when nothing names it.
+   */
+  readonly outfitId: string | null;
 }
 
 export function day(date: Date): string {
@@ -50,7 +63,9 @@ function toDate(wornOn: string): Date {
 
 export async function recentWear(db: D1Database, since: string): Promise<readonly LoggedWear[]> {
   const result = await db
-    .prepare('SELECT worn_on, garment_ids, event FROM wear_log WHERE worn_on >= ? ORDER BY worn_on DESC')
+    .prepare(
+      'SELECT worn_on, garment_ids, event, outfit_id FROM wear_log WHERE worn_on >= ? ORDER BY worn_on DESC',
+    )
     .bind(since)
     .all();
 
@@ -60,6 +75,7 @@ export async function recentWear(db: D1Database, since: string): Promise<readonl
       wornOn: toDate(row.worn_on),
       garmentIds: z.array(z.string()).parse(JSON.parse(row.garment_ids)),
       event: row.event,
+      outfitId: row.outfit_id,
     };
   });
 }
@@ -72,8 +88,8 @@ export async function recordWear(
   const id = crypto.randomUUID();
   const on = day(wornOn);
   await db
-    .prepare('INSERT INTO wear_log (id, worn_on, garment_ids, event) VALUES (?, ?, ?, ?)')
-    .bind(id, on, JSON.stringify(request.garmentIds), request.event ?? null)
+    .prepare('INSERT INTO wear_log (id, worn_on, garment_ids, event, outfit_id) VALUES (?, ?, ?, ?, ?)')
+    .bind(id, on, JSON.stringify(request.garmentIds), request.event ?? null, request.outfitId ?? null)
     .run();
   return { id, wornOn: on };
 }
@@ -84,7 +100,10 @@ wear.post('/', async (c) => {
   const body: unknown = await c.req.json().catch(() => null);
   const parsed = WearRequestSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: 'send garmentIds and an optional event', issues: parsed.error.issues }, 400);
+    return c.json(
+      { error: 'send garmentIds, an optional event and an optional outfitId', issues: parsed.error.issues },
+      400,
+    );
   }
 
   const logged = await recordWear(c.env.DB, wearRequestFrom(parsed.data), new Date());
