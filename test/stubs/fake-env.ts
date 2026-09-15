@@ -51,7 +51,6 @@ export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
     sleeves: garment.sleeves,
     accessory_kind: garment.accessoryKind,
     shoulder_bulk: bit(garment.shoulderBulk),
-    water_resistant: bit(garment.waterResistant),
     seasons: JSON.stringify(garment.seasons),
     notes: garment.notes,
     reviewed: bit(options.reviewed ?? options.untagged !== true),

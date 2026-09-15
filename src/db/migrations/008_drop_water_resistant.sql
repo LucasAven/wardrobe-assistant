@@ -1,0 +1,11 @@
+-- The rain filter this column fed is gone, and nothing else ever read it.
+--
+-- It kept a garment out of the menu when the day was wet, which sounds right and
+-- was not: the owner had no shoes tagged water resistant, so on any rainy day the
+-- shoes slot emptied and no outfit could be built at all. The starvation rescue
+-- could not help, because it only ever waives a cooldown.
+--
+-- Rain is still in the weather the assistant reads, so it can still say to take
+-- the boots. It is a matter of taste now rather than a filter, which is where a
+-- judgment this soft belongs.
+ALTER TABLE garment DROP COLUMN water_resistant;

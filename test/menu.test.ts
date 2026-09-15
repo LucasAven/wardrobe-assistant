@@ -15,6 +15,7 @@ import {
   WINTER_DAY,
   daysBefore,
   garmentById,
+  makeGarment,
   proposal,
 } from './fixtures';
 
@@ -86,7 +87,14 @@ describe('distributive filters', () => {
     expect(idsIn(menu, 'bottom')).toContain('jeans-indigo');
   });
 
-  it('drops soakable outers and shoes only when it will actually rain on you', () => {
+  /**
+   * Rain used to be a filter here, and it was the one filter a wardrobe could
+   * fail outright: nothing tagged water resistant in the shoes slot emptied a
+   * required slot, and no outfit could be built at all on a wet day. It is
+   * weather the assistant reads now, not a filter, so the menu is the same wet
+   * or dry and choosing the boots is a judgment like any other.
+   */
+  it('keeps every shoe and coat on a wet day, because rain is no longer a filter', () => {
     const wet = buildMenu(
       WARDROBE,
       deriveConstraints({ ...MILD_ERRANDS, precipProbability: 0.7, hoursOutdoors: 3 }),
@@ -96,11 +104,10 @@ describe('distributive filters', () => {
     );
     const dry = buildMenu(WARDROBE, deriveConstraints(MILD_ERRANDS), [], 'rectangle', AUTUMN_DAY);
 
-    expect(idsIn(wet, 'outer')).not.toContain('wool-coat-camel');
-    expect(idsIn(wet, 'outer')).toContain('trench-navy');
-    expect(idsIn(wet, 'shoes')).not.toContain('loafers-brown');
-    expect(idsIn(dry, 'outer')).toContain('wool-coat-camel');
-    expect(idsIn(dry, 'shoes')).toContain('loafers-brown');
+    expect(idsIn(wet, 'shoes')).toEqual(idsIn(dry, 'shoes'));
+    expect(idsIn(wet, 'outer')).toEqual(idsIn(dry, 'outer'));
+    expect(idsIn(wet, 'shoes')).toContain('loafers-brown');
+    expect(wet.starved).toEqual([]);
   });
 
   it('applies only the book donts that are require and garment shaped', () => {
@@ -253,15 +260,27 @@ describe('cooldown', () => {
 });
 
 describe('starvation floor', () => {
-  it('re-admits the only waterproof boot rather than emptying the shoes slot', () => {
-    const constraints = deriveConstraints(WET_FORMAL);
+  /** Three plain pieces, one per required slot, so only the cooldown can bite. */
+  const ONE_OF_EACH = [
+    makeGarment({ id: 'tee', slot: 'base', subtype: 'tee' }),
+    makeGarment({ id: 'jeans', slot: 'bottom', subtype: 'jeans' }),
+    makeGarment({ id: 'boots', slot: 'shoes', subtype: 'boots' }),
+  ];
+
+  it('re-admits the only shoe rather than emptying the slot, though it was worn yesterday', () => {
     const recentWear: readonly WearEvent[] = [
-      { wornOn: daysBefore(WINTER_DAY, 1), garmentIds: ['chelsea-boots-black'] },
+      { wornOn: daysBefore(AUTUMN_DAY, 1), garmentIds: ['boots'] },
     ];
-    const menu = buildMenu(WARDROBE, constraints, recentWear, 'rectangle', WINTER_DAY);
+    const menu = buildMenu(
+      ONE_OF_EACH,
+      deriveConstraints(MILD_ERRANDS),
+      recentWear,
+      'rectangle',
+      AUTUMN_DAY,
+    );
 
     expect(menu.bySlot.shoes).toHaveLength(1);
-    expect(menu.bySlot.shoes[0]?.garment.id).toBe('chelsea-boots-black');
+    expect(menu.bySlot.shoes[0]?.garment.id).toBe('boots');
     expect(menu.bySlot.shoes[0]?.admittedBy).toEqual({ by: 'starved_slot' });
     expect(menu.bySlot.shoes[0]?.daysSince).toBe(1);
     expect(menu.starved).toEqual([]);
@@ -279,8 +298,15 @@ describe('starvation floor', () => {
   });
 
   it('never waives a hard constraint, and reports the slot as starved instead', () => {
-    const constraints = deriveConstraints({ ...WET_FORMAL, date: SUMMER_DAY });
-    const menu = buildMenu(WARDROBE, constraints, [], 'rectangle', SUMMER_DAY);
+    // The only shoe is winter only and the day is summer. A cooldown is waived
+    // to keep a required slot alive, a season never is.
+    const winterBootOnly = [
+      makeGarment({ id: 'tee', slot: 'base', subtype: 'tee' }),
+      makeGarment({ id: 'jeans', slot: 'bottom', subtype: 'jeans' }),
+      makeGarment({ id: 'boots', slot: 'shoes', subtype: 'boots', seasons: ['winter'] }),
+    ];
+    const constraints = deriveConstraints({ ...MILD_ERRANDS, date: SUMMER_DAY });
+    const menu = buildMenu(winterBootOnly, constraints, [], 'rectangle', SUMMER_DAY);
 
     expect(menu.bySlot.shoes).toEqual([]);
     expect(menu.starved).toEqual(['shoes']);
@@ -515,19 +541,20 @@ describe('a request only ever adds', () => {
   });
 
   it('un-starves a required slot the request itself fills', () => {
-    // The one water resistant pair taken out, on a day that asks for rain
-    // proof shoes, so the slot is empty for a reason a request can waive.
-    const noDryShoes = WARDROBE.filter((garment) => garment.id !== 'chelsea-boots-black');
-    const wet = deriveConstraints(WET_FORMAL);
-    const plain = buildMenu(noDryShoes, wet, [], 'rectangle', WINTER_DAY);
-    const shoes = plain.heldBack.find((held) => held.garment.slot === 'shoes');
+    // The only shoe is out of season, so the slot is empty for a reason a
+    // request can waive.
+    const winterBootOnly = [
+      makeGarment({ id: 'tee', slot: 'base', subtype: 'tee' }),
+      makeGarment({ id: 'jeans', slot: 'bottom', subtype: 'jeans' }),
+      makeGarment({ id: 'boots', slot: 'shoes', subtype: 'boots', seasons: ['winter'] }),
+    ];
+    const summer = deriveConstraints({ ...MILD_ERRANDS, date: SUMMER_DAY });
+    const plain = buildMenu(winterBootOnly, summer, [], 'rectangle', SUMMER_DAY);
 
     expect(plain.starved).toContain('shoes');
-    expect(shoes).toBeDefined();
+    expect(plain.heldBack.find((held) => held.garment.slot === 'shoes')).toBeDefined();
 
-    const asked = buildMenu(noDryShoes, wet, [], 'rectangle', WINTER_DAY, [
-      (shoes as { garment: { id: string } }).garment.id,
-    ]);
+    const asked = buildMenu(winterBootOnly, summer, [], 'rectangle', SUMMER_DAY, ['boots']);
 
     expect(asked.starved).not.toContain('shoes');
   });

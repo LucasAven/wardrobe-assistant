@@ -78,14 +78,19 @@ describe('formality floor', () => {
 });
 
 describe('rain', () => {
-  it('needs both a real chance of rain and time spent in it', () => {
-    const dry = deriveConstraints(moment({ precipProbability: 0.1, hoursOutdoors: 4 }));
-    const dashToTheCar = deriveConstraints(moment({ precipProbability: 0.9, hoursOutdoors: 0.2 }));
-    const soaked = deriveConstraints(moment({ precipProbability: 0.6, hoursOutdoors: 4 }));
+  /**
+   * There used to be a `rainProof` constraint that kept a garment out of the
+   * menu unless it was tagged water resistant. It was removed because it could
+   * not be satisfied: a wardrobe with no waterproof shoes lost the whole shoes
+   * slot on a wet day, and shoes are required, so no outfit existed at all.
+   * Rain now reaches the assistant only as weather, to be judged rather than
+   * filtered on.
+   */
+  it('changes nothing the menu filters on, however wet the day is', () => {
+    const dry = deriveConstraints(moment({ precipProbability: 0, hoursOutdoors: 4 }));
+    const soaked = deriveConstraints(moment({ precipProbability: 1, hoursOutdoors: 8 }));
 
-    expect(dry.rainProof).toBe(false);
-    expect(dashToTheCar.rainProof).toBe(false);
-    expect(soaked.rainProof).toBe(true);
+    expect(soaked).toEqual(dry);
   });
 });
 

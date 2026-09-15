@@ -270,7 +270,7 @@ const AdmissionSchema = z
     z.object({ by: z.literal('starved_slot') }),
     z.object({
       by: z.literal('owner_asked'),
-      waived: z.array(z.enum(['season', 'formality', 'rain', 'cooldown'])),
+      waived: z.array(z.enum(['season', 'formality', 'cooldown'])),
     }),
   ])
   .transform((value): Admission => value);
@@ -296,7 +296,6 @@ const ConstraintsSchema = z
   .object({
     warmth: z.object({ core: BandSchema, withOuter: BandSchema, label: z.string() }),
     minFormality: z.literal([1, 2, 3, 4, 5]),
-    rainProof: z.boolean(),
     season: z.enum(['spring', 'summer', 'autumn', 'winter']),
     cooldownDays: z.object({
       base: z.number(),

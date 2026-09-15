@@ -249,7 +249,6 @@ export const GarmentDraftSchema = z.object({
   sleeves: z.enum(SLEEVES.values).nullable(),
   accessoryKind: z.enum(ACCESSORY_KIND.values).nullable(),
   shoulderBulk: z.boolean(),
-  waterResistant: z.boolean(),
   seasons: z.array(z.enum(SEASON.values)),
   notes: z.string().nullable(),
   uncertain: z.array(z.string()),
@@ -304,7 +303,6 @@ export const RawGarmentDraftSchema = z.object({
     .nullable()
     .describe(`${oneOf(ACCESSORY_KIND.values)} null unless the slot is accessory, and never null on one.`),
   shoulderBulk: z.boolean(),
-  waterResistant: z.boolean(),
   seasons: z.array(z.string()).describe(`Every season the piece suits. ${oneOf(SEASON.values)}`),
   notes: z.string().nullable(),
   uncertain: z
@@ -408,7 +406,6 @@ export function coerceDraft(raw: RawGarmentDraft): GarmentDraft {
     sleeves: wordOrNull('sleeves', raw.sleeves, SLEEVES),
     accessoryKind: wordOrNull('accessoryKind', raw.accessoryKind, ACCESSORY_KIND),
     shoulderBulk: raw.shoulderBulk,
-    waterResistant: raw.waterResistant,
     seasons: seasons(raw.seasons),
     notes: raw.notes,
     uncertain: [...uncertain],
@@ -448,7 +445,6 @@ export function blankDraft(): GarmentDraft {
     sleeves: null,
     accessoryKind: null,
     shoulderBulk: false,
-    waterResistant: false,
     seasons: [],
     notes: null,
     uncertain: [...TAGGED_FIELDS],
@@ -498,7 +494,6 @@ The remaining fields feed a men's styling book whose rules read the silhouette o
   fit             how close the cut sits to the body it was made for: tight, fitted, regular, relaxed, oversized. Read the width of the panels and the shape of the cut, not how the photo is styled.
   structured      true when the garment holds its own shape instead of draping: blazer, denim jacket, stiff oxford, structured coat. false for jersey, knitwear, and anything that collapses when you set it down.
   shoulderBulk    true only when the shoulders are padded or built up: suit and blazer shoulders, padded jackets, heavy raglan bulk. false for a plain tee, a shirt, a thin knit.
-  waterResistant  true only when the surface is plainly made to shed water: rain shell, waxed or coated jacket, rubber boots. Not wool, not a denim jacket.
   seasons         every season the piece is comfortable in. Most pieces suit two or three. Do not return one season out of caution. Jewelry, eyewear, a watch and a belt are worn all year, so send all four for them. A wool hat and a wool scarf are genuinely seasonal, so say so.
   colors          one to three plain color words, the largest area of the garment first: "navy", "off white", "olive". No brand names, no fashion names.
   colorRole       neutral for black, white, gray, navy, beige, brown, olive and denim blue. accent for anything that would be the loudest piece in an outfit.

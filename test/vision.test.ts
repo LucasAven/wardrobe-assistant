@@ -44,7 +44,6 @@ const OXFORD: GarmentDraft = {
   sleeves: 'long',
   accessoryKind: null,
   shoulderBulk: false,
-  waterResistant: false,
   seasons: ['spring', 'autumn', 'winter'],
   notes: null,
   uncertain: ['fit'],
@@ -68,7 +67,6 @@ const JEANS: GarmentDraft = {
   sleeves: null,
   accessoryKind: null,
   shoulderBulk: false,
-  waterResistant: false,
   seasons: ['spring', 'summer', 'autumn', 'winter'],
   notes: null,
   uncertain: [],
@@ -109,7 +107,6 @@ function rowFrom(draft: GarmentDraft, id = 'row-1') {
     sleeves: draft.sleeves,
     accessory_kind: draft.accessoryKind,
     shoulder_bulk: draft.shoulderBulk ? 1 : 0,
-    water_resistant: draft.waterResistant ? 1 : 0,
     seasons: JSON.stringify(draft.seasons),
     notes: draft.notes,
     reviewed: 0,
@@ -338,12 +335,12 @@ describe('coerceDraft', () => {
     expect(coerceDraft(said({ formality: Number.NaN })).formality).toBe(3);
   });
 
-  it('keeps the seventeen good fields when three are outside the vocabulary', () => {
+  it('keeps the sixteen good fields when three are outside the vocabulary', () => {
     const coerced = coerceDraft(said({ neckline: 'scoop', fabric: 'jersey', fit: 'athletic' }));
     const spoiled = ['neckline', 'fabric', 'fit'];
     const kept = TAGGED_FIELDS.filter((field) => !spoiled.includes(field));
 
-    expect(kept).toHaveLength(17);
+    expect(kept).toHaveLength(16);
     for (const field of kept) {
       expect(read(coerced, field), field).toEqual(read(SURE, field));
     }

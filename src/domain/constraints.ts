@@ -67,11 +67,6 @@ const MIN_FORMALITY_BY_EVENT: Readonly<Record<EventKind, Formality>> = {
   formal: 4,
 };
 
-const RAIN_PROBABILITY_THRESHOLD = 0.4;
-
-/** A dash to the car gets wet. It does not need boots. */
-const RAIN_MIN_HOURS_OUTDOORS = 0.5;
-
 const COOLDOWN_DAYS: Readonly<Record<Slot, number>> = {
   outer: 5,
   mid: 3,
@@ -147,7 +142,6 @@ export function deriveConstraints(moment: Moment): Constraints {
   return {
     warmth: warmthBandsFor(moment),
     minFormality: MIN_FORMALITY_BY_EVENT[moment.event],
-    rainProof: moment.precipProbability >= RAIN_PROBABILITY_THRESHOLD && moment.hoursOutdoors >= RAIN_MIN_HOURS_OUTDOORS,
     season: seasonOf(moment.date),
     cooldownDays: COOLDOWN_DAYS,
   };

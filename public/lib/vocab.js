@@ -195,14 +195,6 @@ export const FIELDS = [
     hint: 'Yes only when the shoulders are padded or built up.',
   },
   {
-    name: 'waterResistant',
-    label: 'Water resistant',
-    type: 'boolean',
-    control: 'select',
-    options: YES_NO,
-    hint: 'Yes only when the surface is plainly made to shed water.',
-  },
-  {
     name: 'seasons',
     label: 'Seasons',
     type: 'seasons',

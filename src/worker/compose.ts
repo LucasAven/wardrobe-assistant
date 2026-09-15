@@ -262,7 +262,6 @@ const VIEW_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 's
 const FILTER_WORDS: Readonly<Record<Waived, string>> = {
   season: 'out of season',
   formality: "under today's formality floor",
-  rain: 'not water resistant on a wet day',
   cooldown: 'worn too recently to come back yet',
 };
 
@@ -340,9 +339,6 @@ function constraintsText(constraints: Constraints): string {
     `  the day reads    ${constraints.warmth.label}`,
     `  formality floor  ${constraints.minFormality} and up, already true of everything in the menu.`,
     `  season           ${constraints.season}, already true of everything in the menu.`,
-    constraints.rainProof
-      ? '  rain             counts today, so the menu already holds only water resistant outerwear and shoes.'
-      : '  rain             not a factor today.',
   ].join('\n');
 }
 

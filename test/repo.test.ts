@@ -61,7 +61,6 @@ describe('parseGarmentRow', () => {
       sleeves: 'long',
       accessoryKind: null,
       shoulderBulk: false,
-      waterResistant: false,
       seasons: ['autumn', 'winter'],
       notes: 'small hole on the left cuff',
     });
@@ -109,20 +108,18 @@ describe('parseGarmentRow', () => {
 
   it('reads every integer column as a boolean', () => {
     const off = parseGarmentRow(
-      row({ structured: 0, shoulder_bulk: 0, water_resistant: 0, reviewed: 0, archived: 0 }),
+      row({ structured: 0, shoulder_bulk: 0, reviewed: 0, archived: 0 }),
     );
     expect(off.garment.structured).toBe(false);
     expect(off.garment.shoulderBulk).toBe(false);
-    expect(off.garment.waterResistant).toBe(false);
     expect(off.reviewed).toBe(false);
     expect(off.archived).toBe(false);
 
     const on = parseGarmentRow(
-      row({ structured: 1, shoulder_bulk: 1, water_resistant: 1, reviewed: 1, archived: 1 }),
+      row({ structured: 1, shoulder_bulk: 1, reviewed: 1, archived: 1 }),
     );
     expect(on.garment.structured).toBe(true);
     expect(on.garment.shoulderBulk).toBe(true);
-    expect(on.garment.waterResistant).toBe(true);
     expect(on.reviewed).toBe(true);
     expect(on.archived).toBe(true);
   });

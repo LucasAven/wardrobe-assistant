@@ -73,7 +73,6 @@ const PATCHABLE = [
   'sleeves',
   'accessoryKind',
   'shoulderBulk',
-  'waterResistant',
   'seasons',
   'notes',
   'uncertain',
@@ -104,7 +103,6 @@ const GARMENT = {
   sleeves: 'long',
   accessoryKind: null,
   shoulderBulk: false,
-  waterResistant: false,
   seasons: ['spring', 'autumn'],
   notes: null,
   reviewed: false,
@@ -176,7 +174,6 @@ test('relevant fields follow the slot', () => {
     'fit',
     'structured',
     'shoulderBulk',
-    'waterResistant',
     'seasons',
     'notes',
   ];
@@ -195,7 +192,6 @@ test('relevant fields follow the slot', () => {
     'rise',
     'leg',
     'shoulderBulk',
-    'waterResistant',
     'seasons',
     'notes',
   ]);
@@ -215,7 +211,6 @@ test('relevant fields follow the slot', () => {
     'sleeves',
     'hem',
     'shoulderBulk',
-    'waterResistant',
     'seasons',
     'notes',
   ]);
@@ -235,7 +230,6 @@ test('relevant fields follow the slot', () => {
     'structured',
     'accessoryKind',
     'shoulderBulk',
-    'waterResistant',
     'seasons',
     'notes',
   ]);
@@ -898,7 +892,6 @@ const TAGGED_FIELDS = [
   'sleeves',
   'accessoryKind',
   'shoulderBulk',
-  'waterResistant',
   'seasons',
   'notes',
 ];

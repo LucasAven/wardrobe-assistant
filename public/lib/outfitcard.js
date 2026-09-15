@@ -88,7 +88,6 @@ function changeList(corrections) {
 const FILTER_WORDS = {
   season: 'out of season',
   formality: "under the day's formality floor",
-  rain: 'not water resistant on a wet day',
   cooldown: 'worn too recently to come back yet',
 };
 

@@ -5,7 +5,6 @@
  * garments or it does not, and that decides where it is enforced.
  *
  *   formality   min(clothes) >= F  <=>  every one >= F    distributes, filter
- *   rain        the piece must be water resistant         distributes, filter
  *   season      the piece must suit the season            distributes, filter
  *   book donts  about a garment nothing can cover         distributes, filter
  *   book donts  about how the dressed torso reads         does not, validate
@@ -76,7 +75,6 @@ export interface Garment {
   readonly accessoryKind: AccessoryKind | null;
   /** Padding or shoulder pads. The inverted triangle rules ban these. */
   readonly shoulderBulk: boolean;
-  readonly waterResistant: boolean;
   readonly seasons: readonly Season[];
   readonly notes: string | null;
 }
@@ -226,7 +224,6 @@ export interface Constraints {
   readonly warmth: WarmthBands;
   /** Outfit formality is min(clothes), so this is also a floor on every garment but an accessory. */
   readonly minFormality: Formality;
-  readonly rainProof: boolean;
   readonly season: Season;
   /**
    * Days a garment stays out of the menu after being worn. Not uniform: nobody
@@ -252,11 +249,11 @@ export interface WearEvent {
 /**
  * A filter an owner's request is allowed to override, and nothing else. Every
  * one of these is a fact about today: what season it is, what the day asks for,
- * whether it rains, how recently the garment was worn. A book dont is a fact
- * about the owner's body, it does not change between Tuesday and Friday, and it
- * is the one filter no request waives.
+ * how recently the garment was worn. A book dont is a fact about the owner's
+ * body, it does not change between Tuesday and Friday, and it is the one filter
+ * no request waives.
  */
-export type Waived = 'season' | 'formality' | 'rain' | 'cooldown';
+export type Waived = 'season' | 'formality' | 'cooldown';
 
 /**
  * Why a garment is in the menu. `rested` is the ordinary answer and is what the
@@ -308,7 +305,7 @@ export type RefusedRequest =
 /**
  * The invariant everything rests on. Every entry already satisfies every
  * distributive constraint, so an outfit built only from menu entries cannot be
- * under-formal, out of season, wrong for rain, or against a book dont that no
+ * under-formal, out of season, or against a book dont that no
  * other garment could cover. The donts about how a covered layer looks are
  * `require` OutfitRules, checked by `certify`.
  *

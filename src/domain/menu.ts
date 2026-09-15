@@ -3,7 +3,7 @@
  *
  * This is where the guarantee in `types.ts` is manufactured. Every distributive
  * constraint is applied here, so an outfit assembled only from menu entries is
- * formal enough, in season, ready for rain and clear of every book dont that no
+ * formal enough, in season and clear of every book dont that no
  * other garment could cover. A dont about how a covered layer looks needs the
  * assembled outfit, so `certify` holds those.
  *
@@ -89,13 +89,6 @@ function failedFilters(garment: Garment, constraints: Constraints): readonly Wai
   // would only empty the accessory menu at the events that ask for the most.
   if (garment.slot !== 'accessory' && garment.formality < constraints.minFormality) {
     failed.push('formality');
-  }
-  if (
-    constraints.rainProof &&
-    (garment.slot === 'outer' || garment.slot === 'shoes') &&
-    !garment.waterResistant
-  ) {
-    failed.push('rain');
   }
   return failed;
 }

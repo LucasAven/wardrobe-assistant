@@ -291,7 +291,6 @@ The fields, and the exact words each one takes. A word of your own costs that fi
   fit             ${words(VOCABULARIES.fit)}. Read the width of the panels and the shape of the cut.
   structured      true when the garment holds its own shape instead of draping: blazer, denim jacket, stiff oxford. false for jersey and knitwear.
   shoulderBulk    true only when the shoulders are padded or built up. The book's rules for one body type ban these outright.
-  waterResistant  true only when the surface is plainly made to shed water: rain shell, waxed jacket, rubber boots. Not wool, not denim.
   seasons         any of ${words(VOCABULARIES.seasons)}. Most pieces suit two or three. An empty list keeps the garment out of every outfit, so do not send one out of caution.
   rise            ${words(VOCABULARIES.rise)}. Bottoms only, null on everything else.
   leg             ${words(VOCABULARIES.leg)}. Judge the line from the knee to the hem. Bottoms only, null on everything else.

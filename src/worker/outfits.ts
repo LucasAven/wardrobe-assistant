@@ -288,7 +288,7 @@ function named(
   return { id, subtype: wardrobe.get(id)?.subtype ?? null };
 }
 
-const WAIVED: readonly Waived[] = ['season', 'formality', 'rain', 'cooldown'];
+const WAIVED: readonly Waived[] = ['season', 'formality', 'cooldown'];
 
 /**
  * Read the way `parsePieces` reads its column: this app wrote the JSON, but a

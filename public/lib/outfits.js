@@ -82,8 +82,8 @@ function readCorrections(value) {
   });
 }
 
-/** The four codes `Waived` in src/domain/types.ts holds. Anything else is dropped. */
-const WAIVED = ['season', 'formality', 'rain', 'cooldown'];
+/** The three codes `Waived` in src/domain/types.ts holds. Anything else is dropped. */
+const WAIVED = ['season', 'formality', 'cooldown'];
 
 /**
  * What the owner asked for by name, and what admitting it turned off. Read like
