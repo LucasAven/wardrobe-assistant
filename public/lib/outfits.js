@@ -54,6 +54,18 @@ export function splitRules(outfit) {
   };
 }
 
+/**
+ * What the closed book row says, and its only argument for being tapped. A side
+ * with nothing on it is left out rather than counted at zero, since "0 missed"
+ * is a fact nobody opened the card to learn.
+ */
+export function bookTally(kept, missed) {
+  const counts = [];
+  if (kept > 0) counts.push(`${kept} kept`);
+  if (missed > 0) counts.push(`${missed} missed`);
+  return counts.join(', ');
+}
+
 export function garmentIds(outfit) {
   const pieces = (outfit?.pieces ?? []).map((piece) => piece.garment.id);
   const accessories = (outfit?.accessories ?? []).map((garment) => garment.id);
@@ -73,10 +85,20 @@ const isObject = (value) => value !== null && typeof value === 'object';
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const asText = (value) => (typeof value === 'string' ? value : '');
 
+/**
+ * `short` names what the rule asks for in the book's own words, and is the
+ * whole of what a pill on the card can show. A rule saved before the book
+ * carried one still has its sentence, and a pill with nothing on it is worse
+ * than a pill reading `rect-01`, so the id stands in and the rule stays.
+ */
 function readRules(value) {
   return asArray(value)
     .filter((rule) => isObject(rule) && typeof rule.id === 'string' && typeof rule.because === 'string')
-    .map((rule) => ({ id: rule.id, because: rule.because }));
+    .map((rule) => ({
+      id: rule.id,
+      because: rule.because,
+      short: typeof rule.short === 'string' && rule.short !== '' ? rule.short : rule.id,
+    }));
 }
 
 function readNamed(value) {

@@ -1282,6 +1282,98 @@ p {
   color: var(--muted);
 }
 
+/* --- The book, folded into one row --------------------------------------- */
+
+.book__summary {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  list-style: none;
+  cursor: default;
+}
+
+.book__summary::-webkit-details-marker {
+  display: none;
+}
+
+/* Quiet text, not a second heading. All it has to do is make the row worth a tap. */
+.book__tally {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.book__summary::after {
+  content: "";
+  margin-left: auto;
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+}
+
+.book[open] .book__summary::after {
+  transform: rotate(-135deg);
+}
+
+.pills {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.book .pills {
+  margin-top: 4px;
+}
+
+/* Kept takes the accent the card already spends on the book, and missed the
+   plain border and quiet text `.rules--missed` gives the same rule in the panel
+   below, so a pill and its sentence read as the same thing twice. */
+.pill {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 22px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+}
+
+.pill--missed {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.pill[aria-expanded="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+.pill--missed[aria-expanded="true"] {
+  background: var(--surface-2);
+  border-color: var(--muted);
+  color: var(--text);
+}
+
+/* Empty is the resting state, and an empty panel that still took a gap would
+   leave the pills looking like they had lost something. */
+.book__said:not(:empty) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
 .card__weather {
   font-size: 20px;
   font-weight: 600;

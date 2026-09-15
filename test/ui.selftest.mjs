@@ -28,6 +28,7 @@ import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/no
 import { pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
+  bookTally,
   garmentIds,
   wearEntry,
   orderPieces,
@@ -978,11 +979,27 @@ test('an upload the tagger never saw reads as saved, not as failed', () => {
 // Saved outfits
 // ---------------------------------------------------------------------------
 
-const RULE_TIGHT = { id: 'rect-02', because: 'with no curve to mark, tight fabric only highlights the flatness.' };
-const RULE_LAYERS = { id: 'rect-01', because: 'layers and V-necks add depth and volume so the torso reads as having shape.' };
-const RULE_LEGS = { id: 'rect-04', because: 'straight fitted legs add no volume at the hip.' };
+const RULE_TIGHT = {
+  id: 'rect-02',
+  short: 'Skim, never cling',
+  because: 'with no curve to mark, tight fabric only highlights the flatness.',
+};
+const RULE_LAYERS = {
+  id: 'rect-01',
+  short: 'Layers or a V-neckline',
+  because: 'layers and V-necks add depth and volume so the torso reads as having shape.',
+};
+const RULE_LEGS = {
+  id: 'rect-04',
+  short: 'Straight fitted legs',
+  because: 'straight fitted legs add no volume at the hip.',
+};
 /** A `require` rule, which only ever reaches a card through a swap the owner made. */
-const RULE_LOOSE = { id: 'rect-06b', because: 'very loose garments amplify the flatness.' };
+const RULE_LOOSE = {
+  id: 'rect-06b',
+  short: 'Nothing very loose',
+  because: 'very loose garments amplify the flatness.',
+};
 
 function garment(id, subtype) {
   return { ...GARMENT, id, subtype, imageCutout: null, imageOriginal: `orig/${id}` };
@@ -1091,6 +1108,38 @@ test("a dont the owner's own change broke is read apart from the misses", () => 
     ['rect-06b'],
     'a rule the outfit is shown to follow is not also shown as broken',
   );
+});
+
+test('every rule reaches its pill with something on it', () => {
+  const outfit = readOutfit(SAVED);
+  assert.deepEqual(
+    outfit.cited.map((rule) => rule.short),
+    ['Layers or a V-neckline', 'Skim, never cling'],
+  );
+  assert.deepEqual(outfit.missed.map((rule) => rule.short), ['Straight fitted legs'], 'a missed rule is named the same way');
+
+  const older = readOutfit({
+    ...SAVED,
+    cited: [{ id: 'rect-01', because: RULE_LAYERS.because }],
+    missed: [{ ...RULE_LEGS, short: '' }],
+    broke: [{ ...RULE_LOOSE, short: 12 }],
+  });
+  assert.deepEqual(
+    older.cited.map((rule) => rule.short),
+    ['rect-01'],
+    'an outfit saved before the book carried short lines still has pills',
+  );
+  assert.deepEqual(older.missed.map((rule) => rule.short), ['rect-04'], 'and a blank one is no better than none');
+  assert.deepEqual(older.broke.map((rule) => rule.short), ['rect-06b']);
+  assert.equal(older.cited[0].because, RULE_LAYERS.because, 'the sentence behind the pill is untouched');
+});
+
+test('the closed book row counts both sides', () => {
+  assert.equal(bookTally(6, 3), '6 kept, 3 missed');
+  assert.equal(bookTally(1, 1), '1 kept, 1 missed');
+  assert.equal(bookTally(6, 0), '6 kept', 'nothing missed is not worth the words "0 missed"');
+  assert.equal(bookTally(0, 3), '3 missed');
+  assert.equal(bookTally(0, 0), '', 'the row itself is left off the card at that point');
 });
 
 test('a tile names an accessory by its kind and every other piece by its slot', () => {

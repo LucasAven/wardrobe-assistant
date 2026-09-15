@@ -9,7 +9,7 @@
  * correcting works from the history for free.
  */
 import { append, button, clear, el } from './dom.js';
-import { garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
+import { bookTally, garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
 import { imagePath, watchImage } from './photo.js';
 
 /** An outfit without one of these is not an outfit, so neither side offers to empty one. */
@@ -78,6 +78,62 @@ function ruleList(rules, modifier) {
       ]),
     ),
   );
+}
+
+/**
+ * The rules the outfit keeps and the ones it sets aside, folded into one row.
+ * Eleven of the book's sentences is most of a phone screen, and none of them
+ * asks the owner to do anything today, so the pills carry what each rule wants
+ * and the sentence behind one is a tap away.
+ *
+ * The donts are not in here. One of those means a swap made on this card went
+ * against the book, which is the one thing nobody should have to open anything
+ * to find.
+ */
+function bookSection(cited, missed, outfitId) {
+  // Today and the history can have two cards on one screen, so the panel every
+  // pill points at is named after the outfit rather than after the section.
+  const said = el('div', { class: 'book__said', id: `book-said-${outfitId}` });
+  let open = null;
+
+  function pill(rule, kept) {
+    const control = button(rule.short, {
+      class: kept ? 'pill' : 'pill pill--missed',
+      'aria-expanded': 'false',
+      'aria-controls': said.id,
+    });
+
+    control.addEventListener('click', () => {
+      const same = open === control;
+      open?.setAttribute('aria-expanded', 'false');
+      clear(said);
+      open = same ? null : control;
+      if (same) return;
+      control.setAttribute('aria-expanded', 'true');
+      append(
+        said,
+        // The sentence the missed section used to carry over its list. It is
+        // the whole difference between a rule this outfit follows and one it
+        // does not, and the quieter treatment alone does not say it.
+        kept ? null : el('p', { class: 'source' }, 'This outfit breaks this one on purpose.'),
+        ruleList([rule], kept ? null : 'rules--missed'),
+      );
+    });
+
+    return el('li', {}, control);
+  }
+
+  return el('details', { class: 'book' }, [
+    el('summary', { class: 'book__summary' }, [
+      el('span', { class: 'section__title' }, 'From the book'),
+      el('span', { class: 'book__tally' }, bookTally(cited.length, missed.length)),
+    ]),
+    el('ul', { class: 'pills' }, [
+      ...cited.map((rule) => pill(rule, true)),
+      ...missed.map((rule) => pill(rule, false)),
+    ]),
+    said,
+  ]);
 }
 
 function changeLine(correction) {
@@ -528,16 +584,7 @@ export function outfitCard(
         ? null
         : disagreementSection(current.ownerRequest),
       current.corrections.length === 0 ? null : changeList(current.corrections),
-      cited.length === 0
-        ? null
-        : el('section', { class: 'section' }, [el('h3', { class: 'section__title' }, 'From the book'), ruleList(cited, null)]),
-      missed.length === 0
-        ? null
-        : el('section', { class: 'section section--missed' }, [
-            el('h3', { class: 'section__title' }, 'From the book, and missed here'),
-            el('p', { class: 'source' }, 'This outfit breaks these on purpose.'),
-            ruleList(missed, 'rules--missed'),
-          ]),
+      cited.length === 0 && missed.length === 0 ? null : bookSection(cited, missed, current.id),
       // Apart from the missed section because a dont is not a preference. The
       // outfit was saved keeping these, so the only thing that can have broken
       // one is a change the owner made here.
