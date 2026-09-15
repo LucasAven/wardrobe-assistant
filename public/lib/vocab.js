@@ -123,6 +123,7 @@ export const FIELDS = [
     control: 'select',
     options: YES_NO,
     hint: 'Yes when the garment holds its own shape instead of draping.',
+    asked: false,
   },
   {
     name: 'rise',
@@ -222,6 +223,20 @@ const BOTTOM_ONLY = ['rise', 'leg'];
 const TOP_ONLY = ['neckline', 'sleeves', 'hem'];
 const ACCESSORY_ONLY = ['accessoryKind'];
 const TOP_SLOTS = new Set(['base', 'top', 'mid', 'outer']);
+
+/**
+ * Whether the review screen puts the question to the owner. A field with
+ * `asked: false` is still the model's to fill and still the book's to read: it
+ * stays in `FIELDS` because `TAGGED_FIELDS` is derived from this list and has
+ * to match the worker's, and because `buildPatch` has to keep sending the value
+ * the tagger already wrote. Only the question goes.
+ *
+ * This is not `isRelevant`. That one says the slot has no use for the field, so
+ * `buildPatch` nulls it out, which would throw away what the tagger read.
+ */
+export function isAsked(field) {
+  return FIELD_BY_NAME.get(field)?.asked !== false;
+}
 
 export function isRelevant(field, slot) {
   if (BOTTOM_ONLY.includes(field)) return slot === 'bottom';

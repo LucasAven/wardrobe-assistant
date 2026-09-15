@@ -49,7 +49,7 @@ import {
 } from '../public/lib/screens/editphoto.js';
 import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
 import { parseRoute, routeHash } from '../public/lib/router.js';
-import { FIELDS, isRelevant, relevantFields } from '../public/lib/vocab.js';
+import { FIELDS, isAsked, isRelevant, relevantFields } from '../public/lib/vocab.js';
 import { readWeather, weatherLine } from '../public/lib/weather.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -243,6 +243,27 @@ test('relevant fields follow the slot', () => {
   assert.ok(isRelevant('leg', 'bottom'));
   assert.ok(!isRelevant('accessoryKind', 'shoes'), 'shoes are not an accessory');
   assert.ok(isRelevant('accessoryKind', 'accessory'));
+});
+
+test('a field the owner is never asked about keeps its value anyway', () => {
+  // `structured` is read off the photo and the styling book's rules need it, so
+  // the owner is not asked and the value still has to survive a confirm. It is
+  // deliberately not done through `isRelevant`, which means the slot has no use
+  // for the field, because `buildPatch` sends null for those.
+  assert.ok(!isAsked('structured'), 'the review form does not draw it');
+  assert.ok(isAsked('warmth'), 'everything else is still asked');
+  assert.ok(
+    FIELDS.some((field) => field.name === 'structured'),
+    'it stays in FIELDS, which is where the untagged field list comes from',
+  );
+  assert.ok(isRelevant('structured', 'base'), 'relevant means the slot uses it, and it does');
+
+  const garment = { ...GARMENT, structured: true };
+  assert.deepEqual(
+    buildPatch(garment, { ...garment, warmth: 4 }),
+    { warmth: 4 },
+    'confirming an untouched garment never writes the field away',
+  );
 });
 
 test('every editable field is a column the PATCH handler accepts', () => {

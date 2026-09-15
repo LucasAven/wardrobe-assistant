@@ -4,7 +4,7 @@ import { tagState } from '../garments.js';
 import { buildPatch, confirmPatch } from '../patch.js';
 import { imagePath, watchImage } from '../photo.js';
 import { routeHash } from '../router.js';
-import { FIELDS, FIELD_BY_NAME, isRelevant } from '../vocab.js';
+import { FIELDS, FIELD_BY_NAME, isAsked, isRelevant } from '../vocab.js';
 
 const ARCHIVE_ARM_MS = 4000;
 
@@ -53,7 +53,11 @@ export function mountReview(ctx, route) {
     clear(flaggedBody);
     clear(restBody);
 
-    const flagged = new Set(original.uncertain.filter((name) => FIELD_BY_NAME.has(name)));
+    // A field nobody is asked about cannot be checked by hand, so a flag on one
+    // would count toward "Check N" against a row that is never drawn.
+    const flagged = new Set(
+      original.uncertain.filter((name) => FIELD_BY_NAME.has(name) && isAsked(name)),
+    );
     const onChange = (name, value) => {
       draft[name] = value;
       if (name === 'slot') buildGroups(group, flaggedBody, restBody, refreshActions);
@@ -62,7 +66,7 @@ export function mountReview(ctx, route) {
 
     let flaggedCount = 0;
     for (const field of FIELDS) {
-      if (!isRelevant(field.name, draft.slot)) continue;
+      if (!isAsked(field.name) || !isRelevant(field.name, draft.slot)) continue;
       const isFlagged = flagged.has(field.name);
       const target = isFlagged ? flaggedBody : restBody;
       if (isFlagged) flaggedCount += 1;
