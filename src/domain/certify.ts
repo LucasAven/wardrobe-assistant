@@ -46,7 +46,7 @@ const CORE_LAYERS: readonly LayerSlot[] = ['base', 'top', 'mid'];
  * repeat, because two rings and three bracelets are a normal outfit and how many
  * is a matter of taste, which this file does not have.
  */
-const ONE_PER_OUTFIT: readonly AccessoryKind[] = [
+export const ONE_PER_OUTFIT: readonly AccessoryKind[] = [
   'glasses',
   'hat',
   'scarf',

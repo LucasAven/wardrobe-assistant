@@ -1105,6 +1105,11 @@ test('a tile names an accessory by its kind and every other piece by its slot', 
     'accessory',
     'an accessory nobody tagged still says something under its photo',
   );
+  assert.equal(
+    pieceLabel('accessory', { ...garment('a3', 'canvas tote'), accessoryKind: 'other' }),
+    'accessory',
+    'the owner can pick `other` on the review screen and "Change the other" is not a sentence',
+  );
 });
 
 test("the owner's corrections ride along with the outfit", () => {

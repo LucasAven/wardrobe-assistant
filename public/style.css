@@ -1154,6 +1154,17 @@ p {
   gap: 6px;
 }
 
+/* A tighter grid than the pieces get, because an accessory is a small object
+   and an outfit can wear several. A watch in a half width 3:4 frame is mostly
+   empty box, and three of them push the rationale off the screen. */
+.accessories .looks {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.accessories .piece__frame {
+  aspect-ratio: 1;
+}
+
 .rationale {
   display: flex;
   flex-direction: column;
@@ -1226,15 +1237,17 @@ p {
   border-left-color: var(--line);
 }
 
-/* A dont the owner broke, which the two sections above never hold. Loud enough
-   to be read as a different thing, quiet enough to stay one of three sections
-   under the same outfit. */
+/* The three rule sections say good, set aside and broken, so they take the three
+   colors that already mean that: the accent, the plain line, and the one the app
+   uses nowhere except where something is wrong. `--flag` was the first choice and
+   was measured against `--accent` on the phone, where 224,162,80 beside
+   217,178,107 read as the same heading twice. */
 .section--broke .section__title {
-  color: var(--flag);
+  color: var(--danger);
 }
 
 .rules--broke .rule {
-  border-left-color: var(--flag-line);
+  border-left-color: var(--danger);
 }
 
 .rule__short {
