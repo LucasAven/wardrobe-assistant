@@ -163,11 +163,8 @@ const SCREENS = {
   edit: mountEditPhoto,
 };
 
-/**
- * The history hangs off Today and the photo editor off Review, so the tab the
- * user tapped stays lit.
- */
-const TAB_FOR_ROUTE = { outfits: 'today', edit: 'review' };
+/** The photo editor hangs off Review, so the tab the user tapped stays lit. */
+const TAB_FOR_ROUTE = { edit: 'review' };
 
 let backTarget = null;
 shell.back.addEventListener('click', () => {

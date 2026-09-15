@@ -146,7 +146,6 @@ export function mountToday(ctx) {
     banner,
     el('section', { class: 'card' }, [el('h2', { class: 'card__title' }, 'Weather'), weatherBody]),
     body,
-    button('Earlier outfits', { class: 'btn btn--ghost btn--wide', onclick: () => ctx.go('#/outfits') }),
   ]);
 
   renderWeather();

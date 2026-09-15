@@ -102,7 +102,6 @@ export function mountOutfits(ctx) {
   }
 
   ctx.setTitle('Outfits', '');
-  ctx.setBack('#/today');
   ctx.onRefresh(load);
   load();
 
