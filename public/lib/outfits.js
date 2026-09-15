@@ -60,6 +60,15 @@ export function garmentIds(outfit) {
   return [...pieces, ...accessories];
 }
 
+/**
+ * What "Wore this" sends. The outfit id is the whole of what tells two outfits
+ * worn on the same day apart, and leaving it out costs nothing where the tap
+ * happens and everything after it, so the wear is built here and named once.
+ */
+export function wearEntry(outfit) {
+  return { garmentIds: garmentIds(outfit), outfitId: outfit.id };
+}
+
 const isObject = (value) => value !== null && typeof value === 'object';
 const asArray = (value) => (Array.isArray(value) ? value : []);
 const asText = (value) => (typeof value === 'string' ? value : '');
@@ -140,6 +149,7 @@ export function readOutfit(value) {
     missed: readRules(value.missed),
     broke: readRules(value.broke),
     worn: value.worn === true,
+    wearNamed: value.wearNamed === true,
     corrections: readCorrections(value.corrections),
     ownerRequest: readOwnerRequest(value.ownerRequest),
   };

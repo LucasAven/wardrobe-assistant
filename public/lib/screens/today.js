@@ -103,7 +103,16 @@ export function mountToday(ctx) {
 
   function showOutfit(outfit) {
     const clock = savedClock(outfit.createdAt);
-    show(outfitCard(ctx, outfit, { caption: 'Today', meta: clock === '' ? '' : `saved ${clock}` }));
+    show(
+      outfitCard(ctx, outfit, {
+        caption: 'Today',
+        meta: clock === '' ? '' : `saved ${clock}`,
+        // Read again rather than cleared here. The screen keeps no outfit of
+        // its own, so asking once more is the only thing that reaches its
+        // empty state.
+        onRemoved: load,
+      }),
+    );
   }
 
   async function load() {

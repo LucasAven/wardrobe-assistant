@@ -1031,6 +1031,14 @@ p {
   text-align: right;
 }
 
+/* The card is a column, so a button in it runs the full width unless something
+   says otherwise. This is the rarest tap on the card and the only one that
+   deletes, so it stays narrow instead of sitting as wide as the wear button. */
+.outfit__remove {
+  display: flex;
+  justify-content: center;
+}
+
 .looks {
   list-style: none;
   margin: 0;

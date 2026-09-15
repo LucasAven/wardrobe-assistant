@@ -9,7 +9,7 @@
  * correcting works from the history for free.
  */
 import { append, button, clear, el } from './dom.js';
-import { garmentIds, orderPieces, readOutfit, splitRules } from './outfits.js';
+import { garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
 import { imagePath, watchImage } from './photo.js';
 
 /** An outfit without one of these is not an outfit, so neither side offers to empty one. */
@@ -171,7 +171,7 @@ function wearButton(ctx, outfit, already, onWorn) {
     control.disabled = true;
     control.textContent = 'Saving';
     try {
-      await ctx.api.wear({ garmentIds: garmentIds(outfit) });
+      await ctx.api.wear(wearEntry(outfit));
       ctx.worn.markWorn(outfit.id);
       // Redrawn rather than just relabeled: the pieces stop being tap targets
       // the moment the outfit becomes the record of a day, and the server would
@@ -180,6 +180,60 @@ function wearButton(ctx, outfit, already, onWorn) {
     } catch (error) {
       control.disabled = false;
       control.textContent = 'Wore this';
+      ctx.toast(error.message, 'error');
+    }
+  });
+
+  return control;
+}
+
+const REMOVE_ARM_MS = 4000;
+
+/**
+ * Two taps, the shape `removeRow` uses on the review screen, and with a better
+ * claim to it: that one archives a garment and this one is the first thing in
+ * the app that really deletes rows, so there is nothing to undo a mis-tap with.
+ *
+ * The first tap says the cooldown goes, because that is the part nobody expects
+ * a card to do on its way off the screen. It is told on `wearNamed` and not on
+ * `worn`, since only a wear row naming this outfit is one the delete can reach.
+ */
+function removeButton(ctx, outfit, wearNamed, onRemoved) {
+  const control = button('Remove this outfit', { class: 'btn btn--small btn--danger' });
+  let armed = false;
+  let timer = null;
+
+  control.addEventListener('click', async () => {
+    if (control.disabled) return;
+    if (!armed) {
+      armed = true;
+      control.textContent = 'Tap again to remove';
+      ctx.toast(
+        wearNamed
+          ? 'This outfit and the wear you logged both go, so its garments come off their cooldown.'
+          : 'This outfit leaves the app for good.',
+      );
+      timer = setTimeout(() => {
+        armed = false;
+        control.textContent = 'Remove this outfit';
+      }, REMOVE_ARM_MS);
+      return;
+    }
+
+    clearTimeout(timer);
+    control.disabled = true;
+    try {
+      await ctx.api.removeOutfit(outfit.id);
+      onRemoved();
+    } catch (error) {
+      // A 404 means the outfit is already gone, which is the outcome the tap
+      // asked for. Two surfaces open on one outfit make that ordinary, and
+      // reporting it would leave a card on screen for an outfit nothing holds.
+      if (error?.status === 404) {
+        onRemoved();
+        return;
+      }
+      control.disabled = false;
       ctx.toast(error.message, 'error');
     }
   });
@@ -364,8 +418,17 @@ function cardHead(named, caption, meta) {
  * `caption` is null where the screen already says which outfit this is, and
  * `showName` is false where it has already shown the outfit's own name. The
  * history does exactly that, in the row you tap to open the card.
+ *
+ * `onRemoved` runs once the outfit is deleted, and a screen that passes none
+ * gets no remove control at all. The card cannot take itself off the screen, so
+ * offering the tap where nobody handles it would leave a card for an outfit
+ * that is gone.
  */
-export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = true } = {}) {
+export function outfitCard(
+  ctx,
+  outfit,
+  { caption = null, meta = '', showName = true, onRemoved = null } = {},
+) {
   const node = el('section', { class: 'outfit' });
   let current = outfit;
 
@@ -402,6 +465,12 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
     // is the record of a day, so the server refuses to change one and the card
     // offers no tap.
     const worn = current.worn || ctx.worn.isWorn(current.id);
+    // A narrower question than `worn`, and the one the remove control needs: an
+    // outfit worn before migration 009, or through a log_wear that left the id
+    // out, is worn off the day and the garments and no row claims it. `ctx.worn`
+    // counts because the only thing that puts an id in it is the button below,
+    // which always names the outfit.
+    const wearNamed = current.wearNamed || ctx.worn.isWorn(current.id);
 
     const head = cardHead(showName && current.title !== '' ? current.title : null, caption, meta);
 
@@ -486,6 +555,9 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
             ruleList(broke, 'rules--broke'),
           ]),
       wearButton(ctx, current, worn, drawCard),
+      onRemoved === null
+        ? null
+        : el('div', { class: 'outfit__remove' }, removeButton(ctx, current, wearNamed, onRemoved)),
     );
   }
 

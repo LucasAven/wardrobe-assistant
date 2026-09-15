@@ -29,6 +29,7 @@ import { pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   garmentIds,
+  wearEntry,
   orderPieces,
   readOutfit,
   readOutfits,
@@ -1150,6 +1151,11 @@ test("the owner's corrections ride along with the outfit", () => {
 test('every garment in a saved outfit reaches the wear log once', () => {
   assert.deepEqual(garmentIds(readOutfit(SAVED)), ['s1', 'b1', 'p1', 'm1', 'a2'], 'the accessories are worn too');
   assert.deepEqual(garmentIds({ pieces: [], accessories: [] }), []);
+  assert.deepEqual(
+    wearEntry(readOutfit(SAVED)),
+    { garmentIds: ['s1', 'b1', 'p1', 'm1', 'a2'], outfitId: 'o1' },
+    'the wear names the outfit it was, which is what tells two of one day apart',
+  );
 });
 
 test('nothing saved for today is a sentence, not a blank screen', () => {
@@ -1175,6 +1181,10 @@ test('the history reads newest first, and drops what it cannot draw', () => {
   assert.deepEqual(outfits.map((outfit) => outfit.id), ['o2', 'o1', 'o0']);
   assert.equal(outfits[2].worn, true, 'a day already logged says so');
   assert.deepEqual(readOutfits({}), []);
+  // Read apart, because the remove control promises the cooldown on the second
+  // and a wear from before migration 009 sets the first without it.
+  assert.equal(readOutfit({ ...SAVED, worn: true, wearNamed: true }).wearNamed, true);
+  assert.equal(readOutfit({ ...SAVED, worn: true }).wearNamed, false, 'a wear naming no outfit is not one the delete can reach');
   assert.deepEqual(readOutfits(null), []);
 });
 
@@ -1207,11 +1217,12 @@ test('the screens hit the routes the worker registers', async () => {
   await api.getWeather(-34.9011, -56.1645);
   await api.getTodayOutfit();
   await api.listOutfits(20);
-  await api.wear({ garmentIds: garmentIds(readOutfit(SAVED)) });
+  await api.wear(wearEntry(readOutfit(SAVED)));
   await api.putCutout('a 1', new Uint8Array([1]));
   await api.resetCutout('a 1');
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
   await api.swapPiece('o 1', { fromId: 'm1', toId: null, reason: 'too warm indoors' });
+  await api.removeOutfit('o 1');
   await api.saveHome(-34.901112, -56.164531);
   await api.clearHome();
 
@@ -1228,6 +1239,7 @@ test('the screens hit the routes the worker registers', async () => {
       'POST /api/garments/a%201/cutout/reset',
       'PUT /api/garments/a%201/photo',
       'POST /api/outfits/o%201/swap',
+      'DELETE /api/outfits/o%201',
       'PUT /api/profile/home',
       'DELETE /api/profile/home',
     ],
@@ -1239,8 +1251,8 @@ test('the screens hit the routes the worker registers', async () => {
     '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',
   );
   assert.equal(calls[9].body, '{"fromId":"m1","toId":null,"reason":"too warm indoors"}');
-  assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
-  assert.equal(calls[10].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
+  assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"],"outfitId":"o1"}');
+  assert.equal(calls[11].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
 });
 
 const REQUEST = {

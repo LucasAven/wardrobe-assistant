@@ -46,7 +46,10 @@ export function mountOutfits(ctx) {
     const build = () => {
       if (built) return;
       built = true;
-      box.append(outfitCard(ctx, outfit, { showName: false }));
+      // Read again rather than the row dropped here. The screen keeps no
+      // outfits of its own, so asking once more is what stops the count in the
+      // title and the list under it from disagreeing.
+      box.append(outfitCard(ctx, outfit, { showName: false, onRemoved: load }));
     };
 
     box.addEventListener('toggle', () => {

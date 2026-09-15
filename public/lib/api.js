@@ -201,6 +201,10 @@ export function createApi(options = {}) {
       return json(`/api/outfits/${encodeURIComponent(id)}/swap`, { method: 'POST', ...jsonBody(edit) });
     },
 
+    removeOutfit(id) {
+      return json(`/api/outfits/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
     wear(entry) {
       return json('/api/wear', { method: 'POST', ...jsonBody(entry) });
     },

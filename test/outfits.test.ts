@@ -718,6 +718,24 @@ describe('removing an outfit', () => {
     expect(db.wear[0]?.outfit_id).toBeNull();
   });
 
+  it('leaves the cooldown standing when worn came off the day rather than the id', async () => {
+    const id = await save('p1', new Date());
+    await wear({ garmentIds: WORN_IDS });
+
+    // True through the fallback, which is what every row saved before migration
+    // 009 reads as, so this is the common case on the day the column ships and
+    // not a corner of it.
+    const before = (await readOutfits(db as unknown as D1Database, { limit: 5 })).outfits[0];
+    expect(before?.worn).toBe(true);
+    // The pair the card reads apart. Telling the owner the cooldown goes off
+    // `worn` would be false here, which is why the control is told on this.
+    expect(before?.wearNamed).toBe(false);
+
+    await remove(id);
+
+    expect(db.wear).toHaveLength(1);
+  });
+
   it('keeps the corrections, which are the only record of what the owner refused', async () => {
     const id = await saveLayered();
     await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
