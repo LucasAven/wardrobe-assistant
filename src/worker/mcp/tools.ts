@@ -1034,12 +1034,12 @@ function outfitBlock(outfit: SavedOutfit): string {
     outfit.missed.length === 0
       ? '    misses none of the guide preferences for this body'
       : `    misses ${outfit.missed.map((rule) => rule.id).join(', ')}`,
-    // No line at all when nothing is broken, unlike the two above. A dont only
-    // ever breaks when the owner changed a piece by hand, so a line saying none
-    // broke would sit on every outfit to report the normal case.
+    // No line at all when nothing is broken, unlike the two above, because an
+    // outfit breaking a dont is the rare case and a line reporting the normal
+    // one would sit on every outfit in the history.
     ...(outfit.broke.length === 0
       ? []
-      : [`    your own change broke ${outfit.broke.map((rule) => rule.id).join(', ')}, which the book says not to do`]),
+      : [`    breaks ${outfit.broke.map((rule) => rule.id).join(', ')}, which the book says not to do`]),
     `    warmth ${outfit.warmthCore} at the core, ${outfit.warmthWithOuter} with the outer layer`,
     ...requestLines(outfit.ownerRequest),
     ...correctedLines(outfit.corrections),

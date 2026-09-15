@@ -25,8 +25,21 @@ const MISSING_NAME = 'a garment no longer in the wardrobe';
  */
 export function pieceLabel(slot, garment) {
   if (slot !== 'accessory') return slot;
-  return garment.accessoryKind ?? 'accessory';
+  const kind = garment.accessoryKind;
+  // `other` is a real choice on the review screen and names nothing, so it
+  // falls back with the untagged ones rather than reading "Change the other".
+  return kind === null || kind === undefined || kind === 'other' ? 'accessory' : kind;
 }
+
+/**
+ * Kinds a body has one place for, copied from `ONE_PER_OUTFIT` in
+ * `src/domain/certify.ts`, which is the list `save_outfit` and the swap both
+ * refuse a second of. The picker needs it to stop offering a garment the server
+ * will turn down, and it cannot ask for it: the grid reads the wardrobe already
+ * on the phone and makes no call at all. `test/accessoryParity.test.ts` fails
+ * when the two drift, and nothing else would notice.
+ */
+export const ONE_PER_OUTFIT = ['glasses', 'hat', 'scarf', 'belt', 'bag', 'watch', 'earrings'];
 
 function pieceTile(label, garment, onPick) {
   const image = el('img', {
@@ -238,7 +251,8 @@ function picker(ctx, outfit, piece, done) {
     return tile;
   }
 
-  function wearing(garment) {
+  /** Shown but not offered, with the line under it saying which of the two it is. */
+  function held(garment, note) {
     const image = el('img', {
       class: 'tile__img',
       src: imagePath(garment),
@@ -252,7 +266,7 @@ function picker(ctx, outfit, piece, done) {
     return el('div', { class: 'tile tile--current' }, [
       frame,
       el('span', { class: 'tile__name' }, garment.subtype),
-      el('span', { class: 'tile__slot' }, 'in this outfit'),
+      el('span', { class: 'tile__slot' }, note),
     ]);
   }
 
@@ -261,15 +275,32 @@ function picker(ctx, outfit, piece, done) {
   // as options the server then refuses as already in this outfit.
   const alreadyOn = new Set(garmentIds(outfit));
 
+  // The one-per-outfit kinds the outfit still wears once the tapped garment
+  // steps out. The server refuses a second of any of them, so offering one here
+  // would cost the owner a reason typed out and a Save before it said no.
+  const kept = new Set(
+    outfit.accessories
+      .filter((garment) => garment.id !== piece.garment.id)
+      .map((garment) => garment.accessoryKind)
+      .filter((kind) => ONE_PER_OUTFIT.includes(kind)),
+  );
+
+  const offered = options.filter(
+    (garment) => !alreadyOn.has(garment.id) && !kept.has(garment.accessoryKind),
+  );
+
   const grid = el('div', { class: 'grid' });
   if (!REQUIRED_SLOTS.includes(piece.slot)) grid.append(option(null, 'Nothing here', null));
   for (const garment of options) {
-    grid.append(
-      alreadyOn.has(garment.id) ? wearing(garment) : option(garment.id, garment.subtype, garment),
-    );
+    if (alreadyOn.has(garment.id)) grid.append(held(garment, 'in this outfit'));
+    else if (kept.has(garment.accessoryKind)) {
+      grid.append(held(garment, `already wearing a ${garment.accessoryKind}`));
+    } else grid.append(option(garment.id, garment.subtype, garment));
   }
-  if (tiles.size === 0) {
-    grid.append(el('p', { class: 'empty__text' }, 'Nothing else in your wardrobe sits in this slot.'));
+  // Counted off the garments, not off `tiles`, which also holds the "Nothing
+  // here" option and so is never empty for a slot an outfit can leave off.
+  if (offered.length === 0) {
+    grid.append(el('p', { class: 'empty__text' }, 'Nothing else in your wardrobe can go here.'));
   }
 
   reason.addEventListener('input', refresh);
@@ -445,11 +476,13 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
         ? null
         : el('section', { class: 'section section--broke' }, [
             el('h3', { class: 'section__title' }, 'From the book, and broken here'),
-            el(
-              'p',
-              { class: 'source' },
-              "These are the book's donts, not preferences. Your own change broke them.",
-            ),
+            // No sentence blaming the owner, however likely they are the cause.
+            // The list is recomputed over the whole outfit and read against the
+            // book as it stands now, so a garment retagged since, or a rule the
+            // book has since made a dont, lands here having broken nothing at
+            // the time. "What you changed" sits right below and says what it can
+            // actually stand behind.
+            el('p', { class: 'source' }, "These are the book's donts, not preferences."),
             ruleList(broke, 'rules--broke'),
           ]),
       wearButton(ctx, current, worn, drawCard),
