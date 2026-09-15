@@ -16,8 +16,7 @@ export function mountOutfits(ctx) {
 
   function summaryLine(outfit) {
     const count = outfit.pieces.length + outfit.accessories.length;
-    const pieces = count === 1 ? '1 piece' : `${count} pieces`;
-    return outfit.worn ? `${pieces}, worn` : pieces;
+    return count === 1 ? '1 piece' : `${count} pieces`;
   }
 
   /**
@@ -29,15 +28,21 @@ export function mountOutfits(ctx) {
   function summaryOf(outfit) {
     const when = savedLine(outfit.createdAt);
     if (outfit.title === '') return { lead: when, aside: summaryLine(outfit) };
-    return { lead: outfit.title, aside: outfit.worn ? `${when}, worn` : when };
+    return { lead: outfit.title, aside: when };
   }
 
   /** The card is built on the first open: twenty outfits is a hundred photos. */
   function entry(outfit, index) {
     const { lead, aside } = summaryOf(outfit);
+    // The same question the card inside this row asks. A wear logged this
+    // session may not be on the row the server just sent back, and a row
+    // reading nothing over a card reading Worn is the disagreement to avoid.
+    const worn = outfit.worn || ctx.worn.isWorn(outfit.id);
+
     const box = el('details', { class: 'entry' }, [
       el('summary', { class: 'entry__summary' }, [
         el('span', { class: 'entry__when' }, lead),
+        worn ? el('span', { class: 'entry__worn' }, 'Worn') : null,
         el('span', { class: 'entry__meta' }, aside),
       ]),
     ]);
