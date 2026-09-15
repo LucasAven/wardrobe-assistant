@@ -217,8 +217,19 @@ export interface SavedOutfit extends OutfitView {
    * `require` id here having broken nothing at the time.
    */
   readonly broke: readonly RuleView[];
-  /** Every garment in it was logged as worn on the day it was saved. */
+  /**
+   * Worn on either reading: a wear row that names this outfit, or, for a row
+   * that names none, the day and the garments.
+   */
   readonly worn: boolean;
+  /**
+   * Whether a wear row names this outfit, which `worn` does not say. Removing
+   * an outfit takes only the rows that name it, so this is what answers whether
+   * removing it hands the garments their cooldown back. Every row written
+   * before migration 009 names none, so an outfit worn before this shipped
+   * reads `worn` and not this.
+   */
+  readonly wearNamed: boolean;
   /**
    * What the owner changed by hand, oldest first. Empty for an untouched
    * outfit, which is also what says the outfit was never corrected: the rows
@@ -486,6 +497,7 @@ function toSaved(
     warmthWithOuter: row.warmth_with_outer,
     gone: stored.filter((piece) => !wardrobe.has(piece.id)),
     worn: wasWorn(row.id, stored, row.created_at, worn),
+    wearNamed: worn.outfits.has(row.id),
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe, stored)),
     ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
@@ -811,8 +823,12 @@ export async function swapPiece(
   const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
   const request = stillHonored(row.owner_request, nextPieces);
 
-  // One batch, so a reason can never be recorded for a swap that did not land,
-  // and a swap can never land with nothing saying why.
+  // One batch, so a swap can never land with nothing saying why. The other
+  // direction stopped being airtight when `removeOutfit` arrived: an outfit
+  // deleted between the read above and this line leaves the UPDATE matching
+  // nothing while the reason is still written, and no foreign key refuses it.
+  // The owner is told the outfit is missing, so the cost is one stray
+  // correction rather than a wrong answer.
   await db.batch([
     db
       .prepare(
@@ -843,9 +859,12 @@ export async function swapPiece(
 }
 
 /**
- * Removes an outfit and every wear that named it. One batch, so a wear can
- * never be left describing an outfit that is gone. The garments come off the
- * cooldown that wear put them on, which is half of what removing one is for.
+ * Removes an outfit and every wear that named it, in one batch, so no wear that
+ * this could reach outlives the outfit it describes. Those garments come off
+ * the cooldown that wear put them on, which is half of what removing one is
+ * for. Only those: an outfit whose `worn` came from the reading below still
+ * reports `worn` and still leaves its cooldown standing, so nothing shown to
+ * the owner should promise otherwise.
  *
  * The `outfit_feedback` rows stay, and that is the point of keeping them: they
  * are the only record of what the owner does not want, `plan_outfit` reads them

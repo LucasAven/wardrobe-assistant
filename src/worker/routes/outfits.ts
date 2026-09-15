@@ -1,15 +1,15 @@
 /**
  * What the web app reads and writes about outfits Claude composed.
  *
- * The swap is the only write. It answers the whole outfit back, so the card the
- * owner is looking at redraws from the response instead of guessing at what the
- * row now says.
+ * The swap and the delete are the only writes. The swap answers the whole outfit
+ * back, so the card the owner is looking at redraws from the response instead of
+ * guessing at what the row now says.
  */
 
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../env';
-import { MAX_OUTFITS, readOutfits, swapPiece, todayOutfit } from '../outfits';
+import { MAX_OUTFITS, readOutfits, removeOutfit, swapPiece, todayOutfit } from '../outfits';
 
 /**
  * The reason is required. A piece that changed with nothing saying why teaches
@@ -67,4 +67,17 @@ outfits.post('/:id/swap', async (c) => {
     case 'saved':
       return c.json({ outfit: result.outfit });
   }
+});
+
+/**
+ * No 409 for an outfit logged as worn, which is the one case the swap turns
+ * away. A swap would leave the wear log describing clothes the outfit no longer
+ * holds, while this takes with it every wear that named the outfit, and taking
+ * those is what the owner is asking for. A wear that named no outfit stays, for
+ * the reason `removeOutfit` gives.
+ */
+outfits.delete('/:id', async (c) => {
+  const removed = await removeOutfit(c.env.DB, c.req.param('id'));
+  if (!removed) return c.json({ error: 'not found' }, 404);
+  return c.json({ ok: true });
 });

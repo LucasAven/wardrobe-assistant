@@ -649,6 +649,38 @@ describe('POST /api/outfits/:id/swap', () => {
  * recomputes the whole list after a hand swap. Which of the two a rule is stays
  * in the book, so the reader is the only place the column is split.
  */
+describe('DELETE /api/outfits/:id', () => {
+  async function remove(id: string): Promise<Response> {
+    return call(`http://x/api/outfits/${id}`, { method: 'DELETE' });
+  }
+
+  it('answers ok, and the outfit is gone', async () => {
+    const id = await save('p1', new Date());
+
+    const response = await remove(id);
+
+    expect(response.status).toBe(200);
+    expect(await bodyOf(response)).toEqual({ ok: true });
+    expect(db.outfits).toHaveLength(0);
+  });
+
+  it('answers 404 for an outfit that is not there, the way the garment route does', async () => {
+    const response = await remove('never-saved');
+
+    expect(response.status).toBe(404);
+    expect(await bodyOf(response)).toEqual({ error: 'not found' });
+  });
+
+  /** The one case the swap answers 409 to, because here the wear goes with it. */
+  it('removes an outfit logged as worn', async () => {
+    const id = await save('p1', new Date());
+    await wear({ garmentIds: WORN_IDS, outfitId: id });
+
+    expect((await remove(id)).status).toBe(200);
+    expect(db.wear).toHaveLength(0);
+  });
+});
+
 describe('removing an outfit', () => {
   async function remove(id: string): Promise<boolean> {
     return removeOutfit(db as unknown as D1Database, id);
@@ -947,5 +979,6 @@ describe('the session guard', () => {
     expect((await call('http://x/api/outfits/today')).status).toBe(401);
     expect((await call('http://x/api/outfits')).status).toBe(401);
     expect((await swapPiece('o1', { fromId: 'cardigan-gray', toId: null, reason: 'no' })).status).toBe(401);
+    expect((await call('http://x/api/outfits/o1', { method: 'DELETE' })).status).toBe(401);
   });
 });
