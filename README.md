@@ -19,9 +19,15 @@ Code filters, the model styles.
 A hard constraint either distributes over single garments or it does not, and
 that decides where it is enforced. Formality is `min(pieces) >= F`, which is
 true exactly when every piece is `>= F`, so it can be applied one garment at a
-time before the model sees anything. Same for rain and season. Warmth cannot,
-because it sums across layers, so it is checked after the model answers and a
-failing outfit is dropped rather than patched.
+time before the model sees anything. Same for season. Warmth cannot, because it
+sums across layers, so it is checked after the model answers and a failing
+outfit is dropped rather than patched.
+
+Rain used to be a filter here and is not any more. It distributes perfectly
+well, so the shape was right and the answer was still wrong: a wardrobe with no
+waterproof shoes lost the whole shoes slot on a wet day, and shoes are required,
+so no outfit existed at all. The weather still reaches the model, which can pick
+the boots on its own. A filter has to be one the wardrobe can always satisfy.
 
 The result is that a too-casual outfit is not unlikely, it is unrepresentable.
 The model only ever picks from garments that already passed.
