@@ -127,10 +127,10 @@ export interface WearRequest {
   readonly garmentIds: readonly string[];
   readonly event?: EventKind;
   /**
-   * The saved outfit this wear was. Optional because a wear can honestly name
-   * none: nothing saved is still something worn, and the connector can log one
-   * without an outfit. Named, it is the only thing that tells two outfits worn
-   * on the same day apart.
+   * The saved outfit this wear was. Optional because a wear can name none:
+   * clothes put on without an outfit saved for them are still worn, and every
+   * row written before the column existed names none. Where it is named, it is
+   * the only thing that tells two outfits worn on the same day apart.
    */
   readonly outfitId?: string;
 }

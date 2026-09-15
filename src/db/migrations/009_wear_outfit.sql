@@ -7,9 +7,9 @@
 -- that names none. Those rows are still read as worn through the day and the
 -- garments, which is what the app did with every row until now.
 --
--- No foreign key, the same as `outfit_feedback.outfit_id` and for the same
--- reason: nothing in this schema declares one, and removing an outfit deletes
--- the wear rows naming it itself.
+-- No foreign key, the same as `outfit_feedback.outfit_id`. Nothing in this
+-- schema declares one, and the code that removes an outfit deletes the wear
+-- rows naming it in the same batch.
 ALTER TABLE wear_log ADD COLUMN outfit_id TEXT;
 
 CREATE INDEX IF NOT EXISTS wear_log_outfit ON wear_log (outfit_id);

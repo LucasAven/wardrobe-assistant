@@ -138,6 +138,14 @@ async function saveLayered(): Promise<string> {
   return insertOutfit(db as unknown as D1Database, { ...LAYERED, planId: 'p1' }, new Date());
 }
 
+async function wear(entry: unknown): Promise<Response> {
+  return call('http://x/api/wear', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(entry),
+  });
+}
+
 async function swapPiece(id: string, edit: unknown): Promise<Response> {
   return call(`http://x/api/outfits/${id}/swap`, {
     method: 'POST',
@@ -201,13 +209,7 @@ describe('GET /api/outfits/today', () => {
     const unworn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(unworn.outfit.worn).toBe(false);
 
-    await call('http://x/api/wear', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'],
-      }),
-    });
+    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
 
     const worn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(worn.outfit.worn).toBe(true);
@@ -216,11 +218,7 @@ describe('GET /api/outfits/today', () => {
   it('stays unworn while any one of its garments is missing from the log', async () => {
     await save('p1', new Date());
 
-    await call('http://x/api/wear', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white'] }),
-    });
+    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white'] });
 
     const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(body.outfit.worn).toBe(false);
@@ -245,16 +243,55 @@ describe('GET /api/outfits/today', () => {
 
   it('still reads as worn when an archived garment was logged before it went', async () => {
     await save('p1', new Date());
-    await call('http://x/api/wear', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'],
-      }),
-    });
+    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
     db.garments = db.garments.map((row) =>
       row.id === 'jeans-indigo' ? { ...row, archived: 1 } : row,
     );
+
+    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+    expect(body.outfit.worn).toBe(true);
+  });
+});
+
+/**
+ * A day can hold an outfit for the day, one for the afternoon and one for a
+ * night out, and every one of them wears much the same clothes. The row that
+ * names an outfit is the only thing that can tell them apart.
+ */
+describe('a wear that names the outfit it was', () => {
+  const WHOLE_OUTFIT = ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'];
+
+  it('marks that outfit worn on the row alone', async () => {
+    const id = await save('p1', new Date());
+
+    // One garment of the four, so the day and the garments could never call this
+    // outfit worn. What the row names is the whole of the reading.
+    await wear({ garmentIds: ['tee-white'], outfitId: id });
+
+    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+    expect(body.outfit.worn).toBe(true);
+  });
+
+  it('leaves the other outfit of that day unworn, wearing the same clothes or not', async () => {
+    const morning = await save('p1', new Date());
+    const afternoon = await save('p2', new Date());
+
+    await wear({ garmentIds: WHOLE_OUTFIT, outfitId: afternoon });
+
+    const saved = (await readOutfits(db as unknown as D1Database, { limit: 5 })).outfits;
+    expect(saved.find((outfit) => outfit.id === afternoon)?.worn).toBe(true);
+    expect(saved.find((outfit) => outfit.id === morning)?.worn).toBe(false);
+  });
+
+  it('still reads a row that names no outfit off the day and the garments', async () => {
+    await save('p1', new Date());
+    // A row from before the column existed, which is the shape of every wear
+    // this app logged until now.
+    db.wear.unshift({
+      worn_on: new Date().toISOString().slice(0, 10),
+      garment_ids: JSON.stringify(WHOLE_OUTFIT),
+      event: null,
+    });
 
     const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(body.outfit.worn).toBe(true);
@@ -395,13 +432,7 @@ describe('POST /api/outfits/:id/swap', () => {
   /** `wasWorn` reads the stored ids, so a swap would turn a worn outfit back into an unworn one. */
   it('answers 409 once the outfit is logged as worn', async () => {
     const id = await save('p1', new Date());
-    await call('http://x/api/wear', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'],
-      }),
-    });
+    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
 
     const response = await swapPiece(id, { fromId: 'sneakers-white', toId: 'loafers-brown', reason: 'wrong shoes' });
 

@@ -390,15 +390,31 @@ function dayOf(createdAt: string): string {
   return createdAt.slice(0, 10);
 }
 
-function loggedByDay(events: readonly LoggedWear[]): ReadonlyMap<string, ReadonlySet<string>> {
+/**
+ * The wear log as the two readings of worn need it. A row that names an outfit
+ * answers for that outfit and for nothing else, so it is kept out of `byDay`
+ * entirely: otherwise a day holding three outfits would have the wear of one of
+ * them speaking for all three, which is the guess `outfit_id` exists to end.
+ */
+interface WornLog {
+  readonly outfits: ReadonlySet<string>;
+  readonly byDay: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+function wornLog(events: readonly LoggedWear[]): WornLog {
+  const outfits = new Set<string>();
   const byDay = new Map<string, Set<string>>();
   for (const event of events) {
+    if (event.outfitId !== null) {
+      outfits.add(event.outfitId);
+      continue;
+    }
     const key = day(event.wornOn);
     const logged = byDay.get(key) ?? new Set<string>();
     for (const id of event.garmentIds) logged.add(id);
     byDay.set(key, logged);
   }
-  return byDay;
+  return { outfits, byDay };
 }
 
 /**
@@ -406,12 +422,21 @@ function loggedByDay(events: readonly LoggedWear[]): ReadonlyMap<string, Readonl
  * garment after the fact cannot turn a worn outfit back into an unworn one.
  */
 function wasWorn(
+  id: string,
   pieces: readonly OutfitPiece[],
   createdAt: string,
-  byDay: ReadonlyMap<string, ReadonlySet<string>>,
+  worn: WornLog,
 ): boolean {
+  if (worn.outfits.has(id)) return true;
+
+  // All that is left to read when a wear names no outfit: every row written
+  // before the column existed, and any wear logged without one since. A row
+  // that names an outfit stays out of `byDay`, so nothing here answers for a
+  // wear another outfit already claimed. Between unnamed rows the day is still
+  // a union and a smaller outfit still matches a larger one's wear, which is
+  // the guess `outfit_id` ends going forward and cannot end backwards.
   if (pieces.length === 0) return false;
-  const logged = byDay.get(dayOf(createdAt));
+  const logged = worn.byDay.get(dayOf(createdAt));
   if (logged === undefined) return false;
   return pieces.every((piece) => logged.has(piece.id));
 }
@@ -419,7 +444,7 @@ function wasWorn(
 function toSaved(
   row: OutfitRow,
   wardrobe: ReadonlyMap<string, GarmentView>,
-  byDay: ReadonlyMap<string, ReadonlySet<string>>,
+  worn: WornLog,
   feedback: readonly FeedbackRow[],
   gaps: ReadonlySet<string>,
 ): SavedOutfit {
@@ -460,7 +485,7 @@ function toSaved(
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
     gone: stored.filter((piece) => !wardrobe.has(piece.id)),
-    worn: wasWorn(stored, row.created_at, byDay),
+    worn: wasWorn(row.id, stored, row.created_at, worn),
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe, stored)),
     ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
@@ -527,9 +552,9 @@ async function hydrate(db: D1Database, rows: readonly OutfitRow[]): Promise<read
     getProfile(db),
   ]);
 
-  const byDay = loggedByDay(wear);
+  const worn = wornLog(wear);
   const gaps = gapIds(wardrobe, profile);
-  return rows.map((row) => toSaved(row, wardrobe, byDay, corrections.get(row.id) ?? [], gaps));
+  return rows.map((row) => toSaved(row, wardrobe, worn, corrections.get(row.id) ?? [], gaps));
 }
 
 /**
