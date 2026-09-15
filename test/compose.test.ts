@@ -9,7 +9,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }));
 
-import { PRINCIPLE, rulesFor } from '../src/domain/bookRules';
+import { BOOK_RULES, PRINCIPLE, rulesFor } from '../src/domain/bookRules';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu } from '../src/domain/menu';
 import type { BodyProfile, BodyType, BookRule, Constraints, Menu } from '../src/domain/types';
@@ -19,6 +19,7 @@ import {
   compose,
   ruleLine,
   ruleScope,
+  ruleView,
   systemPrompt,
   userMessage,
 } from '../src/worker/compose';
@@ -422,6 +423,7 @@ describe('the rule lines the prompt carries', () => {
 
     for (const [bodyType, a, b] of halves) {
       expect(ruleById(bodyType, a).because).toBe(ruleById(bodyType, b).because);
+      expect(ruleById(bodyType, a).short).toBe(ruleById(bodyType, b).short);
       expect(ruleScope(ruleById(bodyType, a))).not.toBe(ruleScope(ruleById(bodyType, b)));
     }
   });
@@ -462,6 +464,31 @@ describe('the rule lines the prompt carries', () => {
         expect(scope.endsWith(' and')).toBe(false);
         if (rule.kind === 'garment' && scope.includes(',')) expect(scope).toContain(' and ');
       }
+    }
+  });
+});
+
+describe('the short line on every rule', () => {
+  const ids = (failing: (rule: BookRule) => boolean): string[] =>
+    BOOK_RULES.filter(failing).map((rule) => rule.id);
+
+  it('is there on every rule and fits on a pill', () => {
+    expect(ids((rule) => rule.short.trim() !== rule.short || rule.short === '')).toEqual([]);
+    // The pill is roughly 150px wide at 13px. Past six words the grid of them
+    // stops being scannable, which is the whole reason the line exists.
+    expect(ids((rule) => rule.short.split(/\s+/).length > 6)).toEqual([]);
+  });
+
+  it('is a label in sentence case, not a sentence', () => {
+    expect(ids((rule) => rule.short.endsWith('.'))).toEqual([]);
+    expect(ids((rule) => !/^[A-Z]/.test(rule.short))).toEqual([]);
+    // The card shows both, so the two must never say the same thing twice.
+    expect(ids((rule) => rule.short === rule.because)).toEqual([]);
+  });
+
+  it('travels to the client beside the sentence', () => {
+    for (const rule of BOOK_RULES) {
+      expect(ruleView(rule)).toEqual({ id: rule.id, short: rule.short, because: rule.because });
     }
   });
 });
