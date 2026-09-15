@@ -59,6 +59,19 @@ export interface RuleView {
   readonly because: string;
 }
 
+/**
+ * A garment as a screen draws it.
+ *
+ * `photoVersion` is not a fact about clothes, so it has no place on the domain
+ * `Garment` and lives beside it on `StoredGarment` instead. A view still has to
+ * carry it: `/img/:kind/:id` answers `immutable`, and the version is the only
+ * thing in the URL that changes when the owner edits a cutout. Leave it out and
+ * the screen keeps drawing the photo the phone cached before the edit.
+ */
+export interface GarmentView extends Garment {
+  readonly photoVersion: number;
+}
+
 export interface OutfitView {
   /** Ordered base, top, mid, outer, bottom, shoes. Absent slots omitted. */
   readonly pieces: readonly { readonly slot: Slot; readonly garment: Garment }[];

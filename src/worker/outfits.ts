@@ -13,7 +13,7 @@ import { RULES_BY_ID } from '../domain/bookRules';
 import { recheck } from '../domain/certify';
 import type { EventKind, Garment, ResolvedOutfit, Slot, Waived } from '../domain/types';
 import { ruleView } from './compose';
-import type { OutfitView, RuleView } from './contract';
+import type { GarmentView, OutfitView, RuleView } from './contract';
 import { getProfile } from './profile';
 import { getGarment, listGarments } from './repo';
 import type { LoggedWear } from './routes/wear';
@@ -177,6 +177,12 @@ export interface Correction {
 
 /** What the web app reads. `OutfitView` plus the state only a stored outfit has. */
 export interface SavedOutfit extends OutfitView {
+  /**
+   * Narrowed to the view garment, because these are the ones the card draws and
+   * a cutout the owner edited only reaches them through `photoVersion`.
+   */
+  readonly pieces: readonly { readonly slot: Slot; readonly garment: GarmentView }[];
+  readonly accessories: readonly GarmentView[];
   readonly id: string;
   readonly event: EventKind | null;
   /**
@@ -377,7 +383,7 @@ function wasWorn(
 
 function toSaved(
   row: OutfitRow,
-  wardrobe: ReadonlyMap<string, Garment>,
+  wardrobe: ReadonlyMap<string, GarmentView>,
   byDay: ReadonlyMap<string, ReadonlySet<string>>,
   feedback: readonly FeedbackRow[],
 ): SavedOutfit {
@@ -410,9 +416,14 @@ function toSaved(
   };
 }
 
-async function wardrobeById(db: D1Database): Promise<ReadonlyMap<string, Garment>> {
+async function wardrobeById(db: D1Database): Promise<ReadonlyMap<string, GarmentView>> {
   const rows = await listGarments(db, {});
-  return new Map(rows.map((row): [string, Garment] => [row.garment.id, row.garment]));
+  return new Map(
+    rows.map((row): [string, GarmentView] => [
+      row.garment.id,
+      { ...row.garment, photoVersion: row.photoVersion },
+    ]),
+  );
 }
 
 /** The corrections for a whole row set, read once and grouped, oldest first. */

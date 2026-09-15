@@ -303,7 +303,11 @@ test('image paths point at the worker route and carry the photo version', () => 
   assert.equal(imagePath(GARMENT), '/img/cut/a1?v=2');
   assert.equal(imagePath({ ...GARMENT, imageCutout: null }), '/img/orig/a1?v=2');
   assert.equal(imagePath({ ...GARMENT, photoVersion: 0 }), '/img/cut/a1?v=0', 'an unedited photo is still a version');
-  assert.equal(imagePath({ ...GARMENT, photoVersion: undefined }), '/img/cut/a1', 'a piece composed in a chat carries none');
+  assert.equal(
+    imagePath({ ...GARMENT, photoVersion: undefined }),
+    '/img/cut/a1',
+    'a last resort: every garment the server sends carries a version, and a URL without one caches forever',
+  );
 });
 
 test('retrying a failed photo keeps the version that makes it a new url', () => {

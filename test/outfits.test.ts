@@ -460,6 +460,41 @@ describe('POST /api/outfits/:id/swap', () => {
   });
 });
 
+describe('the photo version on a stored outfit', () => {
+  /**
+   * `/img/:kind/:id` answers `immutable` and an edited cutout rewrites the same
+   * key, so the version in the URL is the only thing that changes when the owner
+   * fixes a photo by hand. A piece that reaches the card without one points at a
+   * URL the phone already holds, and the card draws the photo from before the
+   * edit for as long as that cache lives.
+   */
+  it('carries the version onto every piece and accessory, so an edited cutout reaches the card', async () => {
+    const db = new FakeDb();
+    db.garments = WARDROBE.map((garment) =>
+      garmentRow(garment, { photoVersion: garment.id === 'tee-white' ? 3 : 0 }),
+    );
+    await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1' },
+      new Date('2026-05-10T08:00:00.000Z'),
+    );
+
+    const page = await readOutfits(db as unknown as D1Database, { limit: 5 });
+    const outfit = page.outfits[0];
+
+    const edited = outfit?.pieces.find((piece) => piece.garment.id === 'tee-white');
+    expect(edited?.garment.photoVersion).toBe(3);
+    for (const piece of outfit?.pieces ?? []) {
+      expect(piece.garment.photoVersion).toBeTypeOf('number');
+    }
+    // The accessories are drawn from the same payload and were the other half of
+    // the miss, so they are asserted rather than assumed.
+    for (const garment of outfit?.accessories ?? []) {
+      expect(garment.photoVersion).toBeTypeOf('number');
+    }
+  });
+});
+
 describe('the title on a stored outfit', () => {
   it('reads back the words it was saved under', async () => {
     const db = new FakeDb();
