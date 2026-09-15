@@ -1270,11 +1270,17 @@ p {
   margin-left: auto;
   font-size: 12px;
   color: var(--muted);
+  /* The day stays on one line and the name beside it wraps instead, because a
+     date broken across two lines reads as two facts. */
+  white-space: nowrap;
 }
 
 .entry__summary::after {
   content: "";
   margin-left: 4px;
+  /* A flex item with a width still shrinks, and this one shrank to half a
+     chevron on any crowded row, which reads as a tick rather than an arrow. */
+  flex: none;
   width: 9px;
   height: 9px;
   border-right: 2px solid var(--muted);

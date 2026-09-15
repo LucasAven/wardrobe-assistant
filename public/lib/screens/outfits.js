@@ -20,12 +20,25 @@ export function mountOutfits(ctx) {
     return outfit.worn ? `${pieces}, worn` : pieces;
   }
 
+  /**
+   * The name carries the row whenever the outfit has one, because a column of
+   * days is not something you can scan for the outfit you remember. The day
+   * moves to the small text on the right, taking the piece count's place: the
+   * count is on the card a tap away and the day is not.
+   */
+  function summaryOf(outfit) {
+    const when = savedLine(outfit.createdAt);
+    if (outfit.title === '') return { lead: when, aside: summaryLine(outfit) };
+    return { lead: outfit.title, aside: outfit.worn ? `${when}, worn` : when };
+  }
+
   /** The card is built on the first open: twenty outfits is a hundred photos. */
   function entry(outfit, index) {
+    const { lead, aside } = summaryOf(outfit);
     const box = el('details', { class: 'entry' }, [
       el('summary', { class: 'entry__summary' }, [
-        el('span', { class: 'entry__when' }, savedLine(outfit.createdAt)),
-        el('span', { class: 'entry__meta' }, summaryLine(outfit)),
+        el('span', { class: 'entry__when' }, lead),
+        el('span', { class: 'entry__meta' }, aside),
       ]),
     ]);
 
@@ -33,7 +46,7 @@ export function mountOutfits(ctx) {
     const build = () => {
       if (built) return;
       built = true;
-      box.append(outfitCard(ctx, outfit));
+      box.append(outfitCard(ctx, outfit, { showName: false }));
     };
 
     box.addEventListener('toggle', () => {

@@ -313,8 +313,12 @@ function cardHead(named, caption, meta) {
   ]);
 }
 
-/** `caption` is null where the screen already says which outfit this is. */
-export function outfitCard(ctx, outfit, { caption = null, meta = '' } = {}) {
+/**
+ * `caption` is null where the screen already says which outfit this is, and
+ * `showName` is false where it has already shown the outfit's own name. The
+ * history does exactly that, in the row you tap to open the card.
+ */
+export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = true } = {}) {
   const node = el('section', { class: 'outfit' });
   let current = outfit;
 
@@ -352,7 +356,7 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '' } = {}) {
     // offers no tap.
     const worn = current.worn || ctx.worn.isWorn(current.id);
 
-    const head = cardHead(current.title === '' ? null : current.title, caption, meta);
+    const head = cardHead(showName && current.title !== '' ? current.title : null, caption, meta);
 
     const accessories =
       current.accessories.length === 0
