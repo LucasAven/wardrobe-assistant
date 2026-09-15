@@ -10,14 +10,13 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../env';
 import { MAX_OUTFITS, readOutfits, swapPiece, todayOutfit } from '../outfits';
-import { VOCABULARIES } from '../vision';
 
 /**
  * The reason is required. A piece that changed with nothing saying why teaches
  * the next plan nothing, and the sentence is the whole point of the write.
  */
 const SwapSchema = z.object({
-  slot: z.enum(VOCABULARIES.slot.values),
+  fromId: z.string().min(1),
   toId: z.string().min(1).nullable(),
   reason: z.string().trim().min(1).max(280),
 });
@@ -43,7 +42,10 @@ outfits.post('/:id/swap', async (c) => {
   const parsed = SwapSchema.safeParse(body);
   if (!parsed.success) {
     return c.json(
-      { error: 'send a slot, a garment id or null, and one line saying why', issues: parsed.error.issues },
+      {
+        error: 'send the garment going out, the garment coming in or null, and one line saying why',
+        issues: parsed.error.issues,
+      },
       400,
     );
   }

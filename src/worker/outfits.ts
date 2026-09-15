@@ -10,13 +10,14 @@
  */
 
 import { RULES_BY_ID } from '../domain/bookRules';
-import { recheck } from '../domain/certify';
+import { doubledAccessories, recheck } from '../domain/certify';
 import { wardrobeGaps } from '../domain/gaps';
 import type {
   BodyProfile,
   EventKind,
   Garment,
   ResolvedOutfit,
+  Severity,
   Slot,
   Waived,
 } from '../domain/types';
@@ -157,7 +158,12 @@ export async function insertOutfit(
 
 /** One piece of a saved outfit changed by hand, as the owner asked for it. */
 export interface OutfitEdit {
-  readonly slot: Slot;
+  /**
+   * The garment going out, named by id. A slot names one piece only while the
+   * outfit wears one garment in it, and an outfit wears as many accessories as
+   * the owner likes, so a bare slot cannot say which of them a tap meant.
+   */
+  readonly fromId: string;
   /** Null empties the slot rather than filling it. */
   readonly toId: string | null;
   readonly reason: string;
@@ -199,6 +205,16 @@ export interface SavedOutfit extends OutfitView {
    */
   readonly title: string | null;
   readonly createdAt: string;
+  /**
+   * The book's donts this outfit breaks, which `missed` never holds: that list
+   * is the preferences it set aside, and the two read as different things.
+   *
+   * Only ever filled in by a hand swap. `certify` refuses `broke_required_rule`
+   * before an outfit is saved, so a stored `missed_rules` can only pick up a
+   * `require` id from `swapPiece`, which records what the owner did rather than
+   * turning them away.
+   */
+  readonly broke: readonly RuleView[];
   /** Every garment in it was logged as worn on the day it was saved. */
   readonly worn: boolean;
   /**
@@ -271,6 +287,15 @@ function ruleIds(json: string): readonly string[] {
   const parsed: unknown = JSON.parse(json);
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((id: unknown): id is string => typeof id === 'string');
+}
+
+/**
+ * Which half of `missed_rules` a stored id belongs to. The severity is read
+ * from the book rather than stored beside the id, because a stored copy is free
+ * to say `prefer` about a rule the book has since made a dont.
+ */
+function withSeverity(ids: readonly string[], severity: Severity): readonly string[] {
+  return ids.filter((id) => RULES_BY_ID.get(id)?.severity === severity);
 }
 
 function ruleViews(ids: readonly string[]): readonly RuleView[] {
@@ -398,6 +423,7 @@ function toSaved(
 ): SavedOutfit {
   const event = row.event as EventKind | null;
   const stored = parsePieces(row.pieces);
+  const missedIds = ruleIds(row.missed_rules);
   const hydrated = stored.flatMap((piece) => {
     const garment = wardrobe.get(piece.id);
     // A garment archived after the outfit was saved drops out of the render
@@ -424,7 +450,11 @@ function toSaved(
     // day, so buying a belt makes every old card mention the belt rule again.
     // That is the intent: the card is read to decide what to wear next, and
     // what could have been different is a question about what is owned today.
-    missed: ruleViews(ruleIds(row.missed_rules).filter((id) => !gaps.has(id))),
+    missed: ruleViews(withSeverity(missedIds, 'prefer').filter((id) => !gaps.has(id))),
+    // Not gap filtered, and it cannot be: a gap is a rule no garment in the
+    // wardrobe can satisfy, which the book only ever says of a preference, so
+    // the filter here would read as a rule that was never broken.
+    broke: ruleViews(withSeverity(missedIds, 'require')),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
     gone: stored.filter((piece) => !wardrobe.has(piece.id)),
@@ -684,17 +714,15 @@ export async function swapPiece(
   if (current.worn) return { kind: 'worn' };
 
   const stored = parsePieces(row.pieces);
-  // One match for every slot the card can tap: an outfit holds one garment per
-  // slot, and the exception, accessories, is not drawn as a tile.
-  const target = stored.find((piece) => piece.slot === edit.slot);
-  if (target === undefined) return refused(`There is nothing in ${edit.slot} to change.`);
+  const target = stored.find((piece) => piece.id === edit.fromId);
+  if (target === undefined) return refused('That garment is not in this outfit.');
 
-  if (edit.toId === null && REQUIRED_SLOTS.includes(edit.slot)) {
+  if (edit.toId === null && REQUIRED_SLOTS.includes(target.slot)) {
     return refused(
-      `An outfit needs a base, a bottom and shoes, so ${edit.slot} cannot be left empty.`,
+      `An outfit needs a base, a bottom and shoes, so ${target.slot} cannot be left empty.`,
     );
   }
-  if (edit.toId === target.id) return refused(`That is already the ${edit.slot} in this outfit.`);
+  if (edit.toId === target.id) return refused(`That is already the ${target.slot} in this outfit.`);
 
   let incoming: Garment | null = null;
   if (edit.toId !== null) {
@@ -702,8 +730,8 @@ export async function swapPiece(
     if (found === null) return refused('That garment is not in your wardrobe.');
     // Before the duplicate check, because a garment in the wrong slot is the
     // more specific thing to say about it even when the outfit already wears it.
-    if (found.garment.slot !== edit.slot) {
-      return refused(`The ${found.garment.subtype} is a ${found.garment.slot}, not a ${edit.slot}.`);
+    if (found.garment.slot !== target.slot) {
+      return refused(`The ${found.garment.subtype} is a ${found.garment.slot}, not a ${target.slot}.`);
     }
     if (stored.some((piece) => piece.id === edit.toId)) {
       return refused(`The ${found.garment.subtype} is already in this outfit.`);
@@ -722,6 +750,15 @@ export async function swapPiece(
   if (incoming !== null) wardrobe.set(incoming.id, incoming);
 
   const resolved = resolvedFrom(nextPieces, wardrobe, row);
+  // The same refusal `certify` makes before an outfit is saved. Recording it as
+  // a miss instead would let a change made by hand reach a state no composed
+  // outfit is allowed to reach, and a second watch is a body with one wrist
+  // rather than a matter of taste.
+  const doubled = doubledAccessories(resolved.accessories)[0];
+  if (doubled !== undefined) {
+    return refused(`That would be the second ${doubled.accessoryKind} in this outfit.`);
+  }
+
   const profile = await getProfile(db);
   const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
   const request = stillHonored(row.owner_request, nextPieces);
@@ -750,7 +787,7 @@ export async function swapPiece(
         `INSERT INTO outfit_feedback (id, outfit_id, slot, from_id, to_id, reason, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(crypto.randomUUID(), id, edit.slot, target.id, edit.toId, edit.reason, now.toISOString()),
+      .bind(crypto.randomUUID(), id, target.slot, target.id, edit.toId, edit.reason, now.toISOString()),
   ]);
 
   const saved = await outfitById(db, id);

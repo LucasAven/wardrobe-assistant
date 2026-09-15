@@ -56,11 +56,17 @@ const ONE_PER_OUTFIT: readonly AccessoryKind[] = [
   'earrings',
 ];
 
+type DoubledAccessory = Extract<RejectionReason, { kind: 'doubled_accessory' }>;
+
 /**
  * Needs the accessories seen together, so it is here for the same reason the
  * warmth sum is: no menu filter could catch it.
+ *
+ * Exported because a piece changed by hand has to be refused for the same
+ * doubling, and `ONE_PER_OUTFIT` is a reading of the book. A second copy of it
+ * anywhere is a second reading, which is free to drift from this one.
  */
-function doubledAccessories(accessories: readonly Garment[]): readonly RejectionReason[] {
+export function doubledAccessories(accessories: readonly Garment[]): readonly DoubledAccessory[] {
   const byKind = new Map<AccessoryKind, string[]>();
   for (const garment of accessories) {
     const kind = garment.accessoryKind;
@@ -72,7 +78,7 @@ function doubledAccessories(accessories: readonly Garment[]): readonly Rejection
 
   return [...byKind]
     .filter(([, ids]) => ids.length > 1)
-    .map(([accessoryKind, ids]): RejectionReason => ({ kind: 'doubled_accessory', accessoryKind, ids }));
+    .map(([accessoryKind, ids]): DoubledAccessory => ({ kind: 'doubled_accessory', accessoryKind, ids }));
 }
 
 function findInMenu(menu: MenuChoices, slot: Slot, id: string): Garment | undefined {

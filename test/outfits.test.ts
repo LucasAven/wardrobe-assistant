@@ -25,7 +25,7 @@ import {
   recentTitles,
   titleTaken,
 } from '../src/worker/outfits';
-import { WARDROBE } from './fixtures';
+import { WARDROBE, makeGarment } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
 const MS_PER_DAY = 86_400_000;
@@ -68,6 +68,44 @@ const LAYERED: Omit<NewOutfit, 'planId'> = {
   warmthWithOuter: 4,
   ownerRequest: null,
 };
+
+/**
+ * Three accessories, which is the shape a slot cannot name a piece in. The belt,
+ * the scarf and the cap all sit in `accessory`, so only an id says which one a
+ * tap meant.
+ */
+const ACCESSORIZED: Omit<NewOutfit, 'planId'> = {
+  ...OUTFIT,
+  pieces: [
+    { slot: 'base', id: 'tee-white' },
+    { slot: 'bottom', id: 'jeans-indigo' },
+    { slot: 'shoes', id: 'sneakers-white' },
+    { slot: 'accessory', id: 'belt-brown' },
+    { slot: 'accessory', id: 'scarf-wool-charcoal' },
+    { slot: 'accessory', id: 'cap-navy' },
+  ],
+};
+
+/** Two accessories the fixture wardrobe has none of, so a swap has somewhere to land. */
+const SUNGLASSES = makeGarment({
+  id: 'sunglasses-black',
+  slot: 'accessory',
+  subtype: 'sunglasses',
+  accessoryKind: 'glasses',
+  colors: ['black'],
+  warmth: 0,
+  formality: 2,
+});
+
+const SECOND_BELT = makeGarment({
+  id: 'belt-black',
+  slot: 'accessory',
+  subtype: 'woven belt',
+  accessoryKind: 'belt',
+  colors: ['black'],
+  warmth: 0,
+  formality: 3,
+});
 
 const RECTANGLE: BodyProfile = {
   shouldersVsHips: 'equal',
@@ -264,12 +302,12 @@ describe('GET /api/outfits', () => {
 
 describe('POST /api/outfits/:id/swap', () => {
   it('answers 404 for an outfit that is not there', async () => {
-    expect((await swapPiece('nope', { slot: 'mid', toId: null, reason: 'too warm' })).status).toBe(404);
+    expect((await swapPiece('nope', { fromId: 'cardigan-gray', toId: null, reason: 'too warm' })).status).toBe(404);
   });
 
   it('refuses to empty a slot every outfit needs', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { slot: 'shoes', toId: null, reason: 'barefoot day' });
+    const response = await swapPiece(id, { fromId: 'sneakers-white', toId: null, reason: 'barefoot day' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('cannot be left empty');
@@ -278,7 +316,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('refuses a garment that lives in another slot, and says what it is', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { slot: 'mid', toId: 'loafers-brown', reason: 'nicer' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'loafers-brown', reason: 'nicer' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('is a shoes, not a mid');
@@ -287,18 +325,18 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('refuses a garment this wardrobe does not have', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { slot: 'mid', toId: 'not-a-garment', reason: 'nicer' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'not-a-garment', reason: 'nicer' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('not in your wardrobe');
   });
 
-  it('refuses a slot the outfit has nothing in', async () => {
+  it('refuses a garment the outfit is not wearing', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { slot: 'outer', toId: 'trench-navy', reason: 'colder now' });
+    const response = await swapPiece(id, { fromId: 'puffer-navy', toId: 'trench-navy', reason: 'colder now' });
 
     expect(response.status).toBe(400);
-    expect((await bodyOf<{ error: string }>(response)).error).toContain('nothing in outer');
+    expect((await bodyOf<{ error: string }>(response)).error).toContain('not in this outfit');
   });
 
   it('drops a request for the piece that was swapped out, and keeps the rest', async () => {
@@ -320,7 +358,7 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: 'too casual' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
     const body = await bodyOf<{ outfit: SavedOutfit }>(response);
 
     expect(response.status).toBe(200);
@@ -344,14 +382,14 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: 'too casual' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
 
     expect((await bodyOf<{ outfit: SavedOutfit }>(response)).outfit.ownerRequest).toBeNull();
   });
 
   it('refuses a reason that is only blank space', async () => {
     const id = await saveLayered();
-    expect((await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: '   ' })).status).toBe(400);
+    expect((await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: '   ' })).status).toBe(400);
   });
 
   /** `wasWorn` reads the stored ids, so a swap would turn a worn outfit back into an unworn one. */
@@ -365,7 +403,7 @@ describe('POST /api/outfits/:id/swap', () => {
       }),
     });
 
-    const response = await swapPiece(id, { slot: 'shoes', toId: 'loafers-brown', reason: 'wrong shoes' });
+    const response = await swapPiece(id, { fromId: 'sneakers-white', toId: 'loafers-brown', reason: 'wrong shoes' });
 
     expect(response.status).toBe(409);
     expect(db.feedback).toHaveLength(0);
@@ -375,7 +413,7 @@ describe('POST /api/outfits/:id/swap', () => {
   it('writes the new pieces and the reason together, and hands the outfit back', async () => {
     const id = await saveLayered();
     const response = await swapPiece(id, {
-      slot: 'mid',
+      fromId: 'cardigan-gray',
       toId: 'knit-cream-heavy',
       reason: 'the cardigan itches at the office',
     });
@@ -425,7 +463,7 @@ describe('POST /api/outfits/:id/swap', () => {
     const id = await saveLayered();
     const before = { ...db.outfits[0] };
 
-    await swapPiece(id, { slot: 'mid', toId: 'blazer-navy', reason: 'sharper for a client day' });
+    await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'sharper for a client day' });
 
     expect(db.outfits[0]?.rationale).toBe(before.rationale);
     expect(db.outfits[0]?.event).toBe(before.event);
@@ -435,7 +473,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('drops a citation the swap broke, keeps one that still holds, and re-sums the warmth', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { slot: 'mid', toId: null, reason: 'too warm indoors' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
 
     const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
     expect(outfit.cited.map((rule) => rule.id)).toEqual(['all-01']);
@@ -447,16 +485,129 @@ describe('POST /api/outfits/:id/swap', () => {
     expect(db.outfits[0]?.cited_rules).toBe('["all-01"]');
   });
 
+  /**
+   * The whole of backlog item 3: an outfit wears as many accessories as the
+   * owner likes, so naming the piece by its slot picked whichever one happened
+   * to be stored first and the other two could not be reached at all.
+   */
+  it('changes the accessory it was handed and leaves the others alone', async () => {
+    db.garments = [...db.garments, garmentRow(SUNGLASSES)];
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      { ...ACCESSORIZED, planId: 'p1' },
+      new Date(),
+    );
+
+    const response = await swapPiece(id, {
+      fromId: 'cap-navy',
+      toId: 'sunglasses-black',
+      reason: 'the cap does not go with the scarf',
+    });
+
+    expect(response.status).toBe(200);
+    const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+    expect(outfit.accessories.map((garment) => garment.id)).toEqual([
+      'belt-brown',
+      'scarf-wool-charcoal',
+      'sunglasses-black',
+    ]);
+    expect(db.feedback[0]).toMatchObject({
+      slot: 'accessory',
+      from_id: 'cap-navy',
+      to_id: 'sunglasses-black',
+    });
+  });
+
+  /**
+   * `certify` refuses this at save time, so a swap that recorded it as a miss
+   * would let a hand change reach a state no composed outfit is allowed to.
+   */
+  it('refuses a swap that would put two of a kind the body has one place for', async () => {
+    db.garments = [...db.garments, garmentRow(SECOND_BELT)];
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      { ...ACCESSORIZED, planId: 'p1' },
+      new Date(),
+    );
+
+    const response = await swapPiece(id, {
+      fromId: 'cap-navy',
+      toId: 'belt-black',
+      reason: 'the woven one is better',
+    });
+
+    expect(response.status).toBe(400);
+    expect((await bodyOf<{ error: string }>(response)).error).toContain('second belt');
+    expect(db.feedback).toHaveLength(0);
+    expect(JSON.parse(String(db.outfits[0]?.pieces))).toContainEqual({
+      slot: 'accessory',
+      id: 'cap-navy',
+    });
+  });
+
+  it('reads a dont the swap broke apart from the preferences it set aside', async () => {
+    const id = await saveLayered();
+
+    const response = await swapPiece(id, {
+      fromId: 'cardigan-gray',
+      toId: 'knit-cream-heavy',
+      reason: 'the office is freezing',
+    });
+
+    const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+    // The oversized knit is the layer on show, which rect-06b requires it not be.
+    expect(outfit.broke.map((rule) => rule.id)).toContain('rect-06b');
+    expect(outfit.missed.map((rule) => rule.id)).not.toContain('rect-06b');
+  });
+
   it('judges nothing when no body type is stored, rather than erroring', async () => {
     const id = await saveLayered();
     db.profile = null;
 
-    const response = await swapPiece(id, { slot: 'mid', toId: null, reason: 'too warm indoors' });
+    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
 
     const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
     expect(outfit.cited).toEqual([]);
     expect(outfit.missed).toEqual([]);
     expect(outfit.warmthCore).toBe(1);
+  });
+});
+
+/**
+ * `missed_rules` is one column and holds both severities, because `recheck`
+ * recomputes the whole list after a hand swap. Which of the two a rule is stays
+ * in the book, so the reader is the only place the column is split.
+ */
+describe('the rules a stored outfit missed', () => {
+  it('reads a dont as broken and a preference as set aside', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1', missedRules: ['rect-02', 'rect-04', 'rect-06b'] },
+      new Date(),
+    );
+
+    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+
+    expect(body.outfit.id).toBe(id);
+    // rect-02 asks for structured fabric this wardrobe has none of in a slot
+    // every outfit fills, so the preference half still drops it as a gap.
+    expect(body.outfit.missed.map((rule) => rule.id)).toEqual(['rect-04']);
+    expect(body.outfit.broke.map((rule) => rule.id)).toEqual(['rect-06b']);
+  });
+
+  it('leaves both lists empty for an outfit that missed nothing', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    await insertOutfit(
+      db as unknown as D1Database,
+      { ...OUTFIT, planId: 'p1', missedRules: [] },
+      new Date(),
+    );
+
+    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+
+    expect(body.outfit.missed).toEqual([]);
+    expect(body.outfit.broke).toEqual([]);
   });
 });
 
@@ -667,6 +818,6 @@ describe('the session guard', () => {
     cookie = '';
     expect((await call('http://x/api/outfits/today')).status).toBe(401);
     expect((await call('http://x/api/outfits')).status).toBe(401);
-    expect((await swapPiece('o1', { slot: 'mid', toId: null, reason: 'no' })).status).toBe(401);
+    expect((await swapPiece('o1', { fromId: 'cardigan-gray', toId: null, reason: 'no' })).status).toBe(401);
   });
 });
