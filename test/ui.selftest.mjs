@@ -25,6 +25,7 @@ import {
 import { askPosition, positionLine } from '../public/lib/geo.js';
 import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
+import { pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   garmentIds,
@@ -979,6 +980,8 @@ test('an upload the tagger never saw reads as saved, not as failed', () => {
 const RULE_TIGHT = { id: 'rect-02', because: 'with no curve to mark, tight fabric only highlights the flatness.' };
 const RULE_LAYERS = { id: 'rect-01', because: 'layers and V-necks add depth and volume so the torso reads as having shape.' };
 const RULE_LEGS = { id: 'rect-04', because: 'straight fitted legs add no volume at the hip.' };
+/** A `require` rule, which only ever reaches a card through a swap the owner made. */
+const RULE_LOOSE = { id: 'rect-06b', because: 'very loose garments amplify the flatness.' };
 
 function garment(id, subtype) {
   return { ...GARMENT, id, subtype, imageCutout: null, imageOriginal: `orig/${id}` };
@@ -1062,7 +1065,46 @@ test('a cited rule is never also a missed one', () => {
   assert.deepEqual(halves.cited, [RULE_LAYERS], 'a rule with no sentence is not a rule the app can show');
   assert.deepEqual(halves.missed, []);
 
-  assert.deepEqual(splitRules(readOutfit({ ...SAVED, cited: [], missed: [] })), { cited: [], missed: [] });
+  assert.deepEqual(splitRules(readOutfit({ ...SAVED, cited: [], missed: [] })), {
+    cited: [],
+    missed: [],
+    broke: [],
+  });
+});
+
+test("a dont the owner's own change broke is read apart from the misses", () => {
+  assert.deepEqual(readOutfit(SAVED).broke, [], 'an outfit nobody changed broke none of the donts');
+  assert.deepEqual(
+    readOutfit({ ...SAVED, broke: [RULE_LOOSE, { id: 'rect-05b' }] }).broke,
+    [RULE_LOOSE],
+    'a rule with no sentence is not a rule the app can show',
+  );
+
+  const { cited, missed, broke } = splitRules(
+    readOutfit({ ...SAVED, cited: [RULE_LAYERS], missed: [RULE_LEGS], broke: [RULE_LAYERS, RULE_LOOSE] }),
+  );
+  assert.deepEqual(cited.map((rule) => rule.id), ['rect-01']);
+  assert.deepEqual(missed.map((rule) => rule.id), ['rect-04']);
+  assert.deepEqual(
+    broke.map((rule) => rule.id),
+    ['rect-06b'],
+    'a rule the outfit is shown to follow is not also shown as broken',
+  );
+});
+
+test('a tile names an accessory by its kind and every other piece by its slot', () => {
+  assert.equal(pieceLabel('mid', garment('m1', 'grey overshirt')), 'mid');
+  assert.equal(pieceLabel('shoes', garment('s1', 'white sneaker')), 'shoes');
+  assert.equal(
+    pieceLabel('accessory', { ...garment('a1', 'baseball cap'), accessoryKind: 'hat' }),
+    'hat',
+    'two accessories read as one word otherwise',
+  );
+  assert.equal(
+    pieceLabel('accessory', garment('a2', 'leather belt')),
+    'accessory',
+    'an accessory nobody tagged still says something under its photo',
+  );
 });
 
 test("the owner's corrections ride along with the outfit", () => {
@@ -1164,7 +1206,7 @@ test('the screens hit the routes the worker registers', async () => {
   await api.putCutout('a 1', new Uint8Array([1]));
   await api.resetCutout('a 1');
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
-  await api.swapPiece('o 1', { slot: 'mid', toId: null, reason: 'too warm indoors' });
+  await api.swapPiece('o 1', { fromId: 'm1', toId: null, reason: 'too warm indoors' });
   await api.saveHome(-34.901112, -56.164531);
   await api.clearHome();
 
@@ -1191,7 +1233,7 @@ test('the screens hit the routes the worker registers', async () => {
     calls[1].body,
     '{"shouldersVsHips":"equal","waistIsWidest":true,"volume":"center","line":"curved","thinLegs":false,"bodyType":"circular","language":"es"}',
   );
-  assert.equal(calls[9].body, '{"slot":"mid","toId":null,"reason":"too warm indoors"}');
+  assert.equal(calls[9].body, '{"fromId":"m1","toId":null,"reason":"too warm indoors"}');
   assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"]}');
   assert.equal(calls[10].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
 });

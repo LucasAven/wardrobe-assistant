@@ -1226,6 +1226,17 @@ p {
   border-left-color: var(--line);
 }
 
+/* A dont the owner broke, which the two sections above never hold. Loud enough
+   to be read as a different thing, quiet enough to stay one of three sections
+   under the same outfit. */
+.section--broke .section__title {
+  color: var(--flag);
+}
+
+.rules--broke .rule {
+  border-left-color: var(--flag-line);
+}
+
 .rule__short {
   font-size: 14px;
 }

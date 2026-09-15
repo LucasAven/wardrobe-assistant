@@ -17,7 +17,18 @@ const REQUIRED_SLOTS = ['base', 'bottom', 'shoes'];
 
 const MISSING_NAME = 'a garment no longer in the wardrobe';
 
-function pieceTile(slot, garment, onPick) {
+/**
+ * What a tile calls the piece under it. Every other slot holds one garment and
+ * the slot's own name says which one that is, but an outfit wears as many
+ * accessories as the owner likes, so the kind is the only thing that tells two
+ * of them apart.
+ */
+export function pieceLabel(slot, garment) {
+  if (slot !== 'accessory') return slot;
+  return garment.accessoryKind ?? 'accessory';
+}
+
+function pieceTile(label, garment, onPick) {
   const image = el('img', {
     class: 'piece__img',
     src: imagePath(garment),
@@ -30,7 +41,7 @@ function pieceTile(slot, garment, onPick) {
 
   const body = [
     frame,
-    el('span', { class: 'piece__slot' }, slot),
+    el('span', { class: 'piece__slot' }, label),
     el('span', { class: 'piece__name' }, garment.subtype),
   ];
 
@@ -39,7 +50,7 @@ function pieceTile(slot, garment, onPick) {
     { class: 'piece' },
     onPick === null
       ? body
-      : button(body, { class: 'piece__pick', 'aria-label': `Change the ${slot}`, onclick: onPick }),
+      : button(body, { class: 'piece__pick', 'aria-label': `Change the ${label}`, onclick: onPick }),
   );
 }
 
@@ -245,11 +256,17 @@ function picker(ctx, outfit, piece, done) {
     ]);
   }
 
+  // Every garment already on the outfit, not just the tapped one. An outfit's
+  // other accessories sit in this slot too, so they would otherwise be offered
+  // as options the server then refuses as already in this outfit.
+  const alreadyOn = new Set(garmentIds(outfit));
+
   const grid = el('div', { class: 'grid' });
   if (!REQUIRED_SLOTS.includes(piece.slot)) grid.append(option(null, 'Nothing here', null));
   for (const garment of options) {
-    const same = garment.id === piece.garment.id;
-    grid.append(same ? wearing(garment) : option(garment.id, garment.subtype, garment));
+    grid.append(
+      alreadyOn.has(garment.id) ? wearing(garment) : option(garment.id, garment.subtype, garment),
+    );
   }
   if (tiles.size === 0) {
     grid.append(el('p', { class: 'empty__text' }, 'Nothing else in your wardrobe sits in this slot.'));
@@ -262,7 +279,7 @@ function picker(ctx, outfit, piece, done) {
     save.textContent = 'Saving';
     try {
       const body = await ctx.api.swapPiece(outfit.id, {
-        slot: piece.slot,
+        fromId: piece.garment.id,
         toId: chosen,
         reason: reason.value.trim(),
       });
@@ -277,7 +294,7 @@ function picker(ctx, outfit, piece, done) {
   });
 
   return el('div', { class: 'swap' }, [
-    el('h3', { class: 'section__title' }, `Change the ${piece.slot}`),
+    el('h3', { class: 'section__title' }, `Change the ${pieceLabel(piece.slot, piece.garment)}`),
     grid,
     why,
     el('div', { class: 'swap__actions' }, [
@@ -349,7 +366,7 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
 
   function drawCard() {
     const pieces = orderPieces(current.pieces);
-    const { cited, missed } = splitRules(current);
+    const { cited, missed, broke } = splitRules(current);
     // The test the wear button already made, read once: an outfit that was worn
     // is the record of a day, so the server refuses to change one and the card
     // offers no tap.
@@ -357,6 +374,9 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
 
     const head = cardHead(showName && current.title !== '' ? current.title : null, caption, meta);
 
+    // The same tile the pieces get, and tappable for the same reason. It keeps a
+    // section of its own because an accessory has no place in the base to shoes
+    // order above it, and there can be several.
     const accessories =
       current.accessories.length === 0
         ? null
@@ -364,8 +384,14 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
             el('h4', { class: 'section__title' }, 'With'),
             el(
               'ul',
-              { class: 'tags' },
-              current.accessories.map((garment) => el('li', { class: 'tag' }, garment.subtype)),
+              { class: 'looks' },
+              current.accessories.map((garment) =>
+                pieceTile(
+                  pieceLabel('accessory', garment),
+                  garment,
+                  worn ? null : () => drawPicker({ slot: 'accessory', garment }),
+                ),
+              ),
             ),
           ]);
 
@@ -377,7 +403,11 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
         'ul',
         { class: 'looks' },
         pieces.map((piece) =>
-          pieceTile(piece.slot, piece.garment, worn ? null : () => drawPicker(piece)),
+          pieceTile(
+            pieceLabel(piece.slot, piece.garment),
+            piece.garment,
+            worn ? null : () => drawPicker(piece),
+          ),
         ),
       ),
       accessories,
@@ -407,6 +437,20 @@ export function outfitCard(ctx, outfit, { caption = null, meta = '', showName = 
             el('h3', { class: 'section__title' }, 'From the book, and missed here'),
             el('p', { class: 'source' }, 'This outfit breaks these on purpose.'),
             ruleList(missed, 'rules--missed'),
+          ]),
+      // Apart from the missed section because a dont is not a preference. The
+      // outfit was saved keeping these, so the only thing that can have broken
+      // one is a change the owner made here.
+      broke.length === 0
+        ? null
+        : el('section', { class: 'section section--broke' }, [
+            el('h3', { class: 'section__title' }, 'From the book, and broken here'),
+            el(
+              'p',
+              { class: 'source' },
+              "These are the book's donts, not preferences. Your own change broke them.",
+            ),
+            ruleList(broke, 'rules--broke'),
           ]),
       wearButton(ctx, current, worn, drawCard),
     );

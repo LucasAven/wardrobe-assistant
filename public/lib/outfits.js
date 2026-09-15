@@ -39,13 +39,19 @@ function dedupeById(rules) {
 }
 
 /**
- * Cited and missed are two lists the user reads as opposites, so a rule in both
- * would say the outfit follows a rule it breaks. Cited wins.
+ * Cited on one side, missed and broken on the other. The user reads them as
+ * opposites, so a rule on both sides would say the outfit follows a rule it
+ * breaks. Cited wins.
  */
 export function splitRules(outfit) {
   const cited = dedupeById(outfit?.cited);
   const citedIds = new Set(cited.map((rule) => rule.id));
-  return { cited, missed: dedupeById(outfit?.missed).filter((rule) => !citedIds.has(rule.id)) };
+  const notCited = (rule) => !citedIds.has(rule.id);
+  return {
+    cited,
+    missed: dedupeById(outfit?.missed).filter(notCited),
+    broke: dedupeById(outfit?.broke).filter(notCited),
+  };
 }
 
 export function garmentIds(outfit) {
@@ -132,6 +138,7 @@ export function readOutfit(value) {
     rationale: asText(value.rationale),
     cited: readRules(value.cited),
     missed: readRules(value.missed),
+    broke: readRules(value.broke),
     worn: value.worn === true,
     corrections: readCorrections(value.corrections),
     ownerRequest: readOwnerRequest(value.ownerRequest),
