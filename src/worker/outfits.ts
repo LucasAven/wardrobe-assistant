@@ -742,3 +742,48 @@ export async function recentCorrections(
     ),
   );
 }
+
+/** One name already in use, and the day it was used, as `plan_outfit` shows it. */
+export interface UsedTitle {
+  readonly title: string;
+  readonly createdAt: string;
+}
+
+/** The newest names already on an outfit, which is what `plan_outfit` reads. */
+export async function recentTitles(db: D1Database, limit: number): Promise<readonly UsedTitle[]> {
+  const result = await db
+    .prepare(
+      `SELECT title, created_at
+         FROM outfit
+        WHERE title IS NOT NULL AND trim(title) <> ''
+        ORDER BY created_at DESC
+        LIMIT ?`,
+    )
+    .bind(limit)
+    .all<{ readonly title: string; readonly created_at: string }>();
+
+  return result.results.map((row) => ({ title: row.title, createdAt: row.created_at }));
+}
+
+/**
+ * When an outfit already carries this name, the day it was saved on.
+ *
+ * The comparison ignores case and the spaces around a name and nothing else,
+ * because two names that differ only in capitalization are one name to the
+ * person reading them. SQLite's `lower` is ASCII only, so an accent still tells
+ * two names apart. That is deliberate and not worth more machinery.
+ */
+export async function titleTaken(db: D1Database, title: string): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT created_at
+         FROM outfit
+        WHERE title IS NOT NULL AND lower(trim(title)) = lower(trim(?))
+        ORDER BY created_at DESC
+        LIMIT 1`,
+    )
+    .bind(title)
+    .first<{ readonly created_at: string }>();
+
+  return row === null ? null : row.created_at;
+}

@@ -376,6 +376,46 @@ describe('plan_outfit', () => {
     expect(text.indexOf('WHAT THE OWNER CORRECTED')).toBeLessThan(text.indexOf('WHAT TO DO NEXT'));
   });
 
+  it('says nothing about names when no outfit carries one yet', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).not.toContain('NAMES ALREADY TAKEN');
+    expect(text).not.toContain('Read NAMES ALREADY TAKEN above');
+  });
+
+  it('lists the names already taken, with the day each one was used', async () => {
+    db.outfits = [
+      { id: 'o1', title: 'A client day, layered', created_at: '2026-05-10T08:00:00.000Z' },
+      { id: 'o2', title: 'Errands and nothing else', created_at: '2026-05-11T08:00:00.000Z' },
+    ];
+
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('NAMES ALREADY TAKEN');
+    expect(text).toContain('  2026-05-11  Errands and nothing else');
+    expect(text).toContain('  2026-05-10  A client day, layered');
+    expect(text).toContain('Read NAMES ALREADY TAKEN above before you settle on one.');
+    // Read before the instruction that sends the composer looking for a new one.
+    expect(text.indexOf('NAMES ALREADY TAKEN')).toBeLessThan(text.indexOf('WHAT TO DO NEXT'));
+  });
+
+  it('asks for a name of its own, and says how long it can be', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+    const next = text.slice(text.indexOf('WHAT TO DO NEXT'));
+
+    expect(next).toContain('Name it, in English and in at most 56 characters.');
+    expect(next).toContain('"Easy Friday drinks with friends" is the shape of it, not a name to copy.');
+    expect(next).toContain('save_outfit refuses a repeat.');
+  });
+
+  it('writes the example name in the language the owner reads', async () => {
+    build(TRIANGLE);
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain('Name it, in Spanish');
+    expect(text).toContain('"Chill para unas birras a la noche" is the shape of it');
+  });
+
   it('names the slot alone for a garment archived since the correction', async () => {
     corrected({ slot: 'accessory', from_id: 'gone-for-good', to_id: null, reason: 'cut me in half' });
 
@@ -459,7 +499,7 @@ describe('save_outfit', () => {
     expect(db.outfits).toHaveLength(0);
   });
 
-  it('refuses a title too long for the card, and takes one of exactly 48', async () => {
+  it('refuses a title too long for the card, and takes one of exactly 56', async () => {
     const planId = await plan();
     const long = (length: number) => ({
       planId,
@@ -469,12 +509,52 @@ describe('save_outfit', () => {
       citedRules: [],
     });
 
-    expect(tool('save_outfit').inputSchema.safeParse(long(48)).success).toBe(true);
+    expect(tool('save_outfit').inputSchema.safeParse(long(56)).success).toBe(true);
 
-    const result = await tool('save_outfit').call(long(49));
+    const result = await tool('save_outfit').call(long(57));
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('cannot read');
     expect(db.outfits).toHaveLength(0);
+  });
+
+  it('refuses a name another outfit already carries, and stores nothing', async () => {
+    const planId = await plan();
+    const outfit = {
+      planId,
+      pieces: GOOD_PIECES,
+      title: 'Errands without trying too hard',
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    };
+    expect((await tool('save_outfit').call(outfit)).isError).toBe(false);
+
+    const result = await tool('save_outfit').call(outfit);
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain(
+      'The name "Errands without trying too hard" is already on the outfit saved on 2026-05-12.',
+    );
+    // The name is the only thing wrong, so the composer is told to keep the clothes.
+    expect(textOf(result)).toContain('The clothes passed every check');
+    expect(db.outfits).toHaveLength(1);
+  });
+
+  it('refuses a name that differs from a taken one only in its capitals', async () => {
+    const planId = await plan();
+    const outfit = {
+      planId,
+      pieces: GOOD_PIECES,
+      title: 'Errands without trying too hard',
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    };
+    await tool('save_outfit').call(outfit);
+
+    const result = await tool('save_outfit').call({ ...outfit, title: 'ERRANDS Without Trying Too Hard' });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('is already on the outfit saved on 2026-05-12.');
+    expect(db.outfits).toHaveLength(1);
   });
 
   it('fails on an unknown planId and says to call plan_outfit', async () => {

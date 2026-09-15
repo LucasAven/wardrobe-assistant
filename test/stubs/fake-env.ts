@@ -77,6 +77,11 @@ function rowFrom(columns: readonly string[], args: readonly unknown[]): Row {
   return row;
 }
 
+/** A row the title queries can see: both of them skip a null and a blank name. */
+function named(row: Row): boolean {
+  return typeof row.title === 'string' && row.title.trim() !== '';
+}
+
 function descending(left: string, right: string): number {
   if (left === right) return 0;
   return left < right ? 1 : -1;
@@ -169,6 +174,18 @@ export class FakeDb {
       if (sql.includes('created_at >= ?')) {
         const since = String(args[0]);
         return ordered.filter((row) => String(row.created_at) >= since).slice(0, 1);
+      }
+
+      // recentTitles, which reads the names rather than the outfits carrying them.
+      if (sql.includes("WHERE title IS NOT NULL AND trim(title) <> ''")) {
+        return ordered.filter((row) => named(row)).slice(0, Number(args[0]));
+      }
+      // titleTaken, whose comparison ignores case and the spaces around a name.
+      if (sql.includes('lower(trim(title)) = lower(trim(?))')) {
+        const wanted = String(args[0]).trim().toLowerCase();
+        return ordered
+          .filter((row) => named(row) && String(row.title).trim().toLowerCase() === wanted)
+          .slice(0, 1);
       }
 
       const rest = [...args];

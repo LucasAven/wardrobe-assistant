@@ -19,6 +19,7 @@ import { z } from 'zod';
 import { certify, resolveOutfit } from '../../domain/certify';
 import { RULES_BY_ID, rulesFor } from '../../domain/bookRules';
 import type {
+  BodyProfile,
   BookRule,
   CertifiedOutfit,
   HeldBack,
@@ -46,9 +47,18 @@ import type {
   OutfitPiece,
   OwnerRequest,
   SavedOutfit,
+  UsedTitle,
   Waiver,
 } from '../outfits';
-import { MAX_OUTFITS, homeLocation, insertOutfit, readOutfits, recentCorrections } from '../outfits';
+import {
+  MAX_OUTFITS,
+  homeLocation,
+  insertOutfit,
+  readOutfits,
+  recentCorrections,
+  recentTitles,
+  titleTaken,
+} from '../outfits';
 import { ImagesUnusableError, smallImageFor } from '../photos';
 import type { SmallImage } from '../vision';
 import { getProfile } from '../profile';
@@ -427,6 +437,15 @@ const PlanArgs = z.object({
 /** Enough to read as a pattern, short enough that the newest one is never buried. */
 const CORRECTIONS_SHOWN = 15;
 
+/** Enough that a near repeat is visible, short enough that it never crowds the menu. */
+const TITLES_SHOWN = 30;
+
+/** The shape a name should have, written in the language the owner reads it in. */
+const TITLE_EXAMPLES = {
+  es: 'Chill para unas birras a la noche',
+  en: 'Easy Friday drinks with friends',
+} as const satisfies Record<BodyProfile['language'], string>;
+
 function correctionLine(correction: Correction): string {
   const day = correction.at.slice(0, 10);
   const when = correction.event === null ? day : `${day}, ${correction.event}`;
@@ -479,6 +498,15 @@ function correctionsSection(corrections: readonly Correction[]): string {
     'These are not from the guide, so never cite one as a rule id. If today genuinely calls for something a correction argues against, you may still do it. Say so to them in the rationale rather than doing it quietly.',
     '',
     ...corrections.map(correctionLine),
+  ].join('\n');
+}
+
+function namesUsedSection(titles: readonly UsedTitle[]): string {
+  return [
+    'NAMES ALREADY TAKEN',
+    'Every outfit you save carries a short name, and the owner uses it to reach back for one later: "the chill one from the other day, but with different shoes". That only works while no two names are alike. Read these before you pick today\'s, and land somewhere else.',
+    '',
+    ...titles.map((used) => `  ${used.createdAt.slice(0, 10)}  ${used.title}`),
   ].join('\n');
 }
 
@@ -592,7 +620,10 @@ function planTool(context: ToolContext): ToolSpec {
         );
       }
 
-      const corrections = await recentCorrections(context.env.DB, CORRECTIONS_SHOWN);
+      const [corrections, titles] = await Promise.all([
+        recentCorrections(context.env.DB, CORRECTIONS_SHOWN),
+        recentTitles(context.env.DB, TITLES_SHOWN),
+      ]);
 
       sections.push(
         `THE BODY\n${bodyText(profile)}`,
@@ -602,11 +633,12 @@ function planTool(context: ToolContext): ToolSpec {
       );
 
       if (corrections.length > 0) sections.push(correctionsSection(corrections));
+      if (titles.length > 0) sections.push(namesUsedSection(titles));
       if (menu.heldBack.length > 0) sections.push(heldBackSection(menu.heldBack));
       if (plan.ownerAsked !== null) sections.push(ownerAskedSection(plan));
 
       sections.push(
-        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.${corrections.length === 0 ? '' : ' Before you send it, read it back against WHAT THE OWNER CORRECTED above, piece by piece: that section is the only record of what they have already rejected, and it is worth more to them than anything you can add.'} Write the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
+        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.${corrections.length === 0 ? '' : ' Before you send it, read it back against WHAT THE OWNER CORRECTED above, piece by piece: that section is the only record of what they have already rejected, and it is worth more to them than anything you can add.'}\n\nName it, in ${LANGUAGE_NAMES[profile.language]} and in at most 56 characters. A word or two for how it feels, then where it is going. "${TITLE_EXAMPLES[profile.language]}" is the shape of it, not a name to copy. Never list the clothes, the card already shows them. The name has to be the only one like it, because the owner reaches for an old outfit by its name, so two similar evenings called the same thing leave them pointing at both.${titles.length === 0 ? '' : ' Read NAMES ALREADY TAKEN above before you settle on one.'} save_outfit refuses a repeat.\n\nWrite the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
       );
 
       return ok(sections.join('\n\n'));
@@ -627,6 +659,7 @@ What is checked here and nowhere else:
   - the book's donts that need the pieces seen together, which no menu filter could catch
   - every rule id you cite. A cited rule has to exist, apply to this body type, and actually hold for these clothes. Citing a rule the outfit breaks fails the whole save.
   - the accessories a body has one place for. At most one of glasses, hat, scarf, belt, bag, watch and earrings each. A ring, a chain and a bracelet may repeat as often as you like.
+  - the title, which has to be a name no saved outfit already carries
 
 On failure nothing is stored and every reason comes back, naming the garment or the rule. Compose again straight away if you like, but write a new title and a new rationale for the new clothes. Either one carried over from a rejected outfit describes something the owner is not wearing.
 
@@ -667,9 +700,9 @@ const SaveArgs = z.object({
   title: z
     .string()
     .min(1)
-    .max(48)
+    .max(56)
     .describe(
-      'A short name for this outfit, in the language the plan named. It says what the outfit is for, not what is in it: "Dinner without trying too hard" is a title, "orange tee and navy chinos" is the piece list the card already shows. At most 48 characters, and shorter reads better on a phone. It is your own words, like the rationale, and it is the first thing the owner sees on the card.',
+      'The outfit\'s name, in the language the plan named and at most 56 characters. A word or two for how it feels, then where it is going, and never a list of the clothes. It has to be a name no saved outfit already carries, because the owner uses it to reach back for this one later. The plan lists the names already taken.',
     ),
   rationale: z
     .string()
@@ -793,6 +826,17 @@ function saveTool(context: ToolContext): ToolSpec {
 
       const certified = certify(resolved, plan.constraints, plan.bodyType);
       if (Array.isArray(certified)) return rejected(certified);
+
+      // After certification, because the clothes are the real gate: a name
+      // clash said while the outfit is also wrong would be the smaller problem
+      // reported as the whole one.
+      const clash = await titleTaken(context.env.DB, args.title);
+      if (clash !== null) {
+        return failed(
+          `The name "${args.title}" is already on the outfit saved on ${clash.slice(0, 10)}. Nothing was stored.`,
+          'The clothes passed every check, so keep them exactly as they are and call save_outfit again with only the title changed. The owner reaches for an old outfit by its name, so two of them cannot share one.',
+        );
+      }
 
       const pieces = piecesOf(certified);
       const asked = plan.ownerAsked;

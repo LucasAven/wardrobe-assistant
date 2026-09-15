@@ -16,7 +16,15 @@ vi.mock('@anthropic-ai/sdk', () => ({
 import type { BodyProfile } from '../src/domain/types';
 import worker from '../src/worker/index';
 import type { NewOutfit, SavedOutfit } from '../src/worker/outfits';
-import { clearHome, homeLocation, insertOutfit, putHome, readOutfits } from '../src/worker/outfits';
+import {
+  clearHome,
+  homeLocation,
+  insertOutfit,
+  putHome,
+  readOutfits,
+  recentTitles,
+  titleTaken,
+} from '../src/worker/outfits';
 import { WARDROBE } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
@@ -481,6 +489,69 @@ describe('the title on a stored outfit', () => {
 
     const page = await readOutfits(db as unknown as D1Database, { limit: 5 });
     expect(page.outfits[0]?.title).toBeNull();
+  });
+});
+
+describe('the names already taken', () => {
+  async function saveTitled(title: string, savedAt: string): Promise<void> {
+    await insertOutfit(db as unknown as D1Database, { ...OUTFIT, planId: 'p1', title }, new Date(savedAt));
+  }
+
+  it('reads the names back newest first, each with the day it was used', async () => {
+    await saveTitled('A mild morning', '2026-05-10T08:00:00.000Z');
+    await saveTitled('A client day, layered', '2026-05-12T08:00:00.000Z');
+
+    expect(await recentTitles(db as unknown as D1Database, 10)).toEqual([
+      { title: 'A client day, layered', createdAt: '2026-05-12T08:00:00.000Z' },
+      { title: 'A mild morning', createdAt: '2026-05-10T08:00:00.000Z' },
+    ]);
+  });
+
+  it('passes over an outfit with no name and one whose name is only spaces', async () => {
+    await saveTitled('A mild morning', '2026-05-10T08:00:00.000Z');
+    await saveTitled('   ', '2026-05-11T08:00:00.000Z');
+    await saveTitled('A client day, layered', '2026-05-12T08:00:00.000Z');
+    // What the migration leaves on every outfit that was stored before it ran.
+    db.outfits = db.outfits.map((row) =>
+      row.title === 'A client day, layered' ? { ...row, title: null } : row,
+    );
+
+    const titles = await recentTitles(db as unknown as D1Database, 10);
+
+    expect(titles.map((used) => used.title)).toEqual(['A mild morning']);
+  });
+
+  it('never reads past the limit it was given', async () => {
+    await saveTitled('A mild morning', '2026-05-10T08:00:00.000Z');
+    await saveTitled('A client day, layered', '2026-05-11T08:00:00.000Z');
+    await saveTitled('Errands and nothing else', '2026-05-12T08:00:00.000Z');
+
+    const titles = await recentTitles(db as unknown as D1Database, 2);
+
+    expect(titles.map((used) => used.title)).toEqual(['Errands and nothing else', 'A client day, layered']);
+  });
+
+  it('finds a name whatever its capitals and the spaces around it', async () => {
+    await saveTitled('Chill para unas birras', '2026-05-10T08:00:00.000Z');
+
+    expect(await titleTaken(db as unknown as D1Database, '  chill PARA unas birras ')).toBe(
+      '2026-05-10T08:00:00.000Z',
+    );
+  });
+
+  it('hands back the newest day when the same name was used twice', async () => {
+    await saveTitled('Chill para unas birras', '2026-05-10T08:00:00.000Z');
+    await saveTitled('Chill para unas birras', '2026-05-12T08:00:00.000Z');
+
+    expect(await titleTaken(db as unknown as D1Database, 'Chill para unas birras')).toBe(
+      '2026-05-12T08:00:00.000Z',
+    );
+  });
+
+  it('says nothing is taken for a name nobody has used', async () => {
+    await saveTitled('Chill para unas birras', '2026-05-10T08:00:00.000Z');
+
+    expect(await titleTaken(db as unknown as D1Database, 'A client day, layered')).toBeNull();
   });
 });
 
