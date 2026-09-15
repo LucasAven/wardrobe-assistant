@@ -392,7 +392,11 @@ export function reasonText(reason: RejectionReason, constraints: Constraints): s
   }
 }
 
-export const ruleView = (rule: BookRule): RuleView => ({ id: rule.id, because: rule.because });
+export const ruleView = (rule: BookRule): RuleView => ({
+  id: rule.id,
+  short: rule.short,
+  because: rule.because,
+});
 
 function toView(outfit: CertifiedOutfit): OutfitView {
   return {

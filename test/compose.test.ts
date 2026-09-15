@@ -537,7 +537,7 @@ describe('the certified outfit that comes back', () => {
     expect(first?.accessories.map((g) => g.id)).toEqual(['belt-brown']);
     expect(first?.rationale).toBe(GOOD_A.rationale);
     expect(first?.cited).toEqual([
-      { id: 'rect-01', because: expect.stringContaining('V-necks') },
+      { id: 'rect-01', short: 'Layers or a V-neckline', because: expect.stringContaining('V-necks') },
     ]);
     expect(first?.warmthCore).toBe(3);
     expect(first?.warmthWithOuter).toBe(6);

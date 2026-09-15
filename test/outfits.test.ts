@@ -201,7 +201,7 @@ describe('GET /api/outfits/today', () => {
     expect(outfit?.pieces[0]?.garment.subtype).toBe('cotton t-shirt');
     expect(outfit?.accessories.map((garment) => garment.id)).toEqual(['belt-brown']);
     expect(outfit?.cited).toEqual([
-      { id: 'rect-01', because: expect.stringContaining('V-necks') },
+      { id: 'rect-01', short: 'Layers or a V-neckline', because: expect.stringContaining('V-necks') },
     ]);
     expect(outfit?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(outfit?.worn).toBe(false);

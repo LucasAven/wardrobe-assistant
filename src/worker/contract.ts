@@ -53,9 +53,13 @@ export interface RecommendRequest {
 /**
  * A rule as the user sees it. `because` is the book's own sentence, never a
  * paraphrase, because the whole promise is that the advice traces to the book.
+ * `short` is the same line's THEN half in a few of the book's words, for the
+ * pill that stands in front of the sentence, and it is never a paraphrase
+ * either.
  */
 export interface RuleView {
   readonly id: string;
+  readonly short: string;
   readonly because: string;
 }
 
