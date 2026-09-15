@@ -160,9 +160,14 @@ export interface OutfitRule {
    */
   readonly scope: string;
   /**
-   * Set only by a rule that asks the outfit to contain a garment of some kind.
-   * A rule about how the pieces sit together leaves it out, because composing
-   * differently can always satisfy that one and no wardrobe blocks it.
+   * Set only by a rule that asks the outfit to contain a garment of some kind,
+   * which is the shape `wardrobeGaps` can answer exactly.
+   *
+   * A rule about how the pieces sit together leaves it out, and that is a real
+   * limit rather than a claim that such a rule is always satisfiable. A wardrobe
+   * with no dark trousers can block `tri-01` on every outfit, and nothing here
+   * will notice: deciding it needs a search over the outfits the wardrobe can
+   * build, not a predicate over one garment.
    */
   readonly wants?: GarmentWant;
   readonly because: string;

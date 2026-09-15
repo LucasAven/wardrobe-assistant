@@ -137,6 +137,7 @@ describe('the plan round trip through KV', () => {
       bodyType: 'rectangle',
       event: 'errands',
       ownerAsked: null,
+      gaps: [],
     });
     const read = await readPlan(env, 'owner', planId);
 
@@ -180,6 +181,7 @@ describe('the plan round trip through KV', () => {
       bodyType: 'rectangle',
       event: 'errands',
       ownerAsked: null,
+      gaps: [],
     });
 
     expect(await readPlan(env, 'owner', planId)).not.toBeNull();
@@ -207,6 +209,7 @@ describe('the plan round trip through KV', () => {
       bodyType: 'rectangle',
       event: 'errands',
       ownerAsked: null,
+      gaps: [],
     });
 
     expect(put.mock.calls[0]?.[2]).toEqual({ expirationTtl: 3600 });

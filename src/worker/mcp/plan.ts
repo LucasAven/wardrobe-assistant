@@ -235,6 +235,13 @@ export interface StoredPlan {
    * into something the waivers fit better.
    */
   readonly ownerAsked: OwnerAsked | null;
+  /**
+   * The ids of the rules this wardrobe could not satisfy when the plan was
+   * made, and not recomputed at save time. What `save_outfit` says it missed
+   * has to match the guide the composer was given, and a plan lives an hour, so
+   * a garment uploaded in between would otherwise make the two disagree.
+   */
+  readonly gaps: readonly string[];
 }
 
 /**
@@ -323,6 +330,9 @@ const StoredPlanSchema = z
       .object({ garmentIds: z.array(z.string()), words: z.string() })
       .nullable()
       .transform((value): OwnerAsked | null => value),
+    // Defaulted rather than required, so a plan written before gaps existed is
+    // still readable for the hour it has left instead of reading as expired.
+    gaps: z.array(z.string()).default([]),
   })
   .transform((value): StoredPlan => value);
 
@@ -341,6 +351,7 @@ function forStorage(plan: StoredPlan): unknown {
     bodyType: plan.bodyType,
     event: plan.event,
     ownerAsked: plan.ownerAsked,
+    gaps: plan.gaps,
   };
 }
 

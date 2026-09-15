@@ -61,17 +61,19 @@ export interface RuleView {
 
 /**
  * A guide rule this wardrobe cannot satisfy, as the wardrobe screen draws it.
+ * The wire shape of a `WardrobeGap`, which needs no reshaping to travel.
  *
- * `needs` and `where` are two ways of saying what is short, and a gap has one
- * or the other. A rule asking for a garment names the thing ("a belt"). A rule
- * about how a garment must look can only name the slots where nothing owned
- * passes, because its test is a predicate with no sentence to read out of it.
+ * `slots` are the exact slots that fall short and are never widened into a
+ * group word here. `base`, `top` and `mid` all read as "tops" to the styling
+ * book, so a gap in `base` alone would be drawn as "nothing you own in tops"
+ * while a shirt that passes sits in the same wardrobe. The screen names these
+ * with the same words its own filter chips use, so the owner can go and look.
  */
 export interface GapView {
   readonly id: string;
   readonly because: string;
   readonly needs: string | null;
-  readonly where: string;
+  readonly slots: readonly Slot[];
 }
 
 /**
@@ -94,9 +96,12 @@ export interface OutfitView {
   readonly rationale: string;
   readonly cited: readonly RuleView[];
   /**
-   * Preference rules this outfit knowingly misses. Shown, never hidden, except
-   * for the ones no outfit could have met: those are a `GapView` on the
-   * wardrobe screen instead, said once rather than on every outfit.
+   * Preference rules this outfit knowingly misses. Shown, never hidden.
+   *
+   * A saved outfit read back through `toSaved` drops the ones no outfit could
+   * have met, which reach the owner as a `GapView` on the wardrobe screen
+   * instead. The deterministic composer behind `/recommend` does not, because
+   * it never sees the wardrobe, only the menu built from it.
    */
   readonly missed: readonly RuleView[];
   readonly warmthCore: number;

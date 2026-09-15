@@ -7,10 +7,20 @@ import { SLOTS } from '../vocab.js';
 /**
  * A gap says what is short in one of two ways, and never both. A rule asking
  * for a garment names the thing, and one about how a garment must look can only
- * name where nothing owned passes.
+ * name the slots where nothing owned passes.
+ *
+ * The slots are named with the bare words the tiles and the filter chips on
+ * this screen already use, so tapping one shows exactly the garments the
+ * sentence is about.
  */
 function shortOf(gap) {
-  return gap.needs === null ? `Nothing you own in ${gap.where} works for this.` : `You do not own ${gap.needs}.`;
+  if (gap.needs !== null) return `You do not own ${gap.needs}.`;
+  return `Nothing you own in ${orList(gap.slots)} works for this.`;
+}
+
+function orList(words) {
+  if (words.length < 2) return words[0];
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
 }
 
 /** A row the screen cannot draw is dropped rather than drawn half empty. */
@@ -20,7 +30,9 @@ function readable(gap) {
     typeof gap === 'object' &&
     typeof gap.id === 'string' &&
     typeof gap.because === 'string' &&
-    typeof gap.where === 'string' &&
+    Array.isArray(gap.slots) &&
+    gap.slots.length > 0 &&
+    gap.slots.every((slot) => typeof slot === 'string') &&
     (gap.needs === null || typeof gap.needs === 'string')
   );
 }
@@ -184,6 +196,9 @@ export function mountWardrobe(ctx) {
 
   async function load(force) {
     clear(grid);
+    // The old list goes with the old grid. Left up it would sit under a loading
+    // wardrobe describing the wardrobe before the refresh.
+    clear(gaps);
     grid.append(el('p', { class: 'empty__text' }, 'Loading.'));
     try {
       await (force ? ctx.store.refresh() : ctx.store.ensure());

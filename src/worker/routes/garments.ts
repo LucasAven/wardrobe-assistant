@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { wardrobeGaps } from '../../domain/gaps';
 import { missingConfig } from '../auth';
-import { gapView } from '../compose';
+import type { GapView } from '../contract';
 import { getProfile } from '../profile';
 import type { Env } from '../env';
 import type { SetupFault } from '../photos';
@@ -198,8 +198,11 @@ garments.get('/gaps', async (c) => {
   if (profile === null) return c.json({ gaps: [] });
 
   const rows = await listGarments(c.env.DB, {});
-  const gaps = wardrobeGaps(rows.map((row) => row.garment), profile.bodyType);
-  return c.json({ gaps: gaps.map(gapView) });
+  const gaps: readonly GapView[] = wardrobeGaps(
+    rows.map((row) => row.garment),
+    profile.bodyType,
+  );
+  return c.json({ gaps });
 });
 
 garments.get('/', async (c) => {

@@ -186,10 +186,17 @@ function clothing(o: ResolvedOutfit): readonly Garment[] {
   return CLOTHING_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
 }
 
+/**
+ * The tagged kind first, because it is the field that means this, and the words
+ * after it only to catch a belt nobody set the kind on. Reading the words alone
+ * would tell an owner they do not own a belt while a `correa de cuero` tagged
+ * `belt` sits in the wardrobe.
+ */
 const BELT: GarmentWant = {
   slots: ['accessory'],
   name: 'a belt',
   test: (g) => {
+    if (g.accessoryKind === 'belt') return true;
     const subtype = normalizeWord(g.subtype);
     return subtype.includes('belt') || subtype.includes('cinturon');
   },

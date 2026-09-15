@@ -419,6 +419,11 @@ function toSaved(
     // the day it was saved is a record. What the card shows is the shorter
     // question of what this outfit could have done differently, so a rule the
     // wardrobe cannot satisfy is left to the wardrobe screen to say once.
+    //
+    // Judged against the wardrobe as it stands now and not as it stood that
+    // day, so buying a belt makes every old card mention the belt rule again.
+    // That is the intent: the card is read to decide what to wear next, and
+    // what could have been different is a question about what is owned today.
     missed: ruleViews(ruleIds(row.missed_rules).filter((id) => !gaps.has(id))),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,

@@ -9,10 +9,16 @@
  * `require` rules are left out. One over a garment is a menu filter, so it
  * empties the slot instead of being missed, and one over an outfit is a book
  * dont that rejects the outfit outright.
+ *
+ * What this does not catch: an outfit rule about how the pieces sit together
+ * that a wardrobe happens to block anyway, such as a triangle owning no dark
+ * trousers for `tri-01`. Answering that needs a search over the outfits the
+ * wardrobe can build rather than a test on one garment, so those rules keep
+ * appearing on every card until someone builds it.
  */
 
 import { rulesFor } from './bookRules';
-import type { BodyType, Garment, Slot } from './types';
+import type { BodyType, Garment, GarmentRule, Slot } from './types';
 
 /** An outfit without one of these is not an outfit, so one is always worn. */
 const ALWAYS_WORN: readonly Slot[] = ['base', 'bottom', 'shoes'];
@@ -40,10 +46,11 @@ export interface WardrobeGap {
  * so owning nothing that answers it is the gap, and no outfit escapes it.
  */
 export function wardrobeGaps(
-  wardrobe: readonly Garment[],
+  all: readonly Garment[],
   bodyType: BodyType,
 ): readonly WardrobeGap[] {
   const gaps: WardrobeGap[] = [];
+  const wardrobe = wearable(all, bodyType);
 
   for (const rule of rulesFor(bodyType)) {
     if (rule.severity !== 'prefer') continue;
@@ -67,4 +74,21 @@ export function wardrobeGaps(
   }
 
   return gaps;
+}
+
+/**
+ * What the owner can actually put on. A `require` garment rule is one of the
+ * book's donts, and `buildMenu` drops what breaks it from every menu on every
+ * day, so such a garment can never answer a rule. Counting it here would hide a
+ * gap behind a garment the owner is never offered: the one wide-leg trouser
+ * that is also too tight to wear says the wide-leg rule is met, while every
+ * outfit they can build misses it.
+ */
+function wearable(all: readonly Garment[], bodyType: BodyType): readonly Garment[] {
+  const donts = rulesFor(bodyType).filter(
+    (rule): rule is GarmentRule => rule.kind === 'garment' && rule.severity === 'require',
+  );
+  return all.filter((garment) =>
+    donts.every((dont) => !dont.slots.includes(garment.slot) || dont.test(garment)),
+  );
 }

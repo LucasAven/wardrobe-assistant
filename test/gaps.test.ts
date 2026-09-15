@@ -76,6 +76,46 @@ describe('a rule that asks the outfit to contain a garment', () => {
   it('stops being a gap when one owned garment answers it', () => {
     expect(ids(wardrobe(base('tee-1', PASSES_INV_02), belt))).not.toContain('inv-06');
   });
+
+  /**
+   * `accessoryKind` is the field that means this, and the words are only a
+   * fallback for a belt nobody set it on. Reading the words alone would tell an
+   * owner they own no belt while one sits in the wardrobe under its Spanish
+   * name, which is the one sentence on that screen they are meant to act on.
+   */
+  it('reads the tagged kind and not only the words, so a correa de cuero counts', () => {
+    const spanish = makeGarment({
+      id: 'correa-1',
+      slot: 'accessory',
+      subtype: 'correa de cuero',
+      accessoryKind: 'belt',
+    });
+
+    expect(ids(wardrobe(base('tee-1', PASSES_INV_02), spanish))).not.toContain('inv-06');
+  });
+});
+
+describe('a garment the book bans outright', () => {
+  const bottom = (id: string, spec = {}) =>
+    makeGarment({ id, slot: 'bottom', subtype: 'trousers', ...spec });
+
+  /**
+   * `rect-05a` is a require rule over the bottom, so `buildMenu` drops a tight
+   * trouser from every menu on every day. The only wide-leg trouser here is
+   * also tight, so `rect-04` is satisfied by a garment the owner is never
+   * offered and every outfit they can build misses it.
+   */
+  it('does not answer a rule the owner can never wear it for', () => {
+    const banned = [bottom('flare', { leg: 'wide', fit: 'tight' }), bottom('chino', { leg: 'tapered' })];
+
+    expect(wardrobeGaps(banned, 'rectangle').map((gap) => gap.id)).toContain('rect-04');
+  });
+
+  it('answers it once the same garment is wearable', () => {
+    const fine = [bottom('flare', { leg: 'wide', fit: 'relaxed' }), bottom('chino', { leg: 'tapered' })];
+
+    expect(wardrobeGaps(fine, 'rectangle').map((gap) => gap.id)).not.toContain('rect-04');
+  });
 });
 
 describe('what a gap is never', () => {

@@ -18,7 +18,6 @@ import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { certify, resolveOutfit } from '../../domain/certify';
 import type { WardrobeGap } from '../../domain/gaps';
-import { wardrobeGaps } from '../../domain/gaps';
 import { RULES_BY_ID, rulesFor } from '../../domain/bookRules';
 import type {
   BodyProfile,
@@ -636,6 +635,7 @@ function planTool(context: ToolContext): ToolSpec {
         bodyType: profile.bodyType,
         event: moment.event,
         ownerAsked: plan.ownerAsked,
+        gaps: plan.gaps.map((gap) => gap.id),
       });
 
       const sections = [
@@ -904,14 +904,10 @@ function saveTool(context: ToolContext): ToolSpec {
       );
 
       // The row above keeps every miss, because it is the record of the outfit.
-      // What is said back leaves out the ones the wardrobe made unavoidable, so
-      // this message and the guide the plan showed agree with each other.
-      const blocked = new Set(
-        wardrobeGaps(
-          (await listGarments(context.env.DB, {})).map((row) => row.garment),
-          plan.bodyType,
-        ).map((gap) => gap.id),
-      );
+      // What is said back leaves out the ones the wardrobe made unavoidable,
+      // read off the plan rather than recomputed, so this message names the same
+      // rules the guide did even if the wardrobe changed in between.
+      const blocked = new Set(plan.gaps);
       const missedByChoice = ruleIds(certified.missed).filter((id) => !blocked.has(id));
 
       return ok(
