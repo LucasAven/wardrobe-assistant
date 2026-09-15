@@ -869,6 +869,22 @@ describe('past_outfits', () => {
     expect(text).not.toContain('rect-02');
   });
 
+  it('names a dont the owner broke, which is never one of the misses', async () => {
+    savedOutfit({ missed_rules: JSON.stringify(['rect-04', 'rect-06b']) });
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('misses rect-04');
+    expect(text).toContain('your own change broke rect-06b, which the book says not to do');
+    expect(text).not.toContain('misses rect-04, rect-06b');
+  });
+
+  it('says nothing about a broken dont for an outfit that broke none', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).not.toContain('your own change broke');
+  });
+
   it('names the outfit with the words it was saved under', async () => {
     savedOutfit({ title: 'Errands without trying too hard' });
     const text = textOf(await tool('past_outfits').call({}));
