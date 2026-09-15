@@ -123,6 +123,13 @@ const OUTER_SLOT: readonly Slot[] = ['outer'];
 const ON_SHOW_SLOTS: readonly Slot[] = ['bottom', 'outer'];
 const TORSO_BY_VISIBILITY: readonly Slot[] = ['outer', 'mid', 'top', 'base'];
 
+/**
+ * The scope of `all-01` and `all-02`, which hold `test: () => true` because
+ * which zone gains and which one loses is per body type. Naming anything
+ * narrower would promise a verdict that never comes.
+ */
+export const PRINCIPLE = 'a principle to work from, not a check';
+
 function torsoLayers(o: ResolvedOutfit): readonly Garment[] {
   return TORSO_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
 }
@@ -200,6 +207,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'all-01',
     appliesTo: 'all',
     severity: 'prefer',
+    scope: PRINCIPLE,
     because:
       'Every per-type goal in the book is to balance the silhouette, so add visual volume where the body has little and lower the visual prominence of the zone where the body concentrates volume.',
     // Prompt only. Which zone gains and which one loses depends on the body
@@ -211,6 +219,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'all-02',
     appliesTo: 'all',
     severity: 'prefer',
+    scope: PRINCIPLE,
     because:
       "Light attracts the eye and dark lowers a zone's visual prominence, so light tones go on the zone that should gain attention and dark tones on the zone to lower.",
     // Prompt only, for the same reason as all-01: the placement is per type.
@@ -222,6 +231,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'rect-01',
     appliesTo: 'rectangle',
     severity: 'prefer',
+    scope: 'every torso layer',
     because: 'Layers and V-necks add depth and volume so the torso reads as having shape.',
     test: (o) => {
       const torso = torsoLayers(o);
@@ -276,6 +286,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'rect-05b',
     appliesTo: 'rectangle',
     severity: 'require',
+    scope: 'the layer on show',
     because: 'Very tight garments highlight the flatness.',
     test: onOutermostTorso((g) => g.fit !== 'tight'),
   },
@@ -293,6 +304,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'rect-06b',
     appliesTo: 'rectangle',
     severity: 'require',
+    scope: 'the layer on show',
     because: 'Very loose garments amplify the flatness.',
     test: onOutermostTorso((g) => g.fit !== 'oversized'),
   },
@@ -301,6 +313,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'rect-07',
     appliesTo: 'rectangle',
     severity: 'prefer',
+    scope: 'the tops with the trousers',
     because:
       'A tight tank top with slightly fitted straight jeans leaves the figure uniform, without curves or angles.',
     test: (o) => !(hasTightTankTop(o) && hasStraightLegBottom(o)),
@@ -311,6 +324,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'tri-01',
     appliesTo: 'triangle',
     severity: 'prefer',
+    scope: 'the torso layers with the trousers',
     because: 'The eye goes to the light, so the shoulders gain the visual weight the type lacks.',
     test: (o) => {
       const bottom = o.pieces.bottom;
@@ -337,6 +351,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'tri-03',
     appliesTo: 'triangle',
     severity: 'prefer',
+    scope: 'the layers and accessories at the shoulders',
     because:
       'A dark layer around the neck and shoulders builds volume exactly in the zone where the figure lacks it.',
     test: (o) => {
@@ -358,6 +373,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'tri-05',
     appliesTo: 'triangle',
     severity: 'prefer',
+    scope: 'the accessories',
     because: 'The belt helps a lot for this type because it raises the visual waistline.',
     test: (o) => hasBelt(o),
   },
@@ -376,6 +392,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'tri-07',
     appliesTo: 'triangle',
     severity: 'prefer',
+    scope: 'the tops with the trousers',
     because: 'A tight top tucked into tight trousers highlights hip width.',
     // Tucking is a way of wearing a garment and no field records it, so the
     // pairing of the two tight pieces is what gets tested.
@@ -386,6 +403,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'tri-08',
     appliesTo: 'triangle',
     severity: 'require',
+    scope: 'every torso layer',
     because: 'Sleeveless tops leave the shoulders bare and unbalance the figure further.',
     // `sleeves: 'none'` cannot tell a tank top apart from a gilet, so only a
     // sleeved layer counts as cover: a gilet over a long sleeve tee passes on
@@ -436,6 +454,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'inv-03',
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
+    scope: 'the tops with the trousers',
     because:
       'The fitted top flatters this type only when the lower half compensates, and the open neckline adds verticality.',
     test: (o) => {
@@ -449,6 +468,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'inv-04',
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
+    scope: 'the tops with the trousers',
     because:
       'A fitted tee with tight trousers emphasizes the size difference between upper and lower body the most, and thin legs make the trouser volume stricter still.',
     // `thinLegs` lives on the body profile, which a rule test never sees. The
@@ -470,6 +490,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'inv-06',
     appliesTo: 'inverted_triangle',
     severity: 'prefer',
+    scope: 'the accessories',
     because: 'The belt marks the waist over relaxed trousers, giving a more dynamic figure.',
     test: (o) => hasBelt(o),
   },
@@ -498,6 +519,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'inv-08b',
     appliesTo: 'inverted_triangle',
     severity: 'require',
+    scope: 'the layer on show',
     because: 'Padded jackets, bulky sweaters and shoulder pads add volume where the top already has plenty.',
     test: onOutermostTorso((g) => !g.shoulderBulk),
   },
@@ -530,6 +552,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-03',
     appliesTo: 'circular',
     severity: 'prefer',
+    scope: 'the tops, coats and trousers together',
     because: 'One color unifies and balances all the body zones.',
     // Shoes and accessories are left out because the book's reason is about the
     // body zones, which are the clothing slots.
@@ -556,6 +579,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-05',
     appliesTo: 'circular',
     severity: 'require',
+    scope: 'the top on show when no coat is worn',
     because: 'Tops that cling to the torso wrap the midsection and make the body look wider than it is.',
     test: onOutermostTop((g) => g.fit !== 'tight'),
   },
@@ -564,6 +588,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-06',
     appliesTo: 'circular',
     severity: 'require',
+    scope: 'the top on show when no coat is worn',
     because: 'Tops that fall past the waistline wrap the midsection and make the body look wider than it is.',
     test: onOutermostTop((g) => g.hem !== 'past_waist' && g.hem !== 'hip' && g.hem !== 'below_hip'),
   },
@@ -572,6 +597,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-07',
     appliesTo: 'circular',
     severity: 'require',
+    scope: 'the top on show when no coat is worn',
     because: 'Tight tank tops shrink the shoulders and emphasize the abdomen.',
     test: onOutermostTop((g) => !(g.fit === 'tight' && g.sleeves === 'none')),
   },
@@ -589,6 +615,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     id: 'circ-09',
     appliesTo: 'circular',
     severity: 'prefer',
+    scope: 'the tops with the trousers',
     because:
       'A tight tank top with straight jeans emphasizes the abdominal zone and shortens the legs, which the book calls the worst combination for this type.',
     test: (o) => !(hasTightTankTop(o) && hasStraightLegBottom(o)),

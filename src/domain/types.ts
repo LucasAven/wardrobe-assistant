@@ -138,6 +138,12 @@ export interface OutfitRule {
    * because the verdict needs the assembled outfit.
    */
   readonly severity: Severity;
+  /**
+   * Plain words for what the rule reads, written here because only the rule's
+   * own test knows and a test cannot be read back out of a function. A garment
+   * rule needs no such field: its `slots` already say it.
+   */
+  readonly scope: string;
   readonly because: string;
   /** `true` means the outfit satisfies the rule. */
   readonly test: (o: ResolvedOutfit) => boolean;

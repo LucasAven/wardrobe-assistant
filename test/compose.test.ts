@@ -9,7 +9,7 @@ vi.mock('@anthropic-ai/sdk', () => ({
   },
 }));
 
-import { rulesFor } from '../src/domain/bookRules';
+import { PRINCIPLE, rulesFor } from '../src/domain/bookRules';
 import { deriveConstraints } from '../src/domain/constraints';
 import { buildMenu } from '../src/domain/menu';
 import type { BodyProfile, BodyType, BookRule, Constraints, Menu } from '../src/domain/types';
@@ -399,6 +399,20 @@ describe('the rule lines the prompt carries', () => {
     }
   });
 
+  it('reads an outfit rule\'s scope off the rule, so a new one cannot be written without one', () => {
+    for (const bodyType of BODY_TYPES) {
+      for (const rule of rulesFor(bodyType)) {
+        if (rule.kind !== 'outfit') continue;
+
+        // The scope used to live in a table in compose.ts keyed by rule id, where
+        // a rule nobody added an entry for was described as the whole outfit.
+        // That is a lie about what the rule was judged over and it was silent.
+        expect(ruleScope(rule)).toBe(rule.scope);
+        expect(rule.scope.trim()).not.toBe('');
+      }
+    }
+  });
+
   it('tells the two halves of one book line apart by what each one reads', () => {
     const halves = [
       ['rectangle', 'rect-05a', 'rect-05b'],
@@ -413,8 +427,6 @@ describe('the rule lines the prompt carries', () => {
   });
 
   it('lets all-01 and all-02 claim a principle instead of a verdict they never give', () => {
-    const PRINCIPLE = 'a principle to work from, not a check';
-
     for (const id of ['all-01', 'all-02']) {
       const rule = ruleById('rectangle', id);
 
