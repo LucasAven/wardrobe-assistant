@@ -491,6 +491,7 @@ describe('POST /api/outfits/:id/swap', () => {
    * to be stored first and the other two could not be reached at all.
    */
   it('changes the accessory it was handed and leaves the others alone', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
     db.garments = [...db.garments, garmentRow(SUNGLASSES)];
     const id = await insertOutfit(
       db as unknown as D1Database,
@@ -516,6 +517,10 @@ describe('POST /api/outfits/:id/swap', () => {
       from_id: 'cap-navy',
       to_id: 'sunglasses-black',
     });
+    // The rules were judged, not skipped. `recheck` hands back two empty lists
+    // when it has no body type, which is what this test would silently get if
+    // the profile above went missing.
+    expect(outfit.missed.length + outfit.broke.length).toBeGreaterThan(0);
   });
 
   /**
@@ -523,6 +528,7 @@ describe('POST /api/outfits/:id/swap', () => {
    * would let a hand change reach a state no composed outfit is allowed to.
    */
   it('refuses a swap that would put two of a kind the body has one place for', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
     db.garments = [...db.garments, garmentRow(SECOND_BELT)];
     const id = await insertOutfit(
       db as unknown as D1Database,
@@ -543,6 +549,38 @@ describe('POST /api/outfits/:id/swap', () => {
       slot: 'accessory',
       id: 'cap-navy',
     });
+  });
+
+  /**
+   * The guard reads the garment coming in and not the outfit as a whole, which
+   * is the difference between refusing a change and locking the owner out of an
+   * outfit. Retagging a hat as a belt is enough to reach a saved outfit already
+   * wearing two, and a guard on the whole outfit would then refuse every swap on
+   * it, naming a belt while the owner was changing their shoes.
+   */
+  it('lets an outfit already wearing two of a kind be changed somewhere else', async () => {
+    db.profile = { data: JSON.stringify(RECTANGLE) };
+    db.garments = [...db.garments, garmentRow(SECOND_BELT)];
+    const id = await insertOutfit(
+      db as unknown as D1Database,
+      {
+        ...ACCESSORIZED,
+        pieces: [...ACCESSORIZED.pieces, { slot: 'accessory', id: 'belt-black' }],
+        planId: 'p1',
+      },
+      new Date(),
+    );
+
+    const response = await swapPiece(id, {
+      fromId: 'sneakers-white',
+      toId: 'loafers-brown',
+      reason: 'smarter for the evening',
+    });
+
+    expect(response.status).toBe(200);
+    const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+    expect(outfit.pieces.find((piece) => piece.slot === 'shoes')?.garment.id).toBe('loafers-brown');
+    expect(outfit.accessories.map((garment) => garment.id)).toContain('belt-black');
   });
 
   it('reads a dont the swap broke apart from the preferences it set aside', async () => {

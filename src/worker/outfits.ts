@@ -209,10 +209,12 @@ export interface SavedOutfit extends OutfitView {
    * The book's donts this outfit breaks, which `missed` never holds: that list
    * is the preferences it set aside, and the two read as different things.
    *
-   * Only ever filled in by a hand swap. `certify` refuses `broke_required_rule`
-   * before an outfit is saved, so a stored `missed_rules` can only pick up a
-   * `require` id from `swapPiece`, which records what the owner did rather than
-   * turning them away.
+   * Almost always the work of a hand swap, because `certify` refuses
+   * `broke_required_rule` before an outfit is saved and `swapPiece` records what
+   * the owner did rather than turning them away. Not a claim that the owner
+   * caused it, and nothing here should say so. A garment retagged after the
+   * outfit was saved, or a rule the book has since made a dont, both land a
+   * `require` id here having broken nothing at the time.
    */
   readonly broke: readonly RuleView[];
   /** Every garment in it was logged as worn on the day it was saved. */
@@ -750,13 +752,21 @@ export async function swapPiece(
   if (incoming !== null) wardrobe.set(incoming.id, incoming);
 
   const resolved = resolvedFrom(nextPieces, wardrobe, row);
-  // The same refusal `certify` makes before an outfit is saved. Recording it as
-  // a miss instead would let a change made by hand reach a state no composed
-  // outfit is allowed to reach, and a second watch is a body with one wrist
-  // rather than a matter of taste.
-  const doubled = doubledAccessories(resolved.accessories)[0];
-  if (doubled !== undefined) {
-    return refused(`That would be the second ${doubled.accessoryKind} in this outfit.`);
+  // The same refusal `certify` makes before an outfit is saved, because a second
+  // watch is a body with one wrist rather than a matter of taste.
+  //
+  // Judged on the garment coming in and not on the outfit as a whole. Retagging
+  // a hat as a belt leaves a saved outfit already wearing two belts, and reading
+  // the whole outfit would then refuse every swap on it, including the ones that
+  // would fix it, and would say so while the owner was changing their shoes.
+  if (incoming !== null) {
+    const arriving = incoming;
+    const doubled = doubledAccessories(resolved.accessories).find((reason) =>
+      reason.ids.includes(arriving.id),
+    );
+    if (doubled !== undefined) {
+      return refused(`That would be the second ${doubled.accessoryKind} in this outfit.`);
+    }
   }
 
   const profile = await getProfile(db);
