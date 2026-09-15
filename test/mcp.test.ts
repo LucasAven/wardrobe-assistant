@@ -416,6 +416,25 @@ describe('plan_outfit', () => {
     expect(text).toContain('"Chill para unas birras a la noche" is the shape of it');
   });
 
+  it('still reads a correction whose outfit was removed, with no occasion and no rest', async () => {
+    corrected({
+      slot: 'mid',
+      from_id: 'cardigan-gray',
+      to_id: 'knit-cream-heavy',
+      reason: 'the cardigan itches at the office',
+    });
+    // What `removeOutfit` leaves behind on purpose: the words survive the outfit
+    // they were said about, and the LEFT JOIN answers null for everything else.
+    db.outfits = [];
+
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain(
+      '- 2026-05-10: you picked the cardigan for mid, they changed it to the heavy knit sweater. "the cardigan itches at the office"',
+    );
+    expect(text).not.toContain('the rest of that outfit');
+  });
+
   it('names the slot alone for a garment archived since the correction', async () => {
     corrected({ slot: 'accessory', from_id: 'gone-for-good', to_id: null, reason: 'cut me in half' });
 

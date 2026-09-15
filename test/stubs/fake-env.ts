@@ -62,6 +62,17 @@ export function garmentRow(garment: Garment, options: RowOptions = {}): Row {
   };
 }
 
+/**
+ * Every delete this app runs, spelled exactly. The branches below narrow by the
+ * bound id whatever the WHERE clause says, so a delete widened to rows it was
+ * never meant to reach, or aimed at a third table, has to stop here instead of
+ * reading as a test that passed.
+ */
+const DELETES: ReadonlySet<string> = new Set([
+  'DELETE FROM outfit WHERE id = ? RETURNING id',
+  'DELETE FROM wear_log WHERE outfit_id = ?',
+]);
+
 function columnsOf(sql: string, table: string): readonly string[] {
   const match = new RegExp(`INSERT INTO ${table}\\s*\\(([^)]+)\\)`).exec(sql);
   if (match?.[1] === undefined) throw new Error(`cannot read the column list of: ${sql}`);
@@ -97,13 +108,20 @@ export class FakeDb {
   public outfits: Row[] = [];
   public feedback: Row[] = [];
 
-  /** Sequential, so a batch lands in the order it was written. */
+  /**
+   * Sequential, so a batch lands in the order it was written, and every result
+   * carries its own rows the way D1's does. `DELETE ... RETURNING` is read back
+   * through them, so dropping the rows here would make a delete look like a miss.
+   */
   async batch(
-    statements: readonly { readonly run: () => Promise<{ success: true }> }[],
-  ): Promise<{ success: true }[]> {
-    const results: { success: true }[] = [];
-    for (const statement of statements) results.push(await statement.run());
-    return results;
+    statements: readonly { readonly all: <T>() => Promise<{ results: T[] }> }[],
+  ): Promise<{ readonly success: true; readonly results: Row[] }[]> {
+    const done: { readonly success: true; readonly results: Row[] }[] = [];
+    for (const statement of statements) {
+      const { results } = await statement.all<Row>();
+      done.push({ success: true, results });
+    }
+    return done;
   }
 
   prepare(sql: string): {
@@ -125,6 +143,8 @@ export class FakeDb {
   }
 
   private exec(sql: string, args: readonly unknown[]): Row[] {
+    if (sql.startsWith('DELETE') && !DELETES.has(sql)) throw new Error(`unstubbed delete: ${sql}`);
+
     if (sql.includes('INSERT INTO profile')) {
       this.profile = { ...this.profile, data: args[0] };
       return [];
@@ -141,6 +161,11 @@ export class FakeDb {
 
     if (sql.includes('INSERT INTO wear_log')) {
       this.wear.unshift(rowFrom(columnsOf(sql, 'wear_log'), args));
+      return [];
+    }
+    if (sql.startsWith('DELETE FROM wear_log')) {
+      const outfit = String(args[0]);
+      this.wear = this.wear.filter((row) => String(row.outfit_id ?? '') !== outfit);
       return [];
     }
     if (sql.includes('FROM wear_log')) {
@@ -165,6 +190,14 @@ export class FakeDb {
     if (sql.includes('INSERT INTO outfit')) {
       this.outfits.push(rowFrom(columnsOf(sql, 'outfit'), args));
       return [];
+    }
+    if (sql.startsWith('DELETE FROM outfit')) {
+      const id = String(args[0]);
+      const removed = this.outfits.filter((row) => String(row.id) === id);
+      this.outfits = this.outfits.filter((row) => String(row.id) !== id);
+      // The rows the statement's own RETURNING hands back, which is how the
+      // caller tells an outfit that was there from one that never was.
+      return removed;
     }
     if (sql.startsWith('UPDATE outfit')) return this.updateOutfit(sql, args);
     if (sql.includes('FROM outfit')) {

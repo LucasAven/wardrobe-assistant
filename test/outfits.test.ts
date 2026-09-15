@@ -23,6 +23,7 @@ import {
   putHome,
   readOutfits,
   recentTitles,
+  removeOutfit,
   titleTaken,
 } from '../src/worker/outfits';
 import { WARDROBE, makeGarment } from './fixtures';
@@ -47,6 +48,9 @@ const OUTFIT: Omit<NewOutfit, 'planId'> = {
   warmthWithOuter: 3,
   ownerRequest: null,
 };
+
+/** Every garment `OUTFIT` wears, which is what a wear of it logs. */
+const WORN_IDS = ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'];
 
 /**
  * Two torso layers, so `rect-01` holds for it and dropping the mid breaks it.
@@ -209,7 +213,7 @@ describe('GET /api/outfits/today', () => {
     const unworn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(unworn.outfit.worn).toBe(false);
 
-    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
+    await wear({ garmentIds: WORN_IDS });
 
     const worn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
     expect(worn.outfit.worn).toBe(true);
@@ -243,7 +247,7 @@ describe('GET /api/outfits/today', () => {
 
   it('still reads as worn when an archived garment was logged before it went', async () => {
     await save('p1', new Date());
-    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
+    await wear({ garmentIds: WORN_IDS });
     db.garments = db.garments.map((row) =>
       row.id === 'jeans-indigo' ? { ...row, archived: 1 } : row,
     );
@@ -259,8 +263,6 @@ describe('GET /api/outfits/today', () => {
  * names an outfit is the only thing that can tell them apart.
  */
 describe('a wear that names the outfit it was', () => {
-  const WHOLE_OUTFIT = ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'];
-
   it('marks that outfit worn on the row alone', async () => {
     const id = await save('p1', new Date());
 
@@ -276,7 +278,7 @@ describe('a wear that names the outfit it was', () => {
     const morning = await save('p1', new Date());
     const afternoon = await save('p2', new Date());
 
-    await wear({ garmentIds: WHOLE_OUTFIT, outfitId: afternoon });
+    await wear({ garmentIds: WORN_IDS, outfitId: afternoon });
 
     const saved = (await readOutfits(db as unknown as D1Database, { limit: 5 })).outfits;
     expect(saved.find((outfit) => outfit.id === afternoon)?.worn).toBe(true);
@@ -289,7 +291,7 @@ describe('a wear that names the outfit it was', () => {
     // this app logged until now.
     db.wear.unshift({
       worn_on: new Date().toISOString().slice(0, 10),
-      garment_ids: JSON.stringify(WHOLE_OUTFIT),
+      garment_ids: JSON.stringify(WORN_IDS),
       event: null,
     });
 
@@ -432,7 +434,7 @@ describe('POST /api/outfits/:id/swap', () => {
   /** `wasWorn` reads the stored ids, so a swap would turn a worn outfit back into an unworn one. */
   it('answers 409 once the outfit is logged as worn', async () => {
     const id = await save('p1', new Date());
-    await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white', 'belt-brown'] });
+    await wear({ garmentIds: WORN_IDS });
 
     const response = await swapPiece(id, { fromId: 'sneakers-white', toId: 'loafers-brown', reason: 'wrong shoes' });
 
@@ -647,6 +649,63 @@ describe('POST /api/outfits/:id/swap', () => {
  * recomputes the whole list after a hand swap. Which of the two a rule is stays
  * in the book, so the reader is the only place the column is split.
  */
+describe('removing an outfit', () => {
+  async function remove(id: string): Promise<boolean> {
+    return removeOutfit(db as unknown as D1Database, id);
+  }
+
+  it('takes the outfit and the wear that named it', async () => {
+    const id = await save('p1', new Date());
+    await wear({ garmentIds: WORN_IDS, outfitId: id });
+
+    expect(await remove(id)).toBe(true);
+
+    expect(db.outfits).toHaveLength(0);
+    expect(db.wear).toHaveLength(0);
+  });
+
+  it('leaves the wear of the other outfit worn that day', async () => {
+    const morning = await save('p1', new Date());
+    const afternoon = await save('p2', new Date());
+    await wear({ garmentIds: WORN_IDS, outfitId: morning });
+    await wear({ garmentIds: WORN_IDS, outfitId: afternoon });
+
+    await remove(afternoon);
+
+    expect(db.outfits.map((row) => row.id)).toEqual([morning]);
+    expect(db.wear.map((row) => row.outfit_id)).toEqual([morning]);
+  });
+
+  it('leaves a wear that names no outfit, because reading it off the day is a guess', async () => {
+    const id = await save('p1', new Date());
+    await wear({ garmentIds: WORN_IDS });
+
+    await remove(id);
+
+    expect(db.wear).toHaveLength(1);
+    expect(db.wear[0]?.outfit_id).toBeNull();
+  });
+
+  it('keeps the corrections, which are the only record of what the owner refused', async () => {
+    const id = await saveLayered();
+    await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
+
+    await remove(id);
+
+    expect(db.outfits).toHaveLength(0);
+    expect(db.feedback).toHaveLength(1);
+  });
+
+  it('answers false for an outfit that was never there, and touches nothing', async () => {
+    const id = await save('p1', new Date());
+
+    expect(await remove('never-saved')).toBe(false);
+
+    expect(db.outfits).toHaveLength(1);
+    expect(db.outfits[0]?.id).toBe(id);
+  });
+});
+
 describe('the rules a stored outfit missed', () => {
   it('reads a dont as broken and a preference as set aside', async () => {
     db.profile = { data: JSON.stringify(RECTANGLE) };

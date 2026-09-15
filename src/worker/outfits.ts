@@ -842,6 +842,30 @@ export async function swapPiece(
   return saved === null ? { kind: 'missing' } : { kind: 'saved', outfit: saved };
 }
 
+/**
+ * Removes an outfit and every wear that named it. One batch, so a wear can
+ * never be left describing an outfit that is gone. The garments come off the
+ * cooldown that wear put them on, which is half of what removing one is for.
+ *
+ * The `outfit_feedback` rows stay, and that is the point of keeping them: they
+ * are the only record of what the owner does not want, `plan_outfit` reads them
+ * for every later plan, and nothing here declares a foreign key. One left
+ * behind reads as a thinner line rather than a broken one, because
+ * `recentCorrections` LEFT JOINs the outfit and `parsePieces` answers a missing
+ * `pieces` with no garments.
+ *
+ * A wear that names no outfit stays too. Finding it by its day and its garments
+ * is the guess `outfit_id` was added to stop making, and getting it wrong here
+ * would throw away the record of a day nobody asked about.
+ */
+export async function removeOutfit(db: D1Database, id: string): Promise<boolean> {
+  const [removed] = await db.batch<{ readonly id: string }>([
+    db.prepare('DELETE FROM outfit WHERE id = ? RETURNING id').bind(id),
+    db.prepare('DELETE FROM wear_log WHERE outfit_id = ?').bind(id),
+  ]);
+  return removed !== undefined && removed.results.length > 0;
+}
+
 /** The newest corrections across every outfit, which is what `plan_outfit` reads. */
 export async function recentCorrections(
   db: D1Database,
