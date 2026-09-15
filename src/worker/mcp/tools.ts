@@ -55,6 +55,7 @@ import {
   MAX_OUTFITS,
   homeLocation,
   insertOutfit,
+  outfitExists,
   readOutfits,
   recentCorrections,
   recentTitles,
@@ -926,7 +927,7 @@ function saveTool(context: ToolContext): ToolSpec {
           : [
               `The owner asked for ${ignored.join(', ')} and this outfit does not wear ${ignored.length === 1 ? 'it' : 'them'}. Nothing about that is stored, so they are shown no record of having asked.`,
             ]),
-        `Call log_wear with these ids once it is actually worn: ${pieces.map((piece) => piece.id).join(', ')}.`,
+        `Call log_wear once it is actually worn, with outfitId ${id} and these garment ids: ${pieces.map((piece) => piece.id).join(', ')}.`,
       );
     },
   );
@@ -942,7 +943,7 @@ Selection is by count or by date, and it does both at once: three by default, ne
 
 Dates are UTC and spelled YYYY-MM-DD. The result states today's UTC date before anything else, because you cannot know it and every relative date the owner says is measured from it. Work out "last Friday" yourself and pass the day. This tool does no date parsing and would rather be given a wrong date it can echo back than guess at a right one.
 
-What comes back for each outfit: the day, the event, the title you gave it, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
+What comes back for each outfit: the day, the event, the outfit's own id, which log_wear wants, the title you gave it, every garment as slot, id and name, the rationale, the guide rules it cited and missed, both warmth sums, whether it was logged as worn, anything the owner corrected by hand with the line they wrote, and anything they asked for by name with the filters that waived.
 
 Reading one of these does not make its garments wearable today. The ids are wardrobe ids, and every plan builds its menu from today's weather, today's event and today's cooldowns, so a garment from an old outfit may be out of season now, too casual for today, or still resting. Look for it in today's menu first. If the owner asks for it and it is not there, that is what plan_outfit's ownerAsked is for.`;
 
@@ -1025,6 +1026,11 @@ function outfitBlock(outfit: SavedOutfit): string {
 
   return [
     `  ${head.join(' | ')}`,
+    // The one line that makes `log_wear` usable on anything but the outfit just
+    // saved. Without it the only place an outfit id is ever spoken is the
+    // `save_outfit` reply, so a later conversation can read three outfits from
+    // one day and name none of them.
+    `    id: ${outfit.id}`,
     ...(outfit.title === null ? [] : [`    you called it "${outfit.title}"`]),
     ...pieceLines(outfit),
     `    "${outfit.rationale}"`,
@@ -1119,7 +1125,9 @@ const WEAR_DESCRIPTION = `Records that these garments were worn today. One call 
 
 This is the only thing that feeds the recency cooldown, which is what stops the same jacket coming back every morning: a garment that was worn recently drops out of the menu for a few days, longer for a coat than for a t-shirt. An outfit worn but never logged is invisible to every later plan.
 
-Every id has to be a garment this wardrobe knows. An unknown id is refused rather than recorded, because a wrong id would quietly bench a garment nobody wore.`;
+Every id has to be a garment this wardrobe knows. An unknown id is refused rather than recorded, because a wrong id would quietly bench a garment nobody wore.
+
+When the outfit is one save_outfit stored, send its id in outfitId as well. A day can hold three outfits worn one after another, and without that id the app has only the day and the clothes to read, which cannot tell them apart or undo the wear of just one.`;
 
 const LogWearArgs = z.object({
   garmentIds: z
@@ -1127,6 +1135,13 @@ const LogWearArgs = z.object({
     .min(1)
     .describe(
       'The ids of every garment worn, including accessories. save_outfit hands back exactly this list for the outfit it saved.',
+    ),
+  outfitId: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      'The id save_outfit handed back for this outfit. Leave it out only when what was worn is not a saved outfit.',
     ),
 });
 
@@ -1150,7 +1165,22 @@ function logWearTool(context: ToolContext): ToolSpec {
         );
       }
 
-      const logged = await recordWear(context.env.DB, { garmentIds: ids }, context.now());
+      // Refused the way an unknown garment id is. A wear naming an outfit that
+      // is not stored is read by neither half of `wasWorn`: it stays out of the
+      // day bucket and matches no outfit, so nothing would ever read as worn.
+      if (args.outfitId !== undefined && !(await outfitExists(context.env.DB, args.outfitId))) {
+        return failed(
+          'Nothing was logged.',
+          `No saved outfit has the id ${args.outfitId}.`,
+          'Send the id save_outfit handed back, or leave outfitId out and the wear names no outfit.',
+        );
+      }
+
+      const logged = await recordWear(
+        context.env.DB,
+        { garmentIds: ids, ...(args.outfitId === undefined ? {} : { outfitId: args.outfitId }) },
+        context.now(),
+      );
       return ok(
         `Logged ${ids.length} garment${ids.length === 1 ? '' : 's'} as worn on ${logged.wornOn}.`,
         'They now sit out their cooldown and will not be offered in the next few plans. The wait is longer for a coat than for a t-shirt.',

@@ -638,6 +638,19 @@ async function outfitRow(db: D1Database, id: string): Promise<OutfitRow | null> 
   return db.prepare('SELECT * FROM outfit WHERE id = ?').bind(id).first<OutfitRow>();
 }
 
+/**
+ * Whether an outfit with this id is stored. `outfitById` would answer the same
+ * question by reading the whole wardrobe and every correction on the row, and
+ * the caller that asks this only needs to know the id names something real.
+ */
+export async function outfitExists(db: D1Database, id: string): Promise<boolean> {
+  const row = await db
+    .prepare('SELECT id FROM outfit WHERE id = ?')
+    .bind(id)
+    .first<{ readonly id: string }>();
+  return row !== null;
+}
+
 /** One outfit by id, hydrated the way Today and the history are. */
 export async function outfitById(db: D1Database, id: string): Promise<SavedOutfit | null> {
   const row = await outfitRow(db, id);

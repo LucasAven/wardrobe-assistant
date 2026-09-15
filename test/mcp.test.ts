@@ -457,6 +457,22 @@ describe('save_outfit', () => {
     expect(textOf(result)).toContain(String(stored?.id));
   });
 
+  it('tells the model to log the wear against the outfit it just saved', async () => {
+    const planId = await plan();
+    const result = await tool('save_outfit').call({
+      planId,
+      pieces: GOOD_PIECES,
+      title: 'Nothing to prove on a Tuesday',
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    });
+
+    // The one sentence that puts `outfitId` in front of the model, and a wear
+    // that names no outfit is the one thing removing the outfit cannot take
+    // with it.
+    expect(textOf(result)).toContain(`with outfitId ${String(db.outfits[0]?.id)} and these garment ids`);
+  });
+
   it('refuses a second hat and names the kind that was doubled', async () => {
     db.garments.push(
       garmentRow(
@@ -661,6 +677,26 @@ describe('log_wear', () => {
 
     expect(result.isError).toBe(true);
     expect(textOf(result)).toContain('a-coat-i-imagined');
+    expect(db.wear).toHaveLength(0);
+  });
+
+  it('records which outfit the wear was, so two worn on one day can be told apart', async () => {
+    db.outfits = [{ id: 'o1', created_at: '2026-05-12T08:00:00.000Z' }];
+
+    const result = await tool('log_wear').call({ garmentIds: ['tee-white'], outfitId: 'o1' });
+
+    expect(result.isError).toBe(false);
+    expect(db.wear[0]?.outfit_id).toBe('o1');
+  });
+
+  it('records nothing when no outfit has the id it was given, and names it', async () => {
+    const result = await tool('log_wear').call({
+      garmentIds: ['tee-white'],
+      outfitId: 'an-outfit-i-imagined',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('an-outfit-i-imagined');
     expect(db.wear).toHaveLength(0);
   });
 
@@ -883,6 +919,15 @@ describe('past_outfits', () => {
     const text = textOf(await tool('past_outfits').call({}));
 
     expect(text).not.toContain('which the book says not to do');
+  });
+
+  it('hands back the outfit id, which is the only way log_wear can name one later', async () => {
+    savedOutfit({ id: 'o-friday' });
+    const text = textOf(await tool('past_outfits').call({}));
+
+    // Without this the id is spoken once, in the save_outfit reply, so a later
+    // conversation can read three outfits from one day and name none of them.
+    expect(text).toContain('id: o-friday');
   });
 
   it('names the outfit with the words it was saved under', async () => {
