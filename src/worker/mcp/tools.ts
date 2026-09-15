@@ -17,6 +17,8 @@
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { certify, resolveOutfit } from '../../domain/certify';
+import type { WardrobeGap } from '../../domain/gaps';
+import { wardrobeGaps } from '../../domain/gaps';
 import { RULES_BY_ID, rulesFor } from '../../domain/bookRules';
 import type {
   BodyProfile,
@@ -588,6 +590,32 @@ function ownerAskedSection(plan: Plan): string {
   ].join('\n');
 }
 
+/**
+ * A rule the wardrobe cannot satisfy is still shown, because the guide is the
+ * guide and hiding a line would make the list disagree with the book. It is
+ * marked instead, so the composer stops spending attention on the one outcome
+ * it cannot change, and so the miss it reports back is one the owner could have
+ * avoided.
+ */
+function guideSection(bodyType: BodyProfile['bodyType'], gaps: readonly WardrobeGap[]): string {
+  const blocked = new Set(gaps.map((gap) => gap.id));
+  const lines = rulesFor(bodyType).map((rule) =>
+    blocked.has(rule.id) ? `${ruleLine(rule)}  [no outfit from this wardrobe can avoid missing this one]` : ruleLine(rule),
+  );
+
+  return [
+    'THE GUIDE',
+    "These are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it. Cite an id only when this outfit actually follows that rule.",
+    ...(blocked.size === 0
+      ? []
+      : [
+          'A line marked at the end is one the owner owns nothing that can satisfy, on any outfit. Missing it costs you nothing and there is no arrangement of these clothes that meets it, so read it and spend your attention elsewhere.',
+        ]),
+    '',
+    ...lines,
+  ].join('\n');
+}
+
 function planTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -627,7 +655,7 @@ function planTool(context: ToolContext): ToolSpec {
 
       sections.push(
         `THE BODY\n${bodyText(profile)}`,
-        `THE GUIDE\nThese are the guide's rules for this body, and the only rules that exist. Each line is an id, what the rule is judged over, and then the guide's own reason for it. Cite an id only when this outfit actually follows that rule.\n\n${rulesFor(profile.bodyType).map(ruleLine).join('\n')}`,
+        guideSection(profile.bodyType, plan.gaps),
         calibrationAnchors(),
         userMessage({ profile, constraints, menu, moment }),
       );
@@ -875,6 +903,17 @@ function saveTool(context: ToolContext): ToolSpec {
         context.now(),
       );
 
+      // The row above keeps every miss, because it is the record of the outfit.
+      // What is said back leaves out the ones the wardrobe made unavoidable, so
+      // this message and the guide the plan showed agree with each other.
+      const blocked = new Set(
+        wardrobeGaps(
+          (await listGarments(context.env.DB, {})).map((row) => row.garment),
+          plan.bodyType,
+        ).map((gap) => gap.id),
+      );
+      const missedByChoice = ruleIds(certified.missed).filter((id) => !blocked.has(id));
+
       return ok(
         'Saved. The app will show this outfit with the real photos.',
         `id: ${id}`,
@@ -883,9 +922,9 @@ function saveTool(context: ToolContext): ToolSpec {
         certified.cited.length === 0
           ? 'It cites no guide rules.'
           : `Guide rules it follows: ${ruleIds(certified.cited).join(', ')}.`,
-        certified.missed.length === 0
-          ? 'It misses none of the guide preferences for this body.'
-          : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${ruleIds(certified.missed).join(', ')}.`,
+        missedByChoice.length === 0
+          ? 'It misses none of the guide preferences it could have met.'
+          : `Guide preferences it knowingly misses, which the owner is shown rather than spared: ${missedByChoice.join(', ')}.`,
         ...(ownerRequest === null ? [] : [requestLine(ownerRequest)]),
         ...(ignored.length === 0
           ? []

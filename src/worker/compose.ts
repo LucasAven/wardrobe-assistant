@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { BODY_TYPE_MEANING } from '../domain/bodyType';
 import { rulesFor } from '../domain/bookRules';
 import { certify, resolveOutfit } from '../domain/certify';
+import type { WardrobeGap } from '../domain/gaps';
 import type {
   BodyProfile,
   BodyType,
@@ -29,7 +30,7 @@ import type {
   Slot,
   Waived,
 } from '../domain/types';
-import type { OutfitView, RuleView } from './contract';
+import type { GapView, OutfitView, RuleView } from './contract';
 import type { Env } from './env';
 import { VISION_SYSTEM_PROMPT } from './vision';
 
@@ -171,6 +172,19 @@ function joinScope(words: readonly string[]): string {
 export function ruleScope(rule: BookRule): string {
   if (rule.kind === 'outfit') return rule.scope;
   return joinScope([...new Set(rule.slots.map((slot) => SLOT_WORDS[slot]))]);
+}
+
+/**
+ * A gap in the words this file already keeps for slots, so the wardrobe screen
+ * never has to carry a second copy of them and watch it drift.
+ */
+export function gapView(gap: WardrobeGap): GapView {
+  return {
+    id: gap.id,
+    because: gap.because,
+    needs: gap.needs,
+    where: joinScope([...new Set(gap.slots.map((slot) => SLOT_WORDS[slot]))]),
+  };
 }
 
 export function ruleLine(rule: BookRule): string {

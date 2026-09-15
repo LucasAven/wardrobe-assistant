@@ -1,5 +1,8 @@
 import { Hono } from 'hono';
+import { wardrobeGaps } from '../../domain/gaps';
 import { missingConfig } from '../auth';
+import { gapView } from '../compose';
+import { getProfile } from '../profile';
 import type { Env } from '../env';
 import type { SetupFault } from '../photos';
 import {
@@ -182,6 +185,21 @@ garments.put('/:id/photo', async (c) => {
       ? {}
       : { imagesError: cutout.fault.error, needsSetup: cutout.fault.needsSetup }),
   });
+});
+
+/**
+ * Registered before `/:id` routes would ever see it, and named on the wardrobe
+ * rather than on outfits because a gap is a fact about what the owner owns.
+ * With no profile there is no body type, so no rule has been judged and the
+ * list is empty rather than guessed at.
+ */
+garments.get('/gaps', async (c) => {
+  const profile = await getProfile(c.env.DB);
+  if (profile === null) return c.json({ gaps: [] });
+
+  const rows = await listGarments(c.env.DB, {});
+  const gaps = wardrobeGaps(rows.map((row) => row.garment), profile.bodyType);
+  return c.json({ gaps: gaps.map(gapView) });
 });
 
 garments.get('/', async (c) => {

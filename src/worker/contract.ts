@@ -60,6 +60,21 @@ export interface RuleView {
 }
 
 /**
+ * A guide rule this wardrobe cannot satisfy, as the wardrobe screen draws it.
+ *
+ * `needs` and `where` are two ways of saying what is short, and a gap has one
+ * or the other. A rule asking for a garment names the thing ("a belt"). A rule
+ * about how a garment must look can only name the slots where nothing owned
+ * passes, because its test is a predicate with no sentence to read out of it.
+ */
+export interface GapView {
+  readonly id: string;
+  readonly because: string;
+  readonly needs: string | null;
+  readonly where: string;
+}
+
+/**
  * A garment as a screen draws it.
  *
  * `photoVersion` is not a fact about clothes, so it has no place on the domain
@@ -78,7 +93,11 @@ export interface OutfitView {
   readonly accessories: readonly Garment[];
   readonly rationale: string;
   readonly cited: readonly RuleView[];
-  /** Preference rules this outfit knowingly misses. Shown, never hidden. */
+  /**
+   * Preference rules this outfit knowingly misses. Shown, never hidden, except
+   * for the ones no outfit could have met: those are a `GapView` on the
+   * wardrobe screen instead, said once rather than on every outfit.
+   */
   readonly missed: readonly RuleView[];
   readonly warmthCore: number;
   readonly warmthWithOuter: number;

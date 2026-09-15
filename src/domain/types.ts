@@ -128,6 +128,21 @@ export interface GarmentRule {
   readonly test: (g: Garment) => boolean;
 }
 
+/**
+ * A garment a rule asks the outfit to contain.
+ *
+ * Written down instead of being sealed inside the rule's test, because asking
+ * for a garment is the one outfit rule shape a wardrobe can make impossible to
+ * satisfy, and `wardrobeGaps` has to be able to read what is being asked for.
+ * The test is built from the want, so the two can never drift apart.
+ */
+export interface GarmentWant {
+  readonly slots: readonly Slot[];
+  /** Plain words for the thing itself, read by the owner when they own none. */
+  readonly name: string;
+  readonly test: (g: Garment) => boolean;
+}
+
 /** Needs the pieces seen together, so it can only be checked after composition. */
 export interface OutfitRule {
   readonly kind: 'outfit';
@@ -144,6 +159,12 @@ export interface OutfitRule {
    * rule needs no such field: its `slots` already say it.
    */
   readonly scope: string;
+  /**
+   * Set only by a rule that asks the outfit to contain a garment of some kind.
+   * A rule about how the pieces sit together leaves it out, because composing
+   * differently can always satisfy that one and no wardrobe blocks it.
+   */
+  readonly wants?: GarmentWant;
   readonly because: string;
   /** `true` means the outfit satisfies the rule. */
   readonly test: (o: ResolvedOutfit) => boolean;

@@ -32,7 +32,15 @@
  *   Dont, inv. triangle thin legs .... inv-04
  */
 
-import type { BodyType, BookRule, Garment, ResolvedOutfit, Slot } from './types';
+import type {
+  BodyType,
+  BookRule,
+  Garment,
+  GarmentWant,
+  OutfitRule,
+  ResolvedOutfit,
+  Slot,
+} from './types';
 
 export type Lightness = 'light' | 'dark' | 'mixed';
 
@@ -178,13 +186,34 @@ function clothing(o: ResolvedOutfit): readonly Garment[] {
   return CLOTHING_SLOTS.map((s) => o.pieces[s]).filter((g): g is Garment => g !== undefined);
 }
 
-function hasBelt(o: ResolvedOutfit): boolean {
-  const candidates = [...o.accessories, o.pieces.accessory];
-  return candidates.some((g) => {
-    if (g === undefined) return false;
+const BELT: GarmentWant = {
+  slots: ['accessory'],
+  name: 'a belt',
+  test: (g) => {
     const subtype = normalizeWord(g.subtype);
     return subtype.includes('belt') || subtype.includes('cinturon');
-  });
+  },
+};
+
+/**
+ * A rule that is satisfied by wearing one garment of the wanted kind. The test
+ * is derived from the want rather than written beside it, so a wardrobe gap is
+ * always read off the same predicate the outfit is judged by.
+ */
+function contains(want: GarmentWant): Pick<OutfitRule, 'wants' | 'test'> {
+  return {
+    wants: want,
+    test: (o) =>
+      want.slots.some((slot) =>
+        slot === 'accessory'
+          ? o.accessories.some((g) => want.test(g))
+          : matches(o.pieces[slot], want),
+      ),
+  };
+}
+
+function matches(garment: Garment | undefined, want: GarmentWant): boolean {
+  return garment !== undefined && want.test(garment);
 }
 
 function hasVolumeBelow(o: ResolvedOutfit): boolean {
@@ -375,7 +404,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     severity: 'prefer',
     scope: 'the accessories',
     because: 'The belt helps a lot for this type because it raises the visual waistline.',
-    test: (o) => hasBelt(o),
+    ...contains(BELT),
   },
   {
     kind: 'garment',
@@ -492,7 +521,7 @@ export const BOOK_RULES: readonly BookRule[] = [
     severity: 'prefer',
     scope: 'the accessories',
     because: 'The belt marks the waist over relaxed trousers, giving a more dynamic figure.',
-    test: (o) => hasBelt(o),
+    ...contains(BELT),
   },
   {
     kind: 'garment',

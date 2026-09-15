@@ -11,7 +11,15 @@
 
 import { RULES_BY_ID } from '../domain/bookRules';
 import { recheck } from '../domain/certify';
-import type { EventKind, Garment, ResolvedOutfit, Slot, Waived } from '../domain/types';
+import { wardrobeGaps } from '../domain/gaps';
+import type {
+  BodyProfile,
+  EventKind,
+  Garment,
+  ResolvedOutfit,
+  Slot,
+  Waived,
+} from '../domain/types';
 import { ruleView } from './compose';
 import type { GarmentView, OutfitView, RuleView } from './contract';
 import { getProfile } from './profile';
@@ -386,6 +394,7 @@ function toSaved(
   wardrobe: ReadonlyMap<string, GarmentView>,
   byDay: ReadonlyMap<string, ReadonlySet<string>>,
   feedback: readonly FeedbackRow[],
+  gaps: ReadonlySet<string>,
 ): SavedOutfit {
   const event = row.event as EventKind | null;
   const stored = parsePieces(row.pieces);
@@ -406,7 +415,11 @@ function toSaved(
     accessories: hydrated.filter((piece) => piece.slot === 'accessory').map((piece) => piece.garment),
     rationale: row.rationale,
     cited: ruleViews(ruleIds(row.cited_rules)),
-    missed: ruleViews(ruleIds(row.missed_rules)),
+    // The stored row keeps every miss, because what was true of the outfit on
+    // the day it was saved is a record. What the card shows is the shorter
+    // question of what this outfit could have done differently, so a rule the
+    // wardrobe cannot satisfy is left to the wardrobe screen to say once.
+    missed: ruleViews(ruleIds(row.missed_rules).filter((id) => !gaps.has(id))),
     warmthCore: row.warmth_core,
     warmthWithOuter: row.warmth_with_outer,
     gone: stored.filter((piece) => !wardrobe.has(piece.id)),
@@ -414,6 +427,18 @@ function toSaved(
     corrections: feedback.map((entry) => toCorrection(entry, event, wardrobe, stored)),
     ownerRequest: parseOwnerRequest(row.owner_request, wardrobe),
   };
+}
+
+/**
+ * No body type means no rule has been judged, so nothing is a gap and every
+ * stored miss is shown as it was recorded.
+ */
+function gapIds(
+  wardrobe: ReadonlyMap<string, GarmentView>,
+  profile: BodyProfile | null,
+): ReadonlySet<string> {
+  if (profile === null) return new Set();
+  return new Set(wardrobeGaps([...wardrobe.values()], profile.bodyType).map((gap) => gap.id));
 }
 
 async function wardrobeById(db: D1Database): Promise<ReadonlyMap<string, GarmentView>> {
@@ -458,14 +483,16 @@ async function hydrate(db: D1Database, rows: readonly OutfitRow[]): Promise<read
     (earliest, row) => (row.created_at < earliest ? row.created_at : earliest),
     rows[0]?.created_at ?? '',
   );
-  const [wardrobe, wear, corrections] = await Promise.all([
+  const [wardrobe, wear, corrections, profile] = await Promise.all([
     wardrobeById(db),
     recentWear(db, dayOf(oldest)),
     correctionsFor(db, rows.map((row) => row.id)),
+    getProfile(db),
   ]);
 
   const byDay = loggedByDay(wear);
-  return rows.map((row) => toSaved(row, wardrobe, byDay, corrections.get(row.id) ?? []));
+  const gaps = gapIds(wardrobe, profile);
+  return rows.map((row) => toSaved(row, wardrobe, byDay, corrections.get(row.id) ?? [], gaps));
 }
 
 /**

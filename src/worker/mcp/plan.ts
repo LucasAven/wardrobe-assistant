@@ -11,6 +11,8 @@
 
 import { z } from 'zod';
 import { deriveConstraints } from '../../domain/constraints';
+import type { WardrobeGap } from '../../domain/gaps';
+import { wardrobeGaps } from '../../domain/gaps';
 import { buildMenu } from '../../domain/menu';
 import type {
   BodyProfile,
@@ -102,6 +104,11 @@ export interface Plan {
   readonly constraints: Constraints;
   readonly menu: Menu;
   readonly ownerAsked: OwnerAsked | null;
+  /**
+   * Read off the whole wardrobe and not off the menu, because a gap is about
+   * what the owner owns and today's filters have nothing to do with it.
+   */
+  readonly gaps: readonly WardrobeGap[];
 }
 
 /** Why no plan exists, written for the caller to act on rather than to log. */
@@ -195,7 +202,16 @@ export async function buildPlan(
     ownerAsked?.garmentIds ?? [],
   );
 
-  return { profile, moment, weather, constraints, menu, ownerAsked };
+  const wardrobe = stored.map((row) => row.garment);
+  return {
+    profile,
+    moment,
+    weather,
+    constraints,
+    menu,
+    ownerAsked,
+    gaps: wardrobeGaps(wardrobe, profile.bodyType),
+  };
 }
 
 // ---------------------------------------------------------------------------

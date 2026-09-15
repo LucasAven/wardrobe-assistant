@@ -831,7 +831,7 @@ describe('past_outfits', () => {
       title: null,
       rationale: 'Plain and easy for a mild morning.',
       cited_rules: JSON.stringify(['rect-01']),
-      missed_rules: JSON.stringify(['rect-02']),
+      missed_rules: JSON.stringify(['rect-02', 'rect-04']),
       warmth_core: 1,
       warmth_with_outer: 1,
       owner_request: null,
@@ -857,8 +857,16 @@ describe('past_outfits', () => {
     expect(text).toContain('accessory belt-brown | leather belt');
     expect(text).toContain('"Plain and easy for a mild morning."');
     expect(text).toContain('follows rect-01');
-    expect(text).toContain('misses rect-02');
+    expect(text).toContain('misses rect-04');
     expect(text).toContain('warmth 1 at the core, 1 with the outer layer');
+  });
+
+  it('leaves out a miss the wardrobe made unavoidable, so the ones left are choices', async () => {
+    savedOutfit({});
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('misses rect-04');
+    expect(text).not.toContain('rect-02');
   });
 
   it('names the outfit with the words it was saved under', async () => {
