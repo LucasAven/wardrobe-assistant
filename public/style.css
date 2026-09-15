@@ -1226,6 +1226,25 @@ p {
   border-left-color: var(--line);
 }
 
+.rule__short {
+  font-size: 14px;
+}
+
+/* The shortfall above it is the line to read, so the book's reason steps back
+   here. On an outfit card it is the content and keeps its own size. */
+.gaps .rule__because {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+/* Under the grid rather than beside it, and spaced off the last row of tiles so
+   it reads as a separate thought and not as a caption on the wardrobe. */
+.gaps:not(:empty) {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
 .rules--missed .rule__because {
   font-size: 13px;
   color: var(--muted);

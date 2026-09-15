@@ -4,11 +4,33 @@ import { imagePath, watchImage } from '../photo.js';
 import { routeHash } from '../router.js';
 import { SLOTS } from '../vocab.js';
 
+/**
+ * A gap says what is short in one of two ways, and never both. A rule asking
+ * for a garment names the thing, and one about how a garment must look can only
+ * name where nothing owned passes.
+ */
+function shortOf(gap) {
+  return gap.needs === null ? `Nothing you own in ${gap.where} works for this.` : `You do not own ${gap.needs}.`;
+}
+
+/** A row the screen cannot draw is dropped rather than drawn half empty. */
+function readable(gap) {
+  return (
+    gap !== null &&
+    typeof gap === 'object' &&
+    typeof gap.id === 'string' &&
+    typeof gap.because === 'string' &&
+    typeof gap.where === 'string' &&
+    (gap.needs === null || typeof gap.needs === 'string')
+  );
+}
+
 export function mountWardrobe(ctx) {
   const filters = el('div', { class: 'filters' });
   const grid = el('div', { class: 'grid' });
   const banner = el('div', { class: 'banner' });
-  const node = el('section', { class: 'screen__body' }, [banner, filters, grid]);
+  const gaps = el('div', { class: 'gaps' });
+  const node = el('section', { class: 'screen__body' }, [banner, filters, grid, gaps]);
 
   let slot = 'all';
   let gone = false;
@@ -105,12 +127,59 @@ export function mountWardrobe(ctx) {
     }
   }
 
+  /**
+   * What this wardrobe can never do, said once here rather than on every outfit
+   * card. The outfit cards drop these, so this is the only place they are said,
+   * and it sits under the grid because it is something to read now and then and
+   * not something to act on today.
+   */
+  function renderGaps(found) {
+    clear(gaps);
+    if (found.length === 0) return;
+
+    gaps.append(
+      el('section', { class: 'section section--missed' }, [
+        el('h3', { class: 'section__title' }, 'What this wardrobe cannot do'),
+        el('p', { class: 'source' }, 'Left off every outfit card'),
+        el(
+          'ul',
+          { class: 'rules rules--missed' },
+          found.map((gap) =>
+            // What is short leads, because that is the part worth acting on.
+            // The guide's own sentence follows as the reason for it, the way it
+            // reads on a card, and it is quieter here than the shortfall.
+            el('li', { class: 'rule' }, [
+              el('p', { class: 'rule__short' }, shortOf(gap)),
+              el('p', { class: 'rule__because' }, gap.because),
+              el('span', { class: 'rule__id' }, gap.id),
+            ]),
+          ),
+        ),
+      ]),
+    );
+  }
+
   function renderAll() {
     const total = ctx.store.garments.length;
     ctx.setTitle('Wardrobe', total === 1 ? '1 piece' : `${total} pieces`);
     renderBanner();
     renderFilters();
     renderGrid();
+  }
+
+  /**
+   * Its own call, and its own failure. A wardrobe nobody can read is the screen
+   * being broken, while gaps nobody can read is one section missing, so a fault
+   * here leaves the clothes on screen instead of taking them down.
+   */
+  async function loadGaps() {
+    try {
+      const body = await ctx.api.listGaps();
+      if (gone) return;
+      renderGaps(Array.isArray(body?.gaps) ? body.gaps.filter(readable) : []);
+    } catch {
+      if (!gone) clear(gaps);
+    }
   }
 
   async function load(force) {
@@ -121,6 +190,7 @@ export function mountWardrobe(ctx) {
       if (gone) return;
       ctx.refreshBadge();
       renderAll();
+      void loadGaps();
     } catch (error) {
       if (gone) return;
       clear(grid);

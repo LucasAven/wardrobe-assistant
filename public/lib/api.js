@@ -112,6 +112,10 @@ export function createApi(options = {}) {
       return true;
     },
 
+    listGaps() {
+      return json('/api/garments/gaps');
+    },
+
     listGarments(filter = {}) {
       const path =
         filter.reviewed === undefined ? '/api/garments' : `/api/garments?reviewed=${filter.reviewed ? '1' : '0'}`;
