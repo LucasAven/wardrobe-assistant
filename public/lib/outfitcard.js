@@ -533,8 +533,15 @@ function picker(ctx, outfit, target, done) {
     return tile;
   }
 
-  /** Shown but not offered, with the line under it saying which of the two it is. */
-  function held(garment, note) {
+  /**
+   * Shown but not offered, with the line under it saying which of the two it is.
+   *
+   * `worn` is the narrower of the two: this garment is on the outfit right now.
+   * The other is a garment the outfit blocks without wearing it, a second pair
+   * of glasses when it already wears one, and that keeps its color so a grid
+   * holding both still answers which garment is in use at a glance.
+   */
+  function held(garment, note, worn) {
     const image = el('img', {
       class: 'tile__img',
       src: imagePath(garment),
@@ -545,7 +552,7 @@ function picker(ctx, outfit, target, done) {
     const frame = el('div', { class: 'tile__frame' }, image);
     watchImage(frame, image);
 
-    return el('div', { class: 'tile tile--current' }, [
+    return el('div', { class: worn ? 'tile tile--current tile--worn' : 'tile tile--current' }, [
       frame,
       el('span', { class: 'tile__name' }, garment.subtype),
       el('span', { class: 'tile__slot' }, note),
@@ -578,9 +585,9 @@ function picker(ctx, outfit, target, done) {
   // there it would be a tap asking for the state the card is already in.
   if (!adding && !REQUIRED_SLOTS.includes(target.slot)) grid.append(option(null, 'Nothing here', null));
   for (const garment of options) {
-    if (alreadyOn.has(garment.id)) grid.append(held(garment, 'in this outfit'));
+    if (alreadyOn.has(garment.id)) grid.append(held(garment, 'in this outfit', true));
     else if (kept.has(garment.accessoryKind)) {
-      grid.append(held(garment, `already wearing a ${garment.accessoryKind}`));
+      grid.append(held(garment, `already wearing a ${garment.accessoryKind}`, false));
     } else grid.append(option(garment.id, garment.subtype, garment));
   }
   // Counted off the garments, not off `tiles`, which also holds the "Nothing

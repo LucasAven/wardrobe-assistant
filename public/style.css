@@ -750,6 +750,15 @@ p {
   opacity: 0.6;
 }
 
+/* Which of these am I already wearing, answered before the words are read. The
+   dashed frame above says only "not offered", and that covers a garment the
+   outfit blocks without wearing, so the photo itself drops its color for the
+   narrower answer. Clothes are the only color in this grid, so one gray photo
+   among them reads instantly and takes no room from the tile. */
+.tile--worn .tile__img {
+  filter: grayscale(1);
+}
+
 .tile__frame {
   position: relative;
   border: 1px solid var(--line);
