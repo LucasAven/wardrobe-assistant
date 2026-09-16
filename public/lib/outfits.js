@@ -155,6 +155,9 @@ function readPieces(value) {
   return asArray(value).filter((piece) => isObject(piece) && typeof piece.slot === 'string' && isObject(piece.garment));
 }
 
+/** The seven `EventKind` values in src/domain/types.ts. Anything else is dropped. */
+const EVENTS = ['home', 'errands', 'work', 'social', 'dinner', 'formal', 'active'];
+
 /**
  * A SavedOutfit the screen can draw, or null. The tags now come from a chat
  * rather than from a validated structured call, so a row that arrives without
@@ -169,6 +172,8 @@ export function readOutfit(value) {
     id: asText(value.id),
     planId: asText(value.planId),
     createdAt: asText(value.createdAt),
+    // The picker judges a candidate against the day this outfit was built for.
+    event: EVENTS.includes(value.event) ? value.event : null,
     pieces,
     accessories: asArray(value.accessories).filter(isObject),
     title: asText(value.title),
