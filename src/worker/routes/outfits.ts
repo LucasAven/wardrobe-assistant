@@ -9,7 +9,7 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../env';
-import { MAX_OUTFITS, readOutfits, removeOutfit, swapPiece, todayOutfit } from '../outfits';
+import { MAX_OUTFITS, readOutfits, removeOutfit, swapPiece, todayOutfits } from '../outfits';
 
 /**
  * The reason is required. A piece that changed with nothing saying why teaches
@@ -24,11 +24,13 @@ const SwapSchema = z.object({
 export const outfits = new Hono<{ Bindings: Env }>();
 
 /**
- * `null` rather than a 404: nothing saved today is a normal state the app has a
- * screen for, and a 404 would read as a broken request instead.
+ * Every outfit saved today, newest first, because one request can be answered
+ * with two or three for the owner to pick from. An empty list rather than a
+ * 404: nothing saved today is still the normal state the app has a screen for,
+ * and a 404 would read as a broken request instead.
  */
 outfits.get('/today', async (c) => {
-  return c.json({ outfit: await todayOutfit(c.env.DB, new Date()) });
+  return c.json({ outfits: await todayOutfits(c.env.DB, new Date()) });
 });
 
 outfits.get('/', async (c) => {

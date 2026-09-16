@@ -208,10 +208,16 @@ export class FakeDb {
       const ordered = [...this.outfits].sort((left, right) =>
         descending(String(left.created_at), String(right.created_at)),
       );
-      // todayOutfit, which compares the whole timestamp rather than the day.
-      if (sql.includes('created_at >= ?')) {
-        const since = String(args[0]);
-        return ordered.filter((row) => String(row.created_at) >= since).slice(0, 1);
+      // todayOutfits, which compares the whole timestamp rather than the day and
+      // is bounded on both ends, so a row dated ahead of the clock stays out.
+      if (sql.includes('created_at >= ?') && sql.includes('created_at < ?')) {
+        const [since, until, limit] = args;
+        return ordered
+          .filter(
+            (row) =>
+              String(row.created_at) >= String(since) && String(row.created_at) < String(until),
+          )
+          .slice(0, Number(limit));
       }
 
       // recentTitles, which reads the names rather than the outfits carrying them.

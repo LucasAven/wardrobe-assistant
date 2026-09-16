@@ -1,7 +1,7 @@
 /**
  * The two routes the web app reads saved outfits through. Nothing saved today
- * is a normal state with a screen of its own, so it answers `null` and 200
- * rather than a 404 the app would have to read as a broken request.
+ * is a normal state with a screen of its own, so it answers an empty list and
+ * 200 rather than a 404 the app would have to read as a broken request.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +30,7 @@ import { WARDROBE, makeGarment } from './fixtures';
 import { FakeDb, garmentRow } from './stubs/fake-env';
 
 const MS_PER_DAY = 86_400_000;
+const MS_PER_MINUTE = 60_000;
 const PASSWORD = 'pw';
 
 const OUTFIT: Omit<NewOutfit, 'planId'> = {
@@ -137,6 +138,21 @@ async function save(planId: string, savedAt: Date): Promise<string> {
   return insertOutfit(db as unknown as D1Database, { ...OUTFIT, planId }, savedAt);
 }
 
+/** Everything the Today screen would draw, newest first. */
+async function todayOutfits(): Promise<readonly SavedOutfit[]> {
+  const body = await bodyOf<{ outfits: readonly SavedOutfit[] }>(
+    await call('http://x/api/outfits/today'),
+  );
+  return body.outfits;
+}
+
+/** The newest of them, for a day that holds one, and a failure when it holds none. */
+async function todayOutfit(): Promise<SavedOutfit> {
+  const [outfit] = await todayOutfits();
+  if (outfit === undefined) throw new Error('nothing is saved for today');
+  return outfit;
+}
+
 async function saveLayered(): Promise<string> {
   db.profile = { data: JSON.stringify(RECTANGLE) };
   return insertOutfit(db as unknown as D1Database, { ...LAYERED, planId: 'p1' }, new Date());
@@ -176,47 +192,75 @@ beforeEach(async () => {
 });
 
 describe('GET /api/outfits/today', () => {
-  it('answers 200 and a null outfit when nothing was saved today', async () => {
+  it('answers 200 and an empty list when nothing was saved today', async () => {
     const response = await call('http://x/api/outfits/today');
 
     expect(response.status).toBe(200);
-    expect(await bodyOf(response)).toEqual({ outfit: null });
+    expect(await bodyOf(response)).toEqual({ outfits: [] });
   });
 
-  it('still answers null when the only saved outfit is from another day', async () => {
+  it('still answers an empty list when the only saved outfit is from another day', async () => {
     await save('p1', new Date(Date.now() - 2 * MS_PER_DAY));
 
-    const body = await bodyOf<{ outfit: SavedOutfit | null }>(await call('http://x/api/outfits/today'));
-    expect(body.outfit).toBeNull();
+    expect(await todayOutfits()).toEqual([]);
+  });
+
+  it('hands back every outfit saved today, newest first', async () => {
+    const older = await save('p1', new Date(Date.now() - 2 * MS_PER_MINUTE));
+    const middle = await save('p1', new Date(Date.now() - MS_PER_MINUTE));
+    const newest = await save('p1', new Date());
+
+    expect((await todayOutfits()).map((outfit) => outfit.id)).toEqual([newest, middle, older]);
+  });
+
+  /**
+   * The one thing that says two cards are two answers to one request. Without it
+   * the app has no way to draw them as a set instead of as unrelated outfits.
+   */
+  it('carries the plan each outfit was composed against', async () => {
+    await save('p1', new Date(Date.now() - 2 * MS_PER_MINUTE));
+    await save('p1', new Date(Date.now() - MS_PER_MINUTE));
+    await save('p2', new Date());
+
+    expect((await todayOutfits()).map((outfit) => outfit.planId)).toEqual(['p2', 'p1', 'p1']);
+  });
+
+  /**
+   * A row dated ahead of the clock. The lower bound alone would leave it on
+   * Today every day after, which the old limit of one was hiding rather than
+   * preventing.
+   */
+  it('leaves out an outfit dated tomorrow', async () => {
+    await save('p1', new Date(Date.now() + MS_PER_DAY));
+    const today = await save('p1', new Date());
+
+    expect((await todayOutfits()).map((outfit) => outfit.id)).toEqual([today]);
   });
 
   it('hydrates the garment rows so the app can render the photos', async () => {
     const id = await save('p1', new Date());
 
-    const body = await bodyOf<{ outfit: SavedOutfit | null }>(await call('http://x/api/outfits/today'));
-    const outfit = body.outfit;
+    const outfit = await todayOutfit();
 
-    expect(outfit?.id).toBe(id);
-    expect(outfit?.pieces.map((piece) => piece.slot)).toEqual(['base', 'bottom', 'shoes']);
-    expect(outfit?.pieces[0]?.garment.subtype).toBe('cotton t-shirt');
-    expect(outfit?.accessories.map((garment) => garment.id)).toEqual(['belt-brown']);
-    expect(outfit?.cited).toEqual([
+    expect(outfit.id).toBe(id);
+    expect(outfit.pieces.map((piece) => piece.slot)).toEqual(['base', 'bottom', 'shoes']);
+    expect(outfit.pieces[0]?.garment.subtype).toBe('cotton t-shirt');
+    expect(outfit.accessories.map((garment) => garment.id)).toEqual(['belt-brown']);
+    expect(outfit.cited).toEqual([
       { id: 'rect-01', short: 'Layers or a V-neckline', because: expect.stringContaining('V-necks') },
     ]);
-    expect(outfit?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
-    expect(outfit?.worn).toBe(false);
+    expect(outfit.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(outfit.worn).toBe(false);
   });
 
   it('reads as worn once the wear log holds every garment for that day', async () => {
     await save('p1', new Date());
 
-    const unworn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(unworn.outfit.worn).toBe(false);
+    expect((await todayOutfit()).worn).toBe(false);
 
     await wear({ garmentIds: WORN_IDS });
 
-    const worn = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(worn.outfit.worn).toBe(true);
+    expect((await todayOutfit()).worn).toBe(true);
   });
 
   it('stays unworn while any one of its garments is missing from the log', async () => {
@@ -224,8 +268,7 @@ describe('GET /api/outfits/today', () => {
 
     await wear({ garmentIds: ['tee-white', 'jeans-indigo', 'sneakers-white'] });
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(body.outfit.worn).toBe(false);
+    expect((await todayOutfit()).worn).toBe(false);
   });
 
   /**
@@ -239,10 +282,10 @@ describe('GET /api/outfits/today', () => {
       row.id === 'jeans-indigo' ? { ...row, archived: 1 } : row,
     );
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+    const outfit = await todayOutfit();
 
-    expect(body.outfit.pieces.map((piece) => piece.slot)).toEqual(['base', 'shoes']);
-    expect(body.outfit.rationale).toBe(OUTFIT.rationale);
+    expect(outfit.pieces.map((piece) => piece.slot)).toEqual(['base', 'shoes']);
+    expect(outfit.rationale).toBe(OUTFIT.rationale);
   });
 
   it('still reads as worn when an archived garment was logged before it went', async () => {
@@ -252,8 +295,7 @@ describe('GET /api/outfits/today', () => {
       row.id === 'jeans-indigo' ? { ...row, archived: 1 } : row,
     );
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(body.outfit.worn).toBe(true);
+    expect((await todayOutfit()).worn).toBe(true);
   });
 });
 
@@ -270,8 +312,7 @@ describe('a wear that names the outfit it was', () => {
     // outfit worn. What the row names is the whole of the reading.
     await wear({ garmentIds: ['tee-white'], outfitId: id });
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(body.outfit.worn).toBe(true);
+    expect((await todayOutfit()).worn).toBe(true);
   });
 
   it('leaves the other outfit of that day unworn, wearing the same clothes or not', async () => {
@@ -295,8 +336,7 @@ describe('a wear that names the outfit it was', () => {
       event: null,
     });
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
-    expect(body.outfit.worn).toBe(true);
+    expect((await todayOutfit()).worn).toBe(true);
   });
 });
 
@@ -765,13 +805,13 @@ describe('the rules a stored outfit missed', () => {
       new Date(),
     );
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+    const outfit = await todayOutfit();
 
-    expect(body.outfit.id).toBe(id);
+    expect(outfit.id).toBe(id);
     // rect-02 asks for structured fabric this wardrobe has none of in a slot
     // every outfit fills, so the preference half still drops it as a gap.
-    expect(body.outfit.missed.map((rule) => rule.id)).toEqual(['rect-04']);
-    expect(body.outfit.broke.map((rule) => rule.id)).toEqual(['rect-06b']);
+    expect(outfit.missed.map((rule) => rule.id)).toEqual(['rect-04']);
+    expect(outfit.broke.map((rule) => rule.id)).toEqual(['rect-06b']);
   });
 
   it('leaves both lists empty for an outfit that missed nothing', async () => {
@@ -782,10 +822,10 @@ describe('the rules a stored outfit missed', () => {
       new Date(),
     );
 
-    const body = await bodyOf<{ outfit: SavedOutfit }>(await call('http://x/api/outfits/today'));
+    const outfit = await todayOutfit();
 
-    expect(body.outfit.missed).toEqual([]);
-    expect(body.outfit.broke).toEqual([]);
+    expect(outfit.missed).toEqual([]);
+    expect(outfit.broke).toEqual([]);
   });
 });
 

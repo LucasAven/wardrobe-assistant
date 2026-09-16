@@ -198,6 +198,16 @@ export interface SavedOutfit extends OutfitView {
   readonly pieces: readonly { readonly slot: Slot; readonly garment: GarmentView }[];
   readonly accessories: readonly GarmentView[];
   readonly id: string;
+  /**
+   * The plan this outfit was composed against. Outfits sharing one were composed
+   * as options for a single request, and this is the only thing that says two
+   * cards are two answers to one question.
+   *
+   * Not a key a reader can follow. The plan itself lives in KV for an hour and
+   * is gone long before a card is drawn, so the id groups the outfits and
+   * nothing else.
+   */
+  readonly planId: string;
   readonly event: EventKind | null;
   /**
    * What the assistant called this outfit, its own words the way the rationale
@@ -252,6 +262,7 @@ export interface SavedOutfit extends OutfitView {
 
 interface OutfitRow {
   readonly id: string;
+  readonly plan_id: string;
   readonly event: string | null;
   readonly title: string | null;
   readonly pieces: string;
@@ -472,6 +483,7 @@ function toSaved(
 
   return {
     id: row.id,
+    planId: row.plan_id,
     event,
     title: row.title,
     createdAt: row.created_at,
@@ -569,18 +581,30 @@ async function hydrate(db: D1Database, rows: readonly OutfitRow[]): Promise<read
   return rows.map((row) => toSaved(row, wardrobe, worn, corrections.get(row.id) ?? [], gaps));
 }
 
+const MS_PER_DAY = 86_400_000;
+
+/** UTC midnight opening the day a moment falls on, spelled the way the column is. */
+function dayStart(moment: Date): string {
+  return `${day(moment)}T00:00:00.000Z`;
+}
+
 /**
  * Which day counts as today is the server's call, taken from the same UTC day
  * the wear log writes, so an outfit and its wear entry never disagree.
+ *
+ * The upper bound is what keeps a row dated ahead of the clock off this screen.
+ * With the lower bound alone it would sit on Today every day after, and the cap
+ * is what bounds the read now that nothing else does.
  */
-export async function todayOutfit(db: D1Database, now: Date): Promise<SavedOutfit | null> {
+export async function todayOutfits(db: D1Database, now: Date): Promise<readonly SavedOutfit[]> {
   const result = await db
-    .prepare('SELECT * FROM outfit WHERE created_at >= ? ORDER BY created_at DESC LIMIT 1')
-    .bind(`${day(now)}T00:00:00.000Z`)
+    .prepare(
+      'SELECT * FROM outfit WHERE created_at >= ? AND created_at < ? ORDER BY created_at DESC LIMIT ?',
+    )
+    .bind(dayStart(now), dayStart(new Date(now.getTime() + MS_PER_DAY)), MAX_OUTFITS)
     .all<OutfitRow>();
 
-  const hydrated = await hydrate(db, result.results);
-  return hydrated[0] ?? null;
+  return hydrate(db, result.results);
 }
 
 /**
