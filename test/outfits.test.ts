@@ -166,7 +166,7 @@ async function wear(entry: unknown): Promise<Response> {
   });
 }
 
-async function swapPiece(id: string, edit: unknown): Promise<Response> {
+async function editPiece(id: string, edit: unknown): Promise<Response> {
   return call(`http://x/api/outfits/${id}/swap`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -381,12 +381,12 @@ describe('GET /api/outfits', () => {
 
 describe('POST /api/outfits/:id/swap', () => {
   it('answers 404 for an outfit that is not there', async () => {
-    expect((await swapPiece('nope', { fromId: 'cardigan-gray', toId: null, reason: 'too warm' })).status).toBe(404);
+    expect((await editPiece('nope', { fromId: 'cardigan-gray', toId: null, reason: 'too warm' })).status).toBe(404);
   });
 
   it('refuses to empty a slot every outfit needs', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { fromId: 'sneakers-white', toId: null, reason: 'barefoot day' });
+    const response = await editPiece(id, { fromId: 'sneakers-white', toId: null, reason: 'barefoot day' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('cannot be left empty');
@@ -395,7 +395,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('refuses a garment that lives in another slot, and says what it is', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'loafers-brown', reason: 'nicer' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: 'loafers-brown', reason: 'nicer' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('is a shoes, not a mid');
@@ -404,7 +404,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('refuses a garment this wardrobe does not have', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'not-a-garment', reason: 'nicer' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: 'not-a-garment', reason: 'nicer' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('not in your wardrobe');
@@ -412,7 +412,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('refuses a garment the outfit is not wearing', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { fromId: 'puffer-navy', toId: 'trench-navy', reason: 'colder now' });
+    const response = await editPiece(id, { fromId: 'puffer-navy', toId: 'trench-navy', reason: 'colder now' });
 
     expect(response.status).toBe(400);
     expect((await bodyOf<{ error: string }>(response)).error).toContain('not in this outfit');
@@ -437,7 +437,7 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
     const body = await bodyOf<{ outfit: SavedOutfit }>(response);
 
     expect(response.status).toBe(200);
@@ -461,14 +461,14 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'too casual' });
 
     expect((await bodyOf<{ outfit: SavedOutfit }>(response)).outfit.ownerRequest).toBeNull();
   });
 
   it('refuses a reason that is only blank space', async () => {
     const id = await saveLayered();
-    expect((await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: '   ' })).status).toBe(400);
+    expect((await editPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: '   ' })).status).toBe(400);
   });
 
   /** `wasWorn` reads the stored ids, so a swap would turn a worn outfit back into an unworn one. */
@@ -476,7 +476,7 @@ describe('POST /api/outfits/:id/swap', () => {
     const id = await save('p1', new Date());
     await wear({ garmentIds: WORN_IDS });
 
-    const response = await swapPiece(id, { fromId: 'sneakers-white', toId: 'loafers-brown', reason: 'wrong shoes' });
+    const response = await editPiece(id, { fromId: 'sneakers-white', toId: 'loafers-brown', reason: 'wrong shoes' });
 
     expect(response.status).toBe(409);
     expect(db.feedback).toHaveLength(0);
@@ -485,7 +485,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('writes the new pieces and the reason together, and hands the outfit back', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, {
+    const response = await editPiece(id, {
       fromId: 'cardigan-gray',
       toId: 'knit-cream-heavy',
       reason: 'the cardigan itches at the office',
@@ -536,7 +536,7 @@ describe('POST /api/outfits/:id/swap', () => {
     const id = await saveLayered();
     const before = { ...db.outfits[0] };
 
-    await swapPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'sharper for a client day' });
+    await editPiece(id, { fromId: 'cardigan-gray', toId: 'blazer-navy', reason: 'sharper for a client day' });
 
     expect(db.outfits[0]?.rationale).toBe(before.rationale);
     expect(db.outfits[0]?.event).toBe(before.event);
@@ -546,7 +546,7 @@ describe('POST /api/outfits/:id/swap', () => {
 
   it('drops a citation the swap broke, keeps one that still holds, and re-sums the warmth', async () => {
     const id = await saveLayered();
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
 
     const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
     expect(outfit.cited.map((rule) => rule.id)).toEqual(['all-01']);
@@ -572,7 +572,7 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, {
+    const response = await editPiece(id, {
       fromId: 'cap-navy',
       toId: 'sunglasses-black',
       reason: 'the cap does not go with the scarf',
@@ -609,7 +609,7 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, {
+    const response = await editPiece(id, {
       fromId: 'cap-navy',
       toId: 'belt-black',
       reason: 'the woven one is better',
@@ -644,7 +644,7 @@ describe('POST /api/outfits/:id/swap', () => {
       new Date(),
     );
 
-    const response = await swapPiece(id, {
+    const response = await editPiece(id, {
       fromId: 'sneakers-white',
       toId: 'loafers-brown',
       reason: 'smarter for the evening',
@@ -659,7 +659,7 @@ describe('POST /api/outfits/:id/swap', () => {
   it('reads a dont the swap broke apart from the preferences it set aside', async () => {
     const id = await saveLayered();
 
-    const response = await swapPiece(id, {
+    const response = await editPiece(id, {
       fromId: 'cardigan-gray',
       toId: 'knit-cream-heavy',
       reason: 'the office is freezing',
@@ -675,12 +675,216 @@ describe('POST /api/outfits/:id/swap', () => {
     const id = await saveLayered();
     db.profile = null;
 
-    const response = await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
+    const response = await editPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
 
     const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
     expect(outfit.cited).toEqual([]);
     expect(outfit.missed).toEqual([]);
     expect(outfit.warmthCore).toBe(1);
+  });
+
+  /**
+   * The second half of what the owner asked for. A slot the outfit never had
+   * has no garment to name, so the add is the one edit that sends no `fromId`.
+   */
+  describe('adding a piece the outfit never had', () => {
+    it('writes the new piece at its place in the order, not at the end', async () => {
+      const id = await saveLayered();
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'trench-navy',
+        reason: 'it turned cold after lunch',
+      });
+
+      expect(response.status).toBe(200);
+      const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+      expect(outfit.pieces.map((piece) => piece.garment.id)).toEqual([
+        'tee-white',
+        'cardigan-gray',
+        'trench-navy',
+        'jeans-indigo',
+        'sneakers-white',
+      ]);
+
+      // `past_outfits` reads the stored array as it stands and sorts nothing, so
+      // the outer has to be stored between the mid and the bottom and not after
+      // the shoes.
+      expect(JSON.parse(String(db.outfits[0]?.pieces))).toEqual([
+        { slot: 'base', id: 'tee-white' },
+        { slot: 'mid', id: 'cardigan-gray' },
+        { slot: 'outer', id: 'trench-navy' },
+        { slot: 'bottom', id: 'jeans-indigo' },
+        { slot: 'shoes', id: 'sneakers-white' },
+      ]);
+    });
+
+    it('records the reason with no garment going out', async () => {
+      const id = await saveLayered();
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'trench-navy',
+        reason: 'it turned cold after lunch',
+      });
+
+      expect(db.feedback).toHaveLength(1);
+      expect(db.feedback[0]).toMatchObject({
+        outfit_id: id,
+        slot: 'outer',
+        from_id: null,
+        to_id: 'trench-navy',
+        reason: 'it turned cold after lunch',
+      });
+
+      const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+      expect(outfit.corrections[0]).toMatchObject({
+        slot: 'outer',
+        from: null,
+        to: { id: 'trench-navy', subtype: 'trench coat' },
+        reason: 'it turned cold after lunch',
+      });
+    });
+
+    it('adds a second accessory, because accessories are a list and are never full', async () => {
+      db.profile = { data: JSON.stringify(RECTANGLE) };
+      db.garments = [...db.garments, garmentRow(SUNGLASSES)];
+      const id = await insertOutfit(
+        db as unknown as D1Database,
+        { ...ACCESSORIZED, planId: 'p1' },
+        new Date(),
+      );
+
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'sunglasses-black',
+        reason: 'the sun is in my eyes all afternoon',
+      });
+
+      expect(response.status).toBe(200);
+      const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+      expect(outfit.accessories.map((garment) => garment.id)).toEqual([
+        'belt-brown',
+        'scarf-wool-charcoal',
+        'cap-navy',
+        'sunglasses-black',
+      ]);
+    });
+
+    /**
+     * The one refusal that keeps a second row for one clothing slot out of
+     * storage. Two of them round-trip and then collapse out of the warmth sum
+     * with nothing reporting it.
+     */
+    it('refuses a clothing slot the outfit already fills, and names what fills it', async () => {
+      const id = await saveLayered();
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'blazer-navy',
+        reason: 'sharper',
+      });
+
+      expect(response.status).toBe(400);
+      expect((await bodyOf<{ error: string }>(response)).error).toBe(
+        'The mid is already the cardigan in this outfit.',
+      );
+      expect(db.feedback).toHaveLength(0);
+      expect(JSON.parse(String(db.outfits[0]?.pieces))).toHaveLength(4);
+    });
+
+    it('refuses a garment this wardrobe does not have', async () => {
+      const id = await saveLayered();
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'not-a-garment',
+        reason: 'it turned cold',
+      });
+
+      expect(response.status).toBe(400);
+      expect((await bodyOf<{ error: string }>(response)).error).toContain('not in your wardrobe');
+      expect(db.feedback).toHaveLength(0);
+    });
+
+    it('refuses an accessory the outfit is already wearing', async () => {
+      db.profile = { data: JSON.stringify(RECTANGLE) };
+      const id = await insertOutfit(
+        db as unknown as D1Database,
+        { ...ACCESSORIZED, planId: 'p1' },
+        new Date(),
+      );
+
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'belt-brown',
+        reason: 'it needs a belt',
+      });
+
+      expect(response.status).toBe(400);
+      expect((await bodyOf<{ error: string }>(response)).error).toBe(
+        'The leather belt is already in this outfit.',
+      );
+      expect(db.feedback).toHaveLength(0);
+    });
+
+    it('refuses a second of a kind the body has one place for', async () => {
+      db.profile = { data: JSON.stringify(RECTANGLE) };
+      db.garments = [...db.garments, garmentRow(SECOND_BELT)];
+      const id = await insertOutfit(
+        db as unknown as D1Database,
+        { ...ACCESSORIZED, planId: 'p1' },
+        new Date(),
+      );
+
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'belt-black',
+        reason: 'the woven one is better',
+      });
+
+      expect(response.status).toBe(400);
+      expect((await bodyOf<{ error: string }>(response)).error).toContain('second belt');
+      expect(db.feedback).toHaveLength(0);
+    });
+
+    it('answers 409 once the outfit is logged as worn', async () => {
+      const id = await save('p1', new Date());
+      await wear({ garmentIds: WORN_IDS });
+
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'cardigan-gray',
+        reason: 'it was colder than this says',
+      });
+
+      expect(response.status).toBe(409);
+      expect(db.feedback).toHaveLength(0);
+      expect(JSON.parse(String(db.outfits[0]?.pieces))).toHaveLength(4);
+    });
+
+    /**
+     * On purpose, and the one thing about the add that is easy to read as a bug
+     * later. A layer arriving re-aims several book rules, so an outfit that
+     * broke nothing can gain a broken one. The card says so and nothing is
+     * refused, because refusing would be the app telling the owner he cannot
+     * put his own jacket on.
+     */
+    it('lands even when the piece arriving breaks a dont, and says it broke one', async () => {
+      db.profile = { data: JSON.stringify(RECTANGLE) };
+      const id = await save('p1', new Date());
+      const response = await editPiece(id, {
+        fromId: null,
+        toId: 'knit-cream-heavy',
+        reason: 'the office is freezing',
+      });
+
+      expect(response.status).toBe(200);
+      const { outfit } = await bodyOf<{ outfit: SavedOutfit }>(response);
+      expect(outfit.broke.map((rule) => rule.id)).toContain('rect-06b');
+    });
+
+    it('refuses a body that names neither garment', async () => {
+      const id = await saveLayered();
+      expect((await editPiece(id, { fromId: null, toId: null, reason: 'nothing' })).status).toBe(400);
+      expect(db.feedback).toHaveLength(0);
+    });
   });
 });
 
@@ -778,7 +982,7 @@ describe('removing an outfit', () => {
 
   it('keeps the corrections, which are the only record of what the owner refused', async () => {
     const id = await saveLayered();
-    await swapPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
+    await editPiece(id, { fromId: 'cardigan-gray', toId: null, reason: 'too warm indoors' });
 
     await remove(id);
 
@@ -1036,7 +1240,7 @@ describe('the session guard', () => {
     cookie = '';
     expect((await call('http://x/api/outfits/today')).status).toBe(401);
     expect((await call('http://x/api/outfits')).status).toBe(401);
-    expect((await swapPiece('o1', { fromId: 'cardigan-gray', toId: null, reason: 'no' })).status).toBe(401);
+    expect((await editPiece('o1', { fromId: 'cardigan-gray', toId: null, reason: 'no' })).status).toBe(401);
     expect((await call('http://x/api/outfits/o1', { method: 'DELETE' })).status).toBe(401);
   });
 });

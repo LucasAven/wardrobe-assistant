@@ -156,25 +156,30 @@ export async function insertOutfit(
   return id;
 }
 
-/** One piece of a saved outfit changed by hand, as the owner asked for it. */
-export interface OutfitEdit {
-  /**
-   * The garment going out, named by id. A slot names one piece only while the
-   * outfit wears one garment in it, and an outfit wears as many accessories as
-   * the owner likes, so a bare slot cannot say which of them a tap meant.
-   */
-  readonly fromId: string;
-  /** Null empties the slot rather than filling it. */
-  readonly toId: string | null;
-  readonly reason: string;
-}
+/**
+ * One piece of a saved outfit changed by hand, as the owner asked for it.
+ *
+ * Garments going in and out are named by id and never by slot. A slot names one
+ * piece only while the outfit wears one garment in it, and an outfit wears as
+ * many accessories as the owner likes, so a bare slot cannot say which of them
+ * a tap meant. The add is the one edit with no `fromId` at all, and it needs no
+ * slot either: the garment arriving knows its own.
+ *
+ * Three cases rather than two nullable ids, so an edit naming neither garment
+ * is a shape nothing here can hold.
+ */
+export type OutfitEdit =
+  | { readonly kind: 'swap'; readonly fromId: string; readonly toId: string; readonly reason: string }
+  | { readonly kind: 'drop'; readonly fromId: string; readonly reason: string }
+  | { readonly kind: 'add'; readonly toId: string; readonly reason: string };
 
 /** One correction, hydrated. `subtype` is null for a garment archived since. */
 export interface Correction {
   readonly at: string;
   readonly event: EventKind | null;
   readonly slot: Slot;
-  readonly from: { readonly id: string; readonly subtype: string | null };
+  /** Null when the owner added a piece the outfit never had. */
+  readonly from: { readonly id: string; readonly subtype: string | null } | null;
   readonly to: { readonly id: string; readonly subtype: string | null } | null;
   readonly reason: string;
   /**
@@ -219,8 +224,8 @@ export interface SavedOutfit extends OutfitView {
    * The book's donts this outfit breaks, which `missed` never holds: that list
    * is the preferences it set aside, and the two read as different things.
    *
-   * Almost always the work of a hand swap, because `certify` refuses
-   * `broke_required_rule` before an outfit is saved and `swapPiece` records what
+   * Almost always the work of a change made by hand, because `certify` refuses
+   * `broke_required_rule` before an outfit is saved and `editPiece` records what
    * the owner did rather than turning them away. Not a claim that the owner
    * caused it, and nothing here should say so. A garment retagged after the
    * outfit was saved, or a rule the book has since made a dont, both land a
@@ -278,7 +283,7 @@ interface OutfitRow {
 interface FeedbackRow {
   readonly outfit_id: string;
   readonly slot: string;
-  readonly from_id: string;
+  readonly from_id: string | null;
   readonly to_id: string | null;
   readonly reason: string;
   readonly created_at: string;
@@ -396,7 +401,7 @@ function toCorrection(
     at: row.created_at,
     event,
     slot: row.slot as Slot,
-    from: named(row.from_id, wardrobe),
+    from: row.from_id === null ? null : named(row.from_id, wardrobe),
     to: row.to_id === null ? null : named(row.to_id, wardrobe),
     reason: row.reason,
     alongside: pieces.flatMap((piece) => {
@@ -694,13 +699,19 @@ export async function outfitById(db: D1Database, id: string): Promise<SavedOutfi
   return (await hydrate(db, [row]))[0] ?? null;
 }
 
-export type SwapResult =
+/** An edit turned away, which is both an answer and what planning one can end in. */
+interface Refused {
+  readonly kind: 'refused';
+  readonly error: string;
+}
+
+export type EditResult =
   | { readonly kind: 'saved'; readonly outfit: SavedOutfit }
   | { readonly kind: 'missing' }
   | { readonly kind: 'worn' }
-  | { readonly kind: 'refused'; readonly error: string };
+  | Refused;
 
-const refused = (error: string): SwapResult => ({ kind: 'refused', error });
+const refused = (error: string): Refused => ({ kind: 'refused', error });
 
 /**
  * The stored row as a `ResolvedOutfit`, which is what lets the book rules be
@@ -737,21 +748,18 @@ function resolvedFrom(
 }
 
 /**
- * Replaces or empties one slot of a saved outfit and records why in the owner's
- * own words.
- *
- * `created_at`, `plan_id`, `event` and `rationale` are never touched.
- * `created_at` in particular is the UTC day `wasWorn` reads the wear log
- * against, so moving it would detach the outfit from its own day.
- */
-/**
- * The stored request, minus whatever the swap just took off.
+ * The stored request, minus whatever the edit just took off.
  *
  * `honored` means the requested garments this outfit is actually wearing, so a
  * piece swapped out has to leave it. Taking the last one out takes the whole
  * record with it: the words and the second opinion were about clothes, and with
  * none of them left on the outfit they would argue about something nobody is
  * wearing.
+ *
+ * An add never reaches this. `nextPieces` is a superset then, so nothing drops,
+ * and the piece arriving never joins `honored` either: that list means the
+ * garments the chat asked for by name, and it carries a `waived` list a change
+ * made by hand has nothing to put in.
  */
 function stillHonored(json: string | null, pieces: readonly OutfitPiece[]): string | null {
   if (json === null) return null;
@@ -774,12 +782,154 @@ function stillHonored(json: string | null, pieces: readonly OutfitPiece[]): stri
   return honored.length === 0 ? null : JSON.stringify({ ...row, honored });
 }
 
-export async function swapPiece(
+/**
+ * An edit that met no refusal: the pieces to store, the slot the change
+ * happened in, and the ids the correction records.
+ */
+interface PlannedEdit {
+  readonly kind: 'planned';
+  readonly slot: Slot;
+  readonly fromId: string | null;
+  readonly toId: string | null;
+  /**
+   * Kept apart from the outfit it is joining, so `editPiece` can judge it on its
+   * own rather than judging the outfit as a whole.
+   */
+  readonly incoming: Garment | null;
+  readonly pieces: readonly OutfitPiece[];
+}
+
+/**
+ * Where a piece being added belongs in the stored array.
+ *
+ * `past_outfits` prints that array as it stands and sorts nothing, so a mid
+ * appended to the end would reach the composer after the shoes. Inserting
+ * rather than sorting the whole array leaves every piece already there exactly
+ * where it is, and an accessory lands last either way.
+ */
+function withPiece(stored: readonly OutfitPiece[], added: OutfitPiece): readonly OutfitPiece[] {
+  const rank = PIECE_ORDER.indexOf(added.slot);
+  const at = stored.findIndex((piece) => PIECE_ORDER.indexOf(piece.slot) > rank);
+  return at === -1 ? [...stored, added] : [...stored.slice(0, at), added, ...stored.slice(at)];
+}
+
+/**
+ * Every refusal an edit can meet, and the row it becomes once it meets none.
+ *
+ * Formality, season, cooldown and the warmth bands are not among them, on an
+ * add the same as on a swap. A layer arriving re-aims several book rules
+ * through `onOutermostTorso`, so an outfit that broke nothing can gain a broken
+ * rule: `recheck` reads it, the new split is stored, and the card says so.
+ * Refusing would be the app telling the owner he cannot put his own jacket on,
+ * at the moment he is telling the app its filters were wrong. A gap both halves
+ * of one gesture share beats a new asymmetry between them.
+ */
+async function planEdit(
+  db: D1Database,
+  edit: OutfitEdit,
+  stored: readonly OutfitPiece[],
+  wardrobe: ReadonlyMap<string, Garment>,
+): Promise<PlannedEdit | Refused> {
+  if (edit.kind === 'add') {
+    // The whole wardrobe and not the plan's menu, the same reading a swap
+    // makes, which is what lets a change by hand reach a garment today filtered
+    // out.
+    const found = await getGarment(db, edit.toId);
+    if (found === null) return refused('That garment is not in your wardrobe.');
+    const arriving = found.garment;
+
+    // Storage holds no clothing slot to one piece, so two rows naming one slot
+    // round-trip and then collapse out of the warmth sum with nothing reporting
+    // it. Accessories are a list and are never full, so only a clothing slot
+    // can be taken. Read before the duplicate check below, so the owner is never
+    // told something about the garment when the slot was the problem.
+    const held =
+      arriving.slot === 'accessory'
+        ? undefined
+        : stored.find((piece) => piece.slot === arriving.slot);
+    if (held !== undefined) {
+      // A garment archived since still holds its slot in storage while `toSaved`
+      // drops it from the render, so the card can offer a slot that is taken.
+      const name = wardrobe.get(held.id)?.subtype;
+      return refused(
+        name === undefined
+          ? `The ${arriving.slot} already holds a garment that is gone from the wardrobe.`
+          : `The ${arriving.slot} is already the ${name} in this outfit.`,
+      );
+    }
+    if (stored.some((piece) => piece.id === arriving.id)) {
+      return refused(`The ${arriving.subtype} is already in this outfit.`);
+    }
+
+    return {
+      kind: 'planned',
+      slot: arriving.slot,
+      fromId: null,
+      toId: arriving.id,
+      incoming: arriving,
+      pieces: withPiece(stored, { slot: arriving.slot, id: arriving.id }),
+    };
+  }
+
+  const target = stored.find((piece) => piece.id === edit.fromId);
+  if (target === undefined) return refused('That garment is not in this outfit.');
+
+  if (edit.kind === 'drop') {
+    if (REQUIRED_SLOTS.includes(target.slot)) {
+      return refused(
+        `An outfit needs a base, a bottom and shoes, so ${target.slot} cannot be left empty.`,
+      );
+    }
+    return {
+      kind: 'planned',
+      slot: target.slot,
+      fromId: target.id,
+      toId: null,
+      incoming: null,
+      pieces: stored.filter((piece) => piece !== target),
+    };
+  }
+
+  if (edit.toId === target.id) return refused(`That is already the ${target.slot} in this outfit.`);
+
+  const found = await getGarment(db, edit.toId);
+  if (found === null) return refused('That garment is not in your wardrobe.');
+  const arriving = found.garment;
+  // Before the duplicate check, because a garment in the wrong slot is the
+  // more specific thing to say about it even when the outfit already wears it.
+  if (arriving.slot !== target.slot) {
+    return refused(`The ${arriving.subtype} is a ${arriving.slot}, not a ${target.slot}.`);
+  }
+  if (stored.some((piece) => piece.id === arriving.id)) {
+    return refused(`The ${arriving.subtype} is already in this outfit.`);
+  }
+
+  return {
+    kind: 'planned',
+    slot: target.slot,
+    fromId: target.id,
+    toId: arriving.id,
+    incoming: arriving,
+    pieces: stored.map((piece) =>
+      piece === target ? { slot: target.slot, id: arriving.id } : piece,
+    ),
+  };
+}
+
+/**
+ * Fills, replaces or empties one slot of a saved outfit and records why in the
+ * owner's own words.
+ *
+ * `created_at`, `plan_id`, `event` and `rationale` are never touched.
+ * `created_at` in particular is the UTC day `wasWorn` reads the wear log
+ * against, so moving it would detach the outfit from its own day.
+ */
+export async function editPiece(
   db: D1Database,
   id: string,
   edit: OutfitEdit,
   now: Date,
-): Promise<SwapResult> {
+): Promise<EditResult> {
   const row = await outfitRow(db, id);
   if (row === null) return { kind: 'missing' };
 
@@ -790,53 +940,27 @@ export async function swapPiece(
   if (current.worn) return { kind: 'worn' };
 
   const stored = parsePieces(row.pieces);
-  const target = stored.find((piece) => piece.id === edit.fromId);
-  if (target === undefined) return refused('That garment is not in this outfit.');
-
-  if (edit.toId === null && REQUIRED_SLOTS.includes(target.slot)) {
-    return refused(
-      `An outfit needs a base, a bottom and shoes, so ${target.slot} cannot be left empty.`,
-    );
-  }
-  if (edit.toId === target.id) return refused(`That is already the ${target.slot} in this outfit.`);
-
-  let incoming: Garment | null = null;
-  if (edit.toId !== null) {
-    const found = await getGarment(db, edit.toId);
-    if (found === null) return refused('That garment is not in your wardrobe.');
-    // Before the duplicate check, because a garment in the wrong slot is the
-    // more specific thing to say about it even when the outfit already wears it.
-    if (found.garment.slot !== target.slot) {
-      return refused(`The ${found.garment.subtype} is a ${found.garment.slot}, not a ${target.slot}.`);
-    }
-    if (stored.some((piece) => piece.id === edit.toId)) {
-      return refused(`The ${found.garment.subtype} is already in this outfit.`);
-    }
-    incoming = found.garment;
-  }
-
-  const nextPieces = stored.flatMap((piece): OutfitPiece[] => {
-    if (piece !== target) return [piece];
-    return edit.toId === null ? [] : [{ slot: piece.slot, id: edit.toId }];
-  });
-
   const wardrobe = new Map<string, Garment>();
   for (const piece of current.pieces) wardrobe.set(piece.garment.id, piece.garment);
   for (const garment of current.accessories) wardrobe.set(garment.id, garment);
+
+  const planned = await planEdit(db, edit, stored, wardrobe);
+  if (planned.kind === 'refused') return planned;
+
+  const incoming = planned.incoming;
   if (incoming !== null) wardrobe.set(incoming.id, incoming);
 
-  const resolved = resolvedFrom(nextPieces, wardrobe, row);
+  const resolved = resolvedFrom(planned.pieces, wardrobe, row);
   // The same refusal `certify` makes before an outfit is saved, because a second
   // watch is a body with one wrist rather than a matter of taste.
   //
   // Judged on the garment coming in and not on the outfit as a whole. Retagging
   // a hat as a belt leaves a saved outfit already wearing two belts, and reading
-  // the whole outfit would then refuse every swap on it, including the ones that
+  // the whole outfit would then refuse every edit on it, including the ones that
   // would fix it, and would say so while the owner was changing their shoes.
   if (incoming !== null) {
-    const arriving = incoming;
     const doubled = doubledAccessories(resolved.accessories).find((reason) =>
-      reason.ids.includes(arriving.id),
+      reason.ids.includes(incoming.id),
     );
     if (doubled !== undefined) {
       return refused(`That would be the second ${doubled.accessoryKind} in this outfit.`);
@@ -845,9 +969,9 @@ export async function swapPiece(
 
   const profile = await getProfile(db);
   const checked = recheck(resolved, resolved.proposal.citedRules, profile?.bodyType ?? null);
-  const request = stillHonored(row.owner_request, nextPieces);
+  const request = stillHonored(row.owner_request, planned.pieces);
 
-  // One batch, so a swap can never land with nothing saying why. The other
+  // One batch, so an edit can never land with nothing saying why. The other
   // direction stopped being airtight when `removeOutfit` arrived: an outfit
   // deleted between the read above and this line leaves the UPDATE matching
   // nothing while the reason is still written, and no foreign key refuses it.
@@ -862,7 +986,7 @@ export async function swapPiece(
           WHERE id = ?`,
       )
       .bind(
-        JSON.stringify(nextPieces),
+        JSON.stringify(planned.pieces),
         JSON.stringify(checked.cited.map((rule) => rule.id)),
         JSON.stringify(checked.missed.map((rule) => rule.id)),
         checked.warmthCore,
@@ -875,7 +999,15 @@ export async function swapPiece(
         `INSERT INTO outfit_feedback (id, outfit_id, slot, from_id, to_id, reason, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .bind(crypto.randomUUID(), id, target.slot, target.id, edit.toId, edit.reason, now.toISOString()),
+      .bind(
+        crypto.randomUUID(),
+        id,
+        planned.slot,
+        planned.fromId,
+        planned.toId,
+        edit.reason,
+        now.toISOString(),
+      ),
   ]);
 
   const saved = await outfitById(db, id);
