@@ -293,7 +293,12 @@ const MIN_FORMALITY_BY_EVENT = {
 export function outfitDay(outfit) {
   return {
     season: seasonOfDay(outfit?.createdAt),
-    minFormality: MIN_FORMALITY_BY_EVENT[outfit?.event] ?? null,
+    // `readOutfit` already drops an event the app does not know, but the table
+    // is a plain object a module away from that guard, so a key off the
+    // prototype chain would otherwise come back as a floor.
+    minFormality: Object.hasOwn(MIN_FORMALITY_BY_EVENT, outfit?.event ?? '')
+      ? MIN_FORMALITY_BY_EVENT[outfit.event]
+      : null,
   };
 }
 
