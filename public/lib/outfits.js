@@ -234,6 +234,69 @@ export function todayView(body) {
   return { kind: 'sets', sets: groupBySet(outfits) };
 }
 
+const DATE_HEAD = /^(\d{4})-(\d{2})-(\d{2})/;
+
+/**
+ * Copied from `seasonOf` in src/domain/constraints.ts, southern hemisphere and
+ * all, so the swap picker can name the season a saved outfit was built for
+ * without a call. `test/swapLabelParity.test.ts` fails when the two drift, and
+ * nothing else would notice: the picker would caution against the wrong half of
+ * the year while every outfit the engine builds still reads the right one.
+ *
+ * The month comes out of the digits rather than through `new Date`.
+ * `insertOutfit` binds `toISOString()`, so a live row is UTC, but the column's
+ * own DEFAULT writes `YYYY-MM-DD HH:MM:SS` and the fixtures carry no trailing
+ * `Z`, and JS reads both of those as local time. Reading the digits puts no
+ * timezone in the middle of a question about the calendar.
+ *
+ * Null rather than a guess for a string that starts with no date or names no
+ * real month, since spring would be a claim about a day the row cannot describe.
+ */
+function seasonOfDay(createdAt) {
+  const head = DATE_HEAD.exec(typeof createdAt === 'string' ? createdAt : '');
+  if (head === null) return null;
+
+  const month = Number(head[2]);
+  if (month < 1 || month > 12) return null;
+  if (month === 12 || month <= 2) return 'summer';
+  if (month <= 5) return 'autumn';
+  if (month <= 8) return 'winter';
+  return 'spring';
+}
+
+/**
+ * Copied key for key from `MIN_FORMALITY_BY_EVENT` in
+ * src/domain/constraints.ts, the floor the engine holds every garment but an
+ * accessory to. `test/swapLabelParity.test.ts` fails when the two drift, and
+ * nothing else would notice: the picker would measure a candidate against a
+ * floor no outfit was ever built to.
+ */
+const MIN_FORMALITY_BY_EVENT = {
+  home: 1,
+  active: 1,
+  errands: 1,
+  work: 3,
+  social: 3,
+  dinner: 3,
+  formal: 4,
+};
+
+/**
+ * The day a saved outfit was built for, as much of it as the row still holds.
+ * The outfit stores no weather and no plan, so the season and the formality
+ * floor are the whole of what can be read back.
+ *
+ * A missing input gives null rather than a default. An outfit saved without an
+ * event has no floor to fail, and a floor of 1 would be a claim about a day
+ * nothing recorded.
+ */
+export function outfitDay(outfit) {
+  return {
+    season: seasonOfDay(outfit?.createdAt),
+    minFormality: MIN_FORMALITY_BY_EVENT[outfit?.event] ?? null,
+  };
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
