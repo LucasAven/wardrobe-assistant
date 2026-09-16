@@ -1469,6 +1469,47 @@ p {
   padding: 0;
 }
 
+/* --- A set of outfits, one option at a time ------------------------------ */
+
+.set {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* One card is taller than the screen, so by the end of an option the moves to
+   the next one would be off the top of it. The bar stays. */
+.set__bar {
+  position: sticky;
+  top: 0;
+  /* The pieces inside the card are positioned and the bar is above them in the
+     page, so without this they scroll over it instead of under it. */
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  background: var(--bg);
+}
+
+/* The row a set opens into is a card of its own, so the bar takes the color it
+   sits on rather than the screen's. */
+.entry .set__bar {
+  background: var(--surface);
+}
+
+.set__count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.set__moves {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
 /* --- Fixing a cutout by hand --------------------------------------------- */
 
 .editor__hint {
