@@ -482,6 +482,26 @@ describe('plan_outfit', () => {
       '- 2026-05-10, work: you picked something for accessory that is gone from the wardrobe, they took it out and left the slot empty. "cut me in half"',
     );
   });
+
+  /**
+   * An add has no garment going out, so the two-clause line has nothing to put
+   * in its first half. "They filled a slot you left empty" would be false for a
+   * second accessory, so the line says what happened instead.
+   */
+  it('reads a piece the owner added as one line, with nothing going out', async () => {
+    corrected({ slot: 'accessory', from_id: null, to_id: 'belt-brown', reason: 'it needed a belt' });
+
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+
+    expect(text).toContain(
+      '- 2026-05-10, work: they added the leather belt for accessory after you saved it. "it needed a belt"',
+    );
+    // The section promises this now, and it did not before the add existed.
+    expect(text).toContain('what they wanted and you left out');
+    // Still the rest of the outfit, because a reason for an add names no clothes
+    // any more than a reason for a drop does.
+    expect(text).toContain('the rest of that outfit: base cotton t-shirt, bottom jeans, shoes leather sneakers');
+  });
 });
 
 describe('save_outfit', () => {
@@ -1093,6 +1113,23 @@ describe('past_outfits', () => {
     expect(text).toContain('linen shirt (linen-shirt-beige), in only because they asked: out of season');
     expect(text).toContain('you said back: "The oxford was warmer."');
     expect(text).toContain('they changed bottom: jeans out, chinos in. "the jeans were too warm"');
+  });
+
+  it('reads a piece the owner added with no fake garment going out', async () => {
+    savedOutfit({});
+    db.feedback.push({
+      outfit_id: 'o-x',
+      slot: 'outer',
+      from_id: null,
+      to_id: 'trench-navy',
+      reason: 'it turned cold after lunch',
+      created_at: '2026-09-04T09:00:00.000Z',
+    });
+
+    const text = textOf(await tool('past_outfits').call({}));
+
+    expect(text).toContain('they added outer: trench coat in. "it turned cold after lunch"');
+    expect(text).not.toContain('nothing out');
   });
 
   it("says these ids are not today's menu, which is the mistake it would otherwise cause", async () => {

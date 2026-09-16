@@ -461,6 +461,25 @@ function correctionLine(correction: Correction): string {
   const day = correction.at.slice(0, 10);
   const when = correction.event === null ? day : `${day}, ${correction.event}`;
 
+  // The rest of the outfit, because a reason like "too many layers" names no
+  // layers. Without it the reader is told a garment was taken out and never told
+  // what it was taken out of, which is most of what they need to not do it again.
+  const rest =
+    correction.alongside.length === 0
+      ? ''
+      : `\n  the rest of that outfit: ${correction.alongside.map((piece) => `${piece.slot} ${piece.subtype}`).join(', ')}`;
+
+  // An add took nothing out, so there is no two-clause split to make. Saying
+  // they filled a slot you left empty would be false for a second accessory,
+  // and false again when they dropped that piece themselves a minute earlier.
+  if (correction.from === null) {
+    const what =
+      correction.to === null || correction.to.subtype === null
+        ? 'a garment that is gone from the wardrobe'
+        : `the ${correction.to.subtype}`;
+    return `- ${when}: they added ${what} for ${correction.slot} after you saved it. "${correction.reason}"${rest}`;
+  }
+
   // A garment archived since has no name left to give, so the slot stands alone.
   const picked =
     correction.from.subtype === null
@@ -476,14 +495,6 @@ function correctionLine(correction: Correction): string {
         ? 'they changed it to a garment that is gone from the wardrobe'
         : `they changed it to the ${correction.to.subtype}`;
   }
-
-  // The rest of the outfit, because a reason like "too many layers" names no
-  // layers. Without it the reader is told a garment was taken out and never told
-  // what it was taken out of, which is most of what they need to not do it again.
-  const rest =
-    correction.alongside.length === 0
-      ? ''
-      : `\n  the rest of that outfit: ${correction.alongside.map((piece) => `${piece.slot} ${piece.subtype}`).join(', ')}`;
 
   return `- ${when}: ${picked}, ${changed}. "${correction.reason}"${rest}`;
 }
@@ -504,7 +515,7 @@ function correctionLine(correction: Correction): string {
 function correctionsSection(corrections: readonly Correction[]): string {
   return [
     'WHAT THE OWNER CORRECTED',
-    'After you saved an outfit, the owner changed a piece of it in the app and wrote down why. Their words, newest first. This is the only section here that tells you what they do not want.',
+    'After you saved an outfit, the owner changed a piece of it in the app and wrote down why. Their words, newest first. This is the only section here that tells you what they do not want, and what they wanted and you left out.',
     'Read every line before you compose, then read your finished outfit back against them. Putting back together a combination they already took apart is the specific mistake this section exists to stop, and it is the one they notice, because they are the one who wrote the sentence saying not to.',
     'These are not from the guide, so never cite one as a rule id. If today genuinely calls for something a correction argues against, you may still do it. Say so to them in the rationale rather than doing it quietly.',
     '',
@@ -1048,8 +1059,13 @@ function requestLines(request: OwnerRequest | null): readonly string[] {
 
 function correctedLines(corrections: readonly Correction[]): readonly string[] {
   return corrections.map((correction) => {
-    const out = correction.from.subtype ?? 'a garment gone from the wardrobe';
     const into = correction.to === null ? 'nothing' : (correction.to.subtype ?? 'a garment gone from the wardrobe');
+    // No "nothing out" on an add. The verb already says nothing went out, and a
+    // fake operand would read as a garment the reader should go looking for.
+    if (correction.from === null) {
+      return `    they added ${correction.slot}: ${into} in. "${correction.reason}"`;
+    }
+    const out = correction.from.subtype ?? 'a garment gone from the wardrobe';
     return `    they changed ${correction.slot}: ${out} out, ${into} in. "${correction.reason}"`;
   });
 }
