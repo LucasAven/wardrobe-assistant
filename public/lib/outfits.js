@@ -109,13 +109,18 @@ function readNamed(value) {
 /**
  * What the owner changed by hand. Read the way the rules are read: a row the
  * card cannot draw is dropped rather than drawn half empty.
+ *
+ * Both sides are nullable and they mean opposite things. No `to` is a piece the
+ * owner took out, no `from` is one they added to a slot the outfit never had,
+ * so only a row with neither side left says nothing a card can draw.
  */
 function readCorrections(value) {
   return asArray(value).flatMap((row) => {
     if (!isObject(row) || typeof row.slot !== 'string') return [];
     const from = readNamed(row.from);
-    if (from === null) return [];
-    return [{ slot: row.slot, from, to: readNamed(row.to), reason: asText(row.reason) }];
+    const to = readNamed(row.to);
+    if (from === null && to === null) return [];
+    return [{ slot: row.slot, from, to, reason: asText(row.reason) }];
   });
 }
 

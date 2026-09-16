@@ -197,7 +197,10 @@ export function createApi(options = {}) {
       return json(`/api/outfits?limit=${encodeURIComponent(limit)}`);
     },
 
-    swapPiece(id, edit) {
+    // One posting for the three edits a card can make, so the name is the wide
+    // one. The path stays `/swap`: it is private, and a second name for it would
+    // only be a second thing to keep in step.
+    editPiece(id, edit) {
       return json(`/api/outfits/${encodeURIComponent(id)}/swap`, { method: 'POST', ...jsonBody(edit) });
     },
 

@@ -1112,6 +1112,34 @@ p {
   text-align: left;
 }
 
+/* One row under the grid for the slots the outfit has no tile for, so a slot it
+   never had is still one tap from the same picker. The chips are the wardrobe
+   screen's own, and the row carries only the label and the box they scroll in. */
+.addrow {
+  padding: 12px 0 0;
+}
+
+/* The label sits above the chips rather than beside them. Beside them it takes
+   39px the chips need: measured at a 375px screen the four a bare outfit offers
+   want 289px and the card's content box is 313px, so the last one is cut off
+   mid word. Above, they get the whole width and nothing clips down to a 352px
+   phone. */
+.addrow__label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* A flex item does not shrink below its own content and these chips do not
+   wrap, so without this a narrower phone would widen the card past the screen
+   rather than scroll inside it the way the wardrobe's own chips do. */
+.addrow .filters {
+  min-width: 0;
+}
+
 /* The card holds its own picker, so there is no overlay and no second route. */
 .swap {
   display: flex;

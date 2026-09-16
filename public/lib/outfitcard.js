@@ -9,11 +9,30 @@
  * correcting works from the history for free.
  */
 import { append, button, clear, el } from './dom.js';
-import { bookTally, garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
+import { LAYER_ORDER, bookTally, garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
 import { imagePath, watchImage } from './photo.js';
 
 /** An outfit without one of these is not an outfit, so neither side offers to empty one. */
 const REQUIRED_SLOTS = ['base', 'bottom', 'shoes'];
+
+/** The layers an outfit can go without, which are the only ones it can be missing. */
+const ADDABLE_LAYERS = LAYER_ORDER.filter((slot) => !REQUIRED_SLOTS.includes(slot));
+
+/**
+ * The slots the card offers to fill: every layer the outfit is not already
+ * wearing, and `accessory` every time, because an outfit wears as many of those
+ * as the owner likes, so the first one and the fourth are the same gesture.
+ *
+ * `worn` comes in rather than being read off the outfit, since a wear logged on
+ * this phone counts the same as one the server already knows about. A worn
+ * outfit is the record of a day and the server refuses to change one, so it
+ * offers nothing at all.
+ */
+export function addableSlots(outfit, worn) {
+  if (worn) return [];
+  const held = new Set((outfit?.pieces ?? []).map((piece) => piece.slot));
+  return [...ADDABLE_LAYERS.filter((slot) => !held.has(slot)), 'accessory'];
+}
 
 const MISSING_NAME = 'a garment no longer in the wardrobe';
 
@@ -30,6 +49,9 @@ export function pieceLabel(slot, garment) {
   // falls back with the untagged ones rather than reading "Change the other".
   return kind === null || kind === undefined || kind === 'other' ? 'accessory' : kind;
 }
+
+/** `outer` and `accessory` both open on a vowel, and "Add a outer" is not a sentence. */
+const article = (word) => ('aeiou'.includes(word[0]) ? 'an' : 'a');
 
 /**
  * Kinds a body has one place for, copied from `ONE_PER_OUTFIT` in
@@ -137,8 +159,11 @@ function bookSection(cited, missed, outfitId) {
 }
 
 function changeLine(correction) {
-  const out = correction.from.subtype ?? MISSING_NAME;
   const into = correction.to === null ? 'nothing' : (correction.to.subtype ?? MISSING_NAME);
+  // A row with neither side never reaches the card, `readCorrections` drops it,
+  // so a missing `from` is always a real garment arriving on its own.
+  if (correction.from === null) return `${correction.slot}: ${into} added`;
+  const out = correction.from.subtype ?? MISSING_NAME;
   return `${correction.slot}: ${out} out, ${into} in`;
 }
 
@@ -303,12 +328,21 @@ function removeButton(ctx, outfit, wearNamed, onRemoved) {
  * saying the app's own filters were wrong, so a second filter would hide the
  * garment the tap exists to reach.
  *
+ * `target` is a piece the outfit wears, or a slot with no garment on it, which
+ * is the add: the owner is filling a slot the outfit never had and nothing
+ * steps out.
+ *
  * `done` takes the outfit the server sent back, or null when they backed out.
  */
-function picker(ctx, outfit, piece, done) {
-  const options = ctx.store.garments.filter((garment) => garment.slot === piece.slot);
+function picker(ctx, outfit, target, done) {
+  const options = ctx.store.garments.filter((garment) => garment.slot === target.slot);
   const tiles = new Map();
   let chosen;
+
+  const adding = target.garment === null;
+  // Null rides all the way to the wire, where it is the whole of what tells the
+  // server an add from a swap.
+  const fromId = adding ? null : target.garment.id;
 
   const reason = el('input', {
     class: 'control',
@@ -319,7 +353,11 @@ function picker(ctx, outfit, piece, done) {
     id: `swap-reason-${outfit.id}`,
     maxlength: '280',
     autocomplete: 'off',
-    placeholder: 'It itches, it is too warm, it does not go',
+    // The swap asks what was wrong with the garment going out. An add has no
+    // garment going out, so it asks for the thing the owner wanted instead.
+    placeholder: adding
+      ? 'It gets cold at night, the outfit needs a belt'
+      : 'It itches, it is too warm, it does not go',
   });
   const why = el('div', { class: 'field', hidden: true }, [
     el('label', { class: 'field__label', for: reason.id }, 'Why the change?'),
@@ -390,10 +428,12 @@ function picker(ctx, outfit, piece, done) {
 
   // The one-per-outfit kinds the outfit still wears once the tapped garment
   // steps out. The server refuses a second of any of them, so offering one here
-  // would cost the owner a reason typed out and a Save before it said no.
+  // would cost the owner a reason typed out and a Save before it said no. On an
+  // add nothing steps out, and a null `fromId` matches no garment, so every
+  // accessory the outfit wears keeps its claim.
   const kept = new Set(
     outfit.accessories
-      .filter((garment) => garment.id !== piece.garment.id)
+      .filter((garment) => garment.id !== fromId)
       .map((garment) => garment.accessoryKind)
       .filter((kind) => ONE_PER_OUTFIT.includes(kind)),
   );
@@ -403,7 +443,9 @@ function picker(ctx, outfit, piece, done) {
   );
 
   const grid = el('div', { class: 'grid' });
-  if (!REQUIRED_SLOTS.includes(piece.slot)) grid.append(option(null, 'Nothing here', null));
+  // "Nothing here" empties the slot, and an add starts from an empty one, so
+  // there it would be a tap asking for the state the card is already in.
+  if (!adding && !REQUIRED_SLOTS.includes(target.slot)) grid.append(option(null, 'Nothing here', null));
   for (const garment of options) {
     if (alreadyOn.has(garment.id)) grid.append(held(garment, 'in this outfit'));
     else if (kept.has(garment.accessoryKind)) {
@@ -413,7 +455,14 @@ function picker(ctx, outfit, piece, done) {
   // Counted off the garments, not off `tiles`, which also holds the "Nothing
   // here" option and so is never empty for a slot an outfit can leave off.
   if (offered.length === 0) {
-    grid.append(el('p', { class: 'empty__text' }, 'Nothing else in your wardrobe can go here.'));
+    // "else" counts the garment stepping out, and an add has none.
+    grid.append(
+      el(
+        'p',
+        { class: 'empty__text' },
+        adding ? 'Nothing in your wardrobe can go here.' : 'Nothing else in your wardrobe can go here.',
+      ),
+    );
   }
 
   reason.addEventListener('input', refresh);
@@ -422,8 +471,8 @@ function picker(ctx, outfit, piece, done) {
     save.disabled = true;
     save.textContent = 'Saving';
     try {
-      const body = await ctx.api.swapPiece(outfit.id, {
-        fromId: piece.garment.id,
+      const body = await ctx.api.editPiece(outfit.id, {
+        fromId,
         toId: chosen,
         reason: reason.value.trim(),
       });
@@ -437,8 +486,12 @@ function picker(ctx, outfit, piece, done) {
     }
   });
 
+  const heading = adding
+    ? `Add ${article(target.slot)} ${target.slot}`
+    : `Change the ${pieceLabel(target.slot, target.garment)}`;
+
   return el('div', { class: 'swap' }, [
-    el('h3', { class: 'section__title' }, `Change the ${pieceLabel(piece.slot, piece.garment)}`),
+    el('h3', { class: 'section__title' }, heading),
     grid,
     why,
     el('div', { class: 'swap__actions' }, [
@@ -496,7 +549,7 @@ export function outfitCard(
    * normally lands after it. Normally is not always, and a picker drawn from an
    * empty store would tell the owner they own nothing in this slot.
    */
-  async function drawPicker(piece) {
+  async function drawPicker(target) {
     clear(node);
     append(node, el('p', { class: 'empty__text' }, 'Reading your wardrobe.'));
     try {
@@ -510,7 +563,7 @@ export function outfitCard(
     clear(node);
     append(
       node,
-      picker(ctx, current, piece, (next) => {
+      picker(ctx, current, target, (next) => {
         if (next !== null) current = next;
         drawCard();
       }),
@@ -554,6 +607,29 @@ export function outfitCard(
             ),
           ]);
 
+    // Under the grid rather than a dashed hole standing in for each empty slot.
+    // Measured at a 375px shell, the holes cost a bare card 490px of empty photo
+    // frames and push the rationale off the screen, and the chips cost 70px and
+    // still name the slot they fill.
+    const open = addableSlots(current, worn);
+    const addRow =
+      open.length === 0
+        ? null
+        : el('div', { class: 'addrow' }, [
+            el('span', { class: 'addrow__label' }, 'Add'),
+            el(
+              'div',
+              { class: 'filters' },
+              open.map((slot) =>
+                button(slot, {
+                  class: 'filter',
+                  'aria-label': `Add ${article(slot)} ${slot}`,
+                  onclick: () => drawPicker({ slot, garment: null }),
+                }),
+              ),
+            ),
+          ]);
+
     clear(node);
     append(
       node,
@@ -569,6 +645,7 @@ export function outfitCard(
           ),
         ),
       ),
+      addRow,
       accessories,
       current.ownerRequest === null ? null : requestSection(current.ownerRequest),
       current.rationale === ''

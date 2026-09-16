@@ -25,7 +25,7 @@ import {
 import { askPosition, positionLine } from '../public/lib/geo.js';
 import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { pieceLabel } from '../public/lib/outfitcard.js';
+import { addableSlots, pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   bookTally,
@@ -1163,6 +1163,34 @@ test('a tile names an accessory by its kind and every other piece by its slot', 
   );
 });
 
+test('the add row offers every slot the outfit has no tile for, and none at all once it is worn', () => {
+  const bare = readOutfit({ ...SAVED, pieces: SAVED.pieces.filter((piece) => piece.slot !== 'mid') });
+  assert.deepEqual(
+    addableSlots(bare, false),
+    ['top', 'mid', 'outer', 'accessory'],
+    'base, bottom and shoes are left out: an outfit missing one of those is not one the picker can fix',
+  );
+
+  assert.deepEqual(
+    addableSlots(readOutfit(SAVED), false),
+    ['top', 'outer', 'accessory'],
+    'the mid it wears is not offered again, and the belt it wears does not close the accessory chip',
+  );
+
+  const layered = readOutfit({
+    ...SAVED,
+    pieces: [
+      ...SAVED.pieces,
+      { slot: 'top', garment: garment('t1', 'linen shirt') },
+      { slot: 'outer', garment: garment('o1', 'navy trench') },
+    ],
+  });
+  assert.deepEqual(addableSlots(layered, false), ['accessory'], 'every layer is taken, and a list is never full');
+
+  assert.deepEqual(addableSlots(layered, true), [], 'a worn outfit is the record of a day, so the row goes with the taps');
+  assert.deepEqual(addableSlots(bare, true), []);
+});
+
 test("the owner's corrections ride along with the outfit", () => {
   assert.deepEqual(readOutfit(SAVED).corrections, [], 'an outfit nobody touched was never corrected');
 
@@ -1178,7 +1206,8 @@ test("the owner's corrections ride along with the outfit", () => {
         reason: 'the overshirt is too warm indoors',
       },
       { slot: 'accessory', from: { id: 'a2' }, to: null, reason: 'no belt with this one' },
-      { slot: 'mid', from: null, reason: 'a row with no garment in it' },
+      { slot: 'outer', from: null, to: { id: 'o1', subtype: 'navy trench' }, reason: 'it turns cold at six' },
+      { slot: 'mid', from: null, reason: 'a row with no garment on either side' },
       'not a correction at all',
     ],
   });
@@ -1193,8 +1222,9 @@ test("the owner's corrections ride along with the outfit", () => {
         reason: 'the overshirt is too warm indoors',
       },
       { slot: 'accessory', from: { id: 'a2', subtype: null }, to: null, reason: 'no belt with this one' },
+      { slot: 'outer', from: null, to: { id: 'o1', subtype: 'navy trench' }, reason: 'it turns cold at six' },
     ],
-    'a row the card cannot draw is dropped, and a garment with no name reads as null',
+    'a piece added to a slot the outfit never had is kept, a row with neither side is dropped, and a garment with no name reads as null',
   );
 });
 
@@ -1323,7 +1353,7 @@ test('the screens hit the routes the worker registers', async () => {
   await api.putCutout('a 1', new Uint8Array([1]));
   await api.resetCutout('a 1');
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
-  await api.swapPiece('o 1', { fromId: 'm1', toId: null, reason: 'too warm indoors' });
+  await api.editPiece('o 1', { fromId: 'm1', toId: null, reason: 'too warm indoors' });
   await api.removeOutfit('o 1');
   await api.saveHome(-34.901112, -56.164531);
   await api.clearHome();
