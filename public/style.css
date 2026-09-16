@@ -1245,11 +1245,12 @@ p {
   border-left-color: var(--line);
 }
 
-/* The three rule sections say good, set aside and broken, so they take the three
-   colors that already mean that: the accent, the plain line, and the one the app
-   uses nowhere except where something is wrong. `--flag` was the first choice and
-   was measured against `--accent` on the phone, where 224,162,80 beside
-   217,178,107 read as the same heading twice. */
+/* Good, set aside and broken took the accent, the plain line and `--danger`.
+   `--flag` was the first choice for broken and was measured against `--accent` on
+   the phone, where 224,162,80 beside 217,178,107 read as the same heading twice.
+   Set aside has since moved off the plain line onto `--danger` too, up at
+   `.pill--missed`, so this is no longer the only place the app spends it. The
+   reason it still works is up there. */
 .section--broke .section__title {
   color: var(--danger);
 }
@@ -1331,9 +1332,14 @@ p {
   margin-top: 4px;
 }
 
-/* Kept takes the accent the card already spends on the book, and missed the
+/* Kept takes the accent the card already spends on the book. Missed took the
    plain border and quiet text `.rules--missed` gives the same rule in the panel
-   below, so a pill and its sentence read as the same thing twice. */
+   below, and Lucas reported that the two were hard to tell apart in a column, so
+   it takes `--danger` instead. That is the one color the rest of the app spends
+   only on a broken dont, and the cost is deliberate: a rule set aside on purpose
+   and a dont actually broken now share a hue. What still separates them is that
+   a broken dont is never a pill, it is its own section under this one, always
+   open and carrying the book's full sentence. */
 .pill {
   min-height: 44px;
   display: inline-flex;
@@ -1349,8 +1355,8 @@ p {
 }
 
 .pill--missed {
-  border-color: var(--line);
-  color: var(--muted);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .pill[aria-expanded="true"] {
@@ -1359,9 +1365,13 @@ p {
   color: var(--on-accent);
 }
 
+/* Not filled with `--danger` the way a kept pill fills with `--accent`, because
+   there is no on-danger token to put text on and a solid red pill would shout
+   louder than a rule missed on purpose deserves. The surface step is enough to
+   say which one is open. */
 .pill--missed[aria-expanded="true"] {
   background: var(--surface-2);
-  border-color: var(--muted);
+  border-color: var(--danger);
   color: var(--text);
 }
 
