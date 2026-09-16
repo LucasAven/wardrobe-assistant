@@ -961,6 +961,20 @@ export async function recentTitles(db: D1Database, limit: number): Promise<reado
 }
 
 /**
+ * How many outfits are saved against one plan, which is what `save_outfit` says
+ * back. A tool result is text and nothing else, so a composer part way through a
+ * set has no other way to learn that its earlier save landed.
+ */
+export async function outfitsInPlan(db: D1Database, planId: string): Promise<number> {
+  const row = await db
+    .prepare('SELECT count(*) AS total FROM outfit WHERE plan_id = ?')
+    .bind(planId)
+    .first<{ readonly total: number }>();
+
+  return row?.total ?? 0;
+}
+
+/**
  * When an outfit already carries this name, the day it was saved on.
  *
  * The comparison ignores case and the spaces around a name and nothing else,

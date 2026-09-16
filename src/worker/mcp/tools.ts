@@ -56,6 +56,7 @@ import {
   homeLocation,
   insertOutfit,
   outfitExists,
+  outfitsInPlan,
   readOutfits,
   recentCorrections,
   recentTitles,
@@ -357,7 +358,7 @@ function setTagsTool(context: ToolContext): ToolSpec {
 // plan_outfit
 // ---------------------------------------------------------------------------
 
-const PLAN_DESCRIPTION = `Does every part of choosing an outfit that a computer can do, and hands you the rest. Call it once, compose one outfit from what comes back, then call save_outfit.
+const PLAN_DESCRIPTION = `Does every part of choosing an outfit that a computer can do, and hands you the rest. Call it once, compose one outfit from what comes back, then call save_outfit. When the owner asks for options to pick from, set optionsWanted, compose that many outfits against the one plan this call returns, and call save_outfit once per outfit with the same planId. Calling plan_outfit again for the second outfit mints a second id and splits what the owner asked for into unrelated outfits, so it is the one thing that breaks a set.
 
 What it returns:
   - a planId. save_outfit only accepts garments from the plan that minted it, so keep it. A plan lives for one hour.
@@ -395,13 +396,22 @@ const PlanArgs = z.object({
     .describe(
       'Anything the owner said about how they want to look or feel today, in their own words. Free text, read by you and by nothing else.',
     ),
+  optionsWanted: z
+    .number()
+    .int()
+    .min(2)
+    .max(3)
+    .optional()
+    .describe(
+      'How many outfits to compose, and set it only when the owner asked to choose between them: "make me two or three so I can pick". A plain "what do I wear" is not that ask, and a mood is not that ask either. Leave it out and you compose one outfit, which is the normal case.',
+    ),
   ownerAsked: z
     .object({
       garmentIds: z
         .array(z.string().min(1))
         .min(1)
         .describe(
-          'The ids of the garments they named. Take them from the held back list of an earlier plan, from a menu, or from an outfit past_outfits read back. One request covers one outfit and expires with the plan.',
+          'The ids of the garments they named. Take them from the held back list of an earlier plan, from a menu, or from an outfit past_outfits read back. One request covers every outfit you compose on this plan, however many that is, and expires with the plan.',
         ),
       words: z
         .string()
@@ -615,6 +625,20 @@ function guideSection(bodyType: BodyProfile['bodyType'], gaps: readonly Wardrobe
   ].join('\n');
 }
 
+/**
+ * The opener of WHAT TO DO NEXT. The several case reuses the sentence tuned for
+ * the API composer, which never runs for this owner, and adds the only thing
+ * that holds a set together: one plan, one save per outfit, and names and
+ * rationales that tell the outfits apart.
+ */
+function composeLine(optionsWanted: number | undefined): string {
+  if (optionsWanted === undefined) {
+    return 'Compose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.';
+  }
+
+  return `Compose ${optionsWanted} outfits, different from each other in more than one piece. Every one fills base, bottom and shoes, and adds top, mid, outer and accessories when the day calls for them. Save every one of them with this same planId, because the shared id is what shows the owner one set of options instead of ${optionsWanted} unrelated outfits. One save_outfit call per outfit, one at a time, and wait for each answer before you send the next. Each outfit needs a name of its own and a rationale of its own, and the rationale says what that outfit does for them that the others do not.`;
+}
+
 function planTool(context: ToolContext): ToolSpec {
   return defineTool(
     {
@@ -666,7 +690,7 @@ function planTool(context: ToolContext): ToolSpec {
       if (plan.ownerAsked !== null) sections.push(ownerAskedSection(plan));
 
       sections.push(
-        `WHAT TO DO NEXT\nCompose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.${corrections.length === 0 ? '' : ' Before you send it, read it back against WHAT THE OWNER CORRECTED above, piece by piece: that section is the only record of what they have already rejected, and it is worth more to them than anything you can add.'}\n\nName it, in ${LANGUAGE_NAMES[profile.language]} and in at most 56 characters. A word or two for how it feels, then where it is going. "${TITLE_EXAMPLES[profile.language]}" is the shape of it, not a name to copy. Never list the clothes, the card already shows them. The name has to be the only one like it, because the owner reaches for an old outfit by its name, so two similar evenings called the same thing leave them pointing at both.${titles.length === 0 ? '' : ' Read NAMES ALREADY TAKEN above before you settle on one.'} save_outfit refuses a repeat.\n\nWrite the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
+        `WHAT TO DO NEXT\n${composeLine(args.optionsWanted)}${corrections.length === 0 ? '' : ' Before you send it, read it back against WHAT THE OWNER CORRECTED above, piece by piece: that section is the only record of what they have already rejected, and it is worth more to them than anything you can add.'}\n\nName it, in ${LANGUAGE_NAMES[profile.language]} and in at most 56 characters. A word or two for how it feels, then where it is going. "${TITLE_EXAMPLES[profile.language]}" is the shape of it, not a name to copy. Never list the clothes, the card already shows them. The name has to be the only one like it, because the owner reaches for an old outfit by its name, so two similar evenings called the same thing leave them pointing at both.${titles.length === 0 ? '' : ' Read NAMES ALREADY TAKEN above before you settle on one.'} save_outfit refuses a repeat.\n\nWrite the rationale to the wearer in ${LANGUAGE_NAMES[profile.language]}, two or three sentences saying what the outfit is doing for them today. Then call save_outfit with this planId.\n\nYour own styling taste is wanted and is the reason you are here. It is not the guide. A sentence only speaks for the guide when you cite the id of the rule it came from, so write everything else as your own read.`,
       );
 
       return ok(sections.join('\n\n'));
@@ -681,6 +705,8 @@ function planTool(context: ToolContext): ToolSpec {
 const SAVE_DESCRIPTION = `Checks an outfit you composed against the plan it came from, and stores it when it passes. The owner's app then shows it with the real photos.
 
 Every garment id has to come from the menu of the plan named by planId. Not from memory, not from an earlier plan, and not from a list you rebuilt: the wardrobe and the recency cooldowns move between calls, so a rebuilt menu is a different menu. An unknown or expired planId fails and tells you to call plan_outfit again.
+
+A plan accepts more than one save. When the owner asked for options, send every outfit of the set on that same planId, one call at a time, because the shared id is the only thing that groups them in the owner's app. Their names then have to differ from each other as well as from every outfit already saved: the owner sees the set side by side and reaches for one of them by name.
 
 What is checked here and nowhere else:
   - the warmth sums, against both bands the plan gave you
@@ -910,10 +936,18 @@ function saveTool(context: ToolContext): ToolSpec {
       const blocked = new Set(plan.gaps);
       const missedByChoice = ruleIds(certified.missed).filter((id) => !blocked.has(id));
 
+      // Counted after the insert, so it names where this outfit sits in the set.
+      // A tool result is text and nothing else, so this is the only way a
+      // composer part way through a set learns its earlier save landed.
+      const saved = await outfitsInPlan(context.env.DB, args.planId);
+
       return ok(
         'Saved. The app will show this outfit with the real photos.',
         `id: ${id}`,
         `link: ${context.origin}/#/today`,
+        saved <= 1
+          ? 'It is the only outfit on this plan.'
+          : `It is outfit ${saved} on this plan, so the owner sees ${saved} of them side by side as one set.`,
         `warmth ${certified.warmthCore} at the core, ${certified.warmthWithOuter} with the outer layer.`,
         certified.cited.length === 0
           ? 'It cites no guide rules.'

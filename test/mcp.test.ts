@@ -408,6 +408,44 @@ describe('plan_outfit', () => {
     expect(next).toContain('save_outfit refuses a repeat.');
   });
 
+  /**
+   * The ordinary morning, and the sentence it opens with is the one thing that
+   * has to stay exactly as it reads today. A set is the exception, so the
+   * absence of optionsWanted cannot start drifting toward one.
+   */
+  it('asks for one outfit when the owner asked for no options', async () => {
+    const text = textOf(await tool('plan_outfit').call(MOMENT));
+    const next = text.slice(text.indexOf('WHAT TO DO NEXT'));
+
+    expect(next).toContain(
+      'Compose one outfit. Fill base, bottom and shoes, and add top, mid, outer and accessories when the day calls for them.',
+    );
+    expect(next).not.toContain('different from each other');
+    expect(next).not.toContain('same planId');
+  });
+
+  it('asks for three outfits on one plan when the owner wants to pick', async () => {
+    const text = textOf(await tool('plan_outfit').call({ ...MOMENT, optionsWanted: 3 }));
+    const next = text.slice(text.indexOf('WHAT TO DO NEXT'));
+
+    // Verbatim from the composer written for the API path, which is the one
+    // piece of that dead path worth keeping.
+    expect(next).toContain(
+      'Compose 3 outfits, different from each other in more than one piece. Every one fills base, bottom and shoes, and adds top, mid, outer and accessories when the day calls for them.',
+    );
+    expect(next).toContain('Save every one of them with this same planId');
+    expect(next).toContain('one at a time, and wait for each answer before you send the next');
+    expect(next).toContain('a name of its own and a rationale of its own');
+    expect(next).not.toContain('Compose one outfit.');
+  });
+
+  it('refuses a count outside the two or three the owner can choose between', async () => {
+    const result = await tool('plan_outfit').call({ ...MOMENT, optionsWanted: 4 });
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('optionsWanted');
+  });
+
   it('writes the example name in the language the owner reads', async () => {
     build(TRIANGLE);
     const text = textOf(await tool('plan_outfit').call(MOMENT));
@@ -490,6 +528,38 @@ describe('save_outfit', () => {
     // that names no outfit is the one thing removing the outfit cannot take
     // with it.
     expect(textOf(result)).toContain(`with outfitId ${String(db.outfits[0]?.id)} and these garment ids`);
+  });
+
+  /**
+   * A tool result is text, so the count is the only way a composer part way
+   * through a set learns that its earlier save landed on the same plan.
+   */
+  it('says where an outfit sits in the set its plan holds', async () => {
+    const planId = await plan();
+    const first = await tool('save_outfit').call({
+      planId,
+      pieces: GOOD_PIECES,
+      title: 'The easy one for a mild morning',
+      rationale: 'Three layers so the shape reads.',
+      citedRules: [],
+    });
+
+    expect(textOf(first)).toContain('It is the only outfit on this plan.');
+
+    const second = await tool('save_outfit').call({
+      planId,
+      // Core warmth 4 with no shirt over the tee, which both bands still hold.
+      pieces: { base: 'tee-white', mid: 'cardigan-gray', bottom: 'jeans-indigo', shoes: 'sneakers-white' },
+      title: 'The lighter answer to the same morning',
+      rationale: 'One layer fewer for the same errands.',
+      citedRules: [],
+    });
+
+    expect(second.isError).toBe(false);
+    expect(textOf(second)).toContain(
+      'It is outfit 2 on this plan, so the owner sees 2 of them side by side as one set.',
+    );
+    expect(db.outfits).toHaveLength(2);
   });
 
   it('refuses a second hat and names the kind that was doubled', async () => {

@@ -220,6 +220,12 @@ export class FakeDb {
           .slice(0, Number(limit));
       }
 
+      // outfitsInPlan, which counts the outfits one plan holds.
+      if (sql.includes('count(*)') && sql.includes('WHERE plan_id = ?')) {
+        const planId = String(args[0]);
+        return [{ total: ordered.filter((row) => String(row.plan_id) === planId).length }];
+      }
+
       // recentTitles, which reads the names rather than the outfits carrying them.
       if (sql.includes("WHERE title IS NOT NULL AND trim(title) <> ''")) {
         return ordered.filter((row) => named(row)).slice(0, Number(args[0]));
