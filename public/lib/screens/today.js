@@ -1,6 +1,6 @@
 import { append, button, clear, el } from '../dom.js';
 import { askPosition } from '../geo.js';
-import { outfitCard } from '../outfitcard.js';
+import { outfitSet } from '../outfitset.js';
 import { savedClock, todayView } from '../outfits.js';
 import { forgetPref } from '../prefs.js';
 import { readWeather, weatherLine } from '../weather.js';
@@ -101,16 +101,25 @@ export function mountToday(ctx) {
     );
   }
 
-  function showOutfit(outfit) {
-    const clock = savedClock(outfit.createdAt);
+  /**
+   * One card for an outfit saved on its own, one pager for a set of options,
+   * and the sets decide which of the two. The screen hands every group over the
+   * same way, so it never asks how many outfits are in one.
+   */
+  function showSets(sets) {
     show(
-      outfitCard(ctx, outfit, {
-        caption: 'Today',
-        meta: clock === '' ? '' : `saved ${clock}`,
-        // Read again rather than cleared here. The screen keeps no outfit of
-        // its own, so asking once more is the only thing that reaches its
-        // empty state.
-        onRemoved: load,
+      ...sets.map((set) => {
+        // The time the first option landed, which is when the set was composed.
+        // The rest of them were saved in the same turn, seconds behind it.
+        const clock = savedClock(set.outfits[0].createdAt);
+        return outfitSet(ctx, set.outfits, {
+          caption: 'Today',
+          meta: clock === '' ? '' : `saved ${clock}`,
+          // Read again rather than cleared here. The screen keeps no outfit of
+          // its own, so asking once more is the only thing that reaches its
+          // empty state.
+          onRemoved: load,
+        });
       }),
     );
   }
@@ -118,9 +127,9 @@ export function mountToday(ctx) {
   async function load() {
     show(el('div', { class: 'empty' }, el('p', { class: 'empty__text' }, 'Looking for the outfit Claude saved.')));
     try {
-      const view = todayView(await ctx.api.getTodayOutfit());
+      const view = todayView(await ctx.api.getTodayOutfits());
       if (gone) return;
-      if (view.kind === 'outfit') showOutfit(view.outfit);
+      if (view.kind === 'sets') showSets(view.sets);
       else showEmpty(view);
     } catch (error) {
       if (gone) return;

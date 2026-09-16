@@ -189,7 +189,7 @@ export function createApi(options = {}) {
       return json(`/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
     },
 
-    getTodayOutfit() {
+    getTodayOutfits() {
       return json('/api/outfits/today');
     },
 

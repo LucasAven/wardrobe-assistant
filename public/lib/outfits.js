@@ -162,6 +162,7 @@ export function readOutfit(value) {
 
   return {
     id: asText(value.id),
+    planId: asText(value.planId),
     createdAt: asText(value.createdAt),
     pieces,
     accessories: asArray(value.accessories).filter(isObject),
@@ -190,11 +191,37 @@ export function readOutfits(body) {
   return outfits.sort((left, right) => savedAt(right) - savedAt(left));
 }
 
-/** What Today shows: the outfit that was saved, or the sentence that says how to get one. */
+/**
+ * The outfits gathered into the sets they were composed as, newest set first.
+ *
+ * The order is read off the list rather than off the clock. The caller hands
+ * these over newest first, so the sets come out in the order they are first
+ * met, and inside a set the order flips back to the order Claude wrote them:
+ * option 1 is the first outfit it composed, not the last.
+ */
+export function groupBySet(outfits) {
+  const sets = new Map();
+  for (const [index, outfit] of outfits.entries()) {
+    // An outfit saved before the plan id reached the client carries none, and
+    // one empty key would gather every one of them into a set they were never
+    // composed as, so each takes a key of its own that nothing can match.
+    const key = outfit.planId === '' ? `unplanned-${index}` : outfit.planId;
+    const found = sets.get(key);
+    if (found === undefined) sets.set(key, [outfit]);
+    else found.push(outfit);
+  }
+  return [...sets].map(([setId, group]) => ({ setId, outfits: group.reverse() }));
+}
+
+/**
+ * What Today shows: every set saved today, newest first, or the sentence that
+ * says how to get one. One request can be answered with two or three outfits,
+ * so a day holds sets rather than a single outfit.
+ */
 export function todayView(body) {
-  const outfit = readOutfit(body?.outfit);
-  if (outfit === null) return { kind: 'empty', ...NOTHING_SAVED };
-  return { kind: 'outfit', outfit };
+  const outfits = readOutfits(body);
+  if (outfits.length === 0) return { kind: 'empty', ...NOTHING_SAVED };
+  return { kind: 'sets', sets: groupBySet(outfits) };
 }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];

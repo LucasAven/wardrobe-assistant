@@ -30,6 +30,7 @@ import {
   NOTHING_SAVED,
   bookTally,
   garmentIds,
+  groupBySet,
   wearEntry,
   orderPieces,
   readOutfit,
@@ -1208,18 +1209,70 @@ test('every garment in a saved outfit reaches the wear log once', () => {
 });
 
 test('nothing saved for today is a sentence, not a blank screen', () => {
-  for (const body of [{ outfit: null }, {}, null, { outfit: { pieces: [] } }]) {
+  for (const body of [{ outfits: [] }, {}, null, { outfits: [{ pieces: [] }] }, { outfits: null }]) {
     const view = todayView(body);
     assert.equal(view.kind, 'empty');
     assert.equal(view.title, NOTHING_SAVED.title);
     assert.ok(view.title.length > 0, 'a blank screen is the one outcome worth avoiding');
     assert.match(view.detail, /Claude/, 'and it says who saves one, since the app cannot');
   }
+});
 
-  const view = todayView({ outfit: SAVED });
-  assert.equal(view.kind, 'outfit');
-  assert.equal(view.outfit.id, 'o1');
-  assert.equal(view.outfit.pieces.length, 4);
+test('today shows every outfit saved today, with the sets kept together', () => {
+  const options = [
+    { ...SAVED, id: 'a1', planId: 'plan-a', createdAt: '2026-09-03T08:12:00' },
+    { ...SAVED, id: 'a2', planId: 'plan-a', createdAt: '2026-09-03T08:12:30' },
+  ];
+  const alone = { ...SAVED, id: 'b1', planId: 'plan-b', createdAt: '2026-09-03T19:40:00' };
+
+  const view = todayView({ outfits: [alone, ...options] });
+  assert.equal(view.kind, 'sets');
+  assert.deepEqual(
+    view.sets.map((set) => set.outfits.map((outfit) => outfit.id)),
+    [['b1'], ['a1', 'a2']],
+    'the newest group leads, and the two options of one request are one group',
+  );
+  assert.equal(view.sets[1].outfits[0].pieces.length, 4, 'and every outfit in one is the card it was');
+
+  const one = todayView({ outfits: [SAVED] });
+  assert.equal(one.kind, 'sets', 'a single outfit is a set of one, so neither screen asks which it got');
+  assert.deepEqual(one.sets.map((set) => set.outfits.length), [1]);
+});
+
+test('the outfits of one request come back as one set, in the order they were composed', () => {
+  const plan = (id, createdAt) => ({ ...SAVED, id, planId: 'plan-a', createdAt });
+  const set = [plan('a1', '2026-09-03T08:12:00'), plan('a2', '2026-09-03T08:12:30'), plan('a3', '2026-09-03T08:13:00')];
+  const later = { ...SAVED, id: 'b1', planId: 'plan-b', createdAt: '2026-09-03T19:40:00' };
+  const earlier = { ...SAVED, id: 'c1', planId: 'plan-c', createdAt: '2026-09-01T10:00:00' };
+
+  const sets = groupBySet(readOutfits({ outfits: [earlier, ...set, later] }));
+  assert.deepEqual(
+    sets.map((one) => [one.setId, one.outfits.map((outfit) => outfit.id)]),
+    [
+      ['plan-b', ['b1']],
+      ['plan-a', ['a1', 'a2', 'a3']],
+      ['plan-c', ['c1']],
+    ],
+    'newest set first, and option 1 is the first outfit Claude wrote rather than the last',
+  );
+  assert.deepEqual(groupBySet([]), []);
+});
+
+test('an outfit saved with no plan on it stands alone instead of joining a false set', () => {
+  const older = { ...SAVED, id: 'o0', createdAt: '2026-09-01T19:40:00' };
+  const sets = groupBySet(readOutfits({ outfits: [SAVED, older] }));
+
+  assert.deepEqual(
+    sets.map((set) => set.outfits.map((outfit) => outfit.id)),
+    [['o1'], ['o0']],
+    'two outfits from a worker that sent no plan id are two answers, not one set of two',
+  );
+  assert.notEqual(sets[0].setId, sets[1].setId, 'and neither of them is keyed on the empty string');
+  assert.equal(readOutfit({ ...SAVED, planId: 'plan-a' }).planId, 'plan-a', 'a plan id that came through is kept');
+  // The reader hands back what arrived, empty included. Standing the id-less
+  // outfits apart is the grouping's job, asserted above, so that the reader
+  // stays a pure function of one response.
+  assert.equal(readOutfit({ ...SAVED, planId: '' }).planId, '');
 });
 
 test('the history reads newest first, and drops what it cannot draw', () => {
@@ -1264,7 +1317,7 @@ test('the screens hit the routes the worker registers', async () => {
   await api.getProfile();
   await api.saveProfile(profileBody(MIRROR.circular, 'circular', 'es'));
   await api.getWeather(-34.9011, -56.1645);
-  await api.getTodayOutfit();
+  await api.getTodayOutfits();
   await api.listOutfits(20);
   await api.wear(wearEntry(readOutfit(SAVED)));
   await api.putCutout('a 1', new Uint8Array([1]));
