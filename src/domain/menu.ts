@@ -80,8 +80,12 @@ function bansFor(bodyType: BodyType): readonly GarmentRule[] {
  * Which of today's filters this garment fails, rather than whether it fails any.
  * The list is what an owner's request waives and what the model is shown, so
  * "out of season" and "under the formality floor" have to stay told apart.
+ *
+ * Exported for `failedFilters` in `public/lib/outfitcard.js`, the copy the swap
+ * picker labels a candidate with, and for `test/swapLabelParity.test.ts`, which
+ * is the only thing that stops the two from drifting.
  */
-function failedFilters(garment: Garment, constraints: Constraints): readonly Waived[] {
+export function failedFilters(garment: Garment, constraints: Constraints): readonly Waived[] {
   const failed: Waived[] = [];
   if (!garment.seasons.includes(constraints.season)) failed.push('season');
   // The floor is about the silhouette, and an outfit reads as the lowest of its

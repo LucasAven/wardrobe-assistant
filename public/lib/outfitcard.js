@@ -323,6 +323,38 @@ function removeButton(ctx, outfit, wearNamed, onRemoved) {
 }
 
 /**
+ * Which of the outfit's own filters a candidate fails, copied from
+ * `failedFilters` in `src/domain/menu.ts`. The picker reads the wardrobe
+ * already on the phone and makes no call at all, so it cannot ask the engine
+ * what it would have said about this garment.
+ * `test/swapLabelParity.test.ts` fails when the two drift, and nothing else
+ * would notice: a tile would warn about a garment the engine admits, or say
+ * nothing about one the engine holds back, and the owner reads either as the
+ * engine's own word.
+ *
+ * The two null tests are the whole of what the server's has no need for. A
+ * saved outfit can be missing the event that gives it a floor, and a row with
+ * an unreadable date names no season, while a `Constraints` always has both.
+ *
+ * Accessories are exempt from the floor because the floor is about the
+ * silhouette and a ring is not part of one (`menu.ts:87-90`). That is one line,
+ * it could be edited away on the server, and the only symptom here would be an
+ * accessory tile saying the outfit is too formal for it.
+ *
+ * A list rather than a boolean for the server's own reason: out of season and
+ * under the floor stay told apart, and the tile is the one screen where the
+ * owner reads them.
+ */
+export function failedFilters(garment, day) {
+  const failed = [];
+  if (day.season !== null && !garment.seasons.includes(day.season)) failed.push('season');
+  if (day.minFormality !== null && garment.slot !== 'accessory' && garment.formality < day.minFormality) {
+    failed.push('formality');
+  }
+  return failed;
+}
+
+/**
  * The whole wardrobe for that slot, in the order the wardrobe screen shows it.
  * Nothing is filtered and nothing is labeled: the owner is at that moment
  * saying the app's own filters were wrong, so a second filter would hide the
