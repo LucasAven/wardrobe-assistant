@@ -797,8 +797,8 @@ p {
 /* `--flag` is what this app already means by "look at this", and the color is
    the whole signal: one caution can fire on most of a slot at once, so a bold
    line would shout on a grid that is mostly correct. Deliberately not
-   `.tile__slot`'s muted gray, which is the note under a tile the picker is
-   refusing. Nothing else on the tile changes, because `.tile--current`'s dashed
+   `.tile__slot`'s muted gray, which in this grid is the note under a tile the
+   picker is refusing. Nothing else on the tile changes, because `.tile--current`'s dashed
    faded frame is the refusal and a caution is not one. */
 .tile__warn {
   font-size: 11px;

@@ -376,9 +376,11 @@ function removeButton(ctx, outfit, wearNamed, onRemoved) {
  * an unreadable date names no season, while a `Constraints` always has both.
  *
  * Accessories are exempt from the floor because the floor is about the
- * silhouette and a ring is not part of one (`menu.ts:87-90`). That is one line,
- * it could be edited away on the server, and the only symptom here would be an
- * accessory tile saying the outfit is too formal for it.
+ * silhouette and a ring is not part of one. Named rather than cited by line,
+ * because the line moved inside the commit that first cited it: it is the
+ * `garment.slot !== 'accessory'` clause of the server's own `failedFilters`.
+ * That is one clause, it could be edited away there, and the only symptom here
+ * would be an accessory tile saying the outfit is too formal for it.
  *
  * A list rather than a boolean for the server's own reason: out of season and
  * under the floor stay told apart, and the tile is the one screen where the
