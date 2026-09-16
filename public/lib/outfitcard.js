@@ -313,13 +313,16 @@ function picker(ctx, outfit, piece, done) {
   const reason = el('input', {
     class: 'control',
     type: 'text',
-    id: 'swap-reason',
+    // Named after the outfit, the way the book panel above is. Two open history
+    // rows are two cards in one page, and one fixed id there points the label at
+    // the other card's input, so the tap lands in the wrong picker.
+    id: `swap-reason-${outfit.id}`,
     maxlength: '280',
     autocomplete: 'off',
     placeholder: 'It itches, it is too warm, it does not go',
   });
   const why = el('div', { class: 'field', hidden: true }, [
-    el('label', { class: 'field__label', for: 'swap-reason' }, 'Why the change?'),
+    el('label', { class: 'field__label', for: reason.id }, 'Why the change?'),
     reason,
     el('p', { class: 'field__hint' }, 'Claude reads this the next time it plans an outfit.'),
   ]);
