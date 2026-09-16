@@ -1,6 +1,6 @@
 import { append, button, clear, el } from '../dom.js';
-import { outfitCard } from '../outfitcard.js';
-import { readOutfits, savedLine } from '../outfits.js';
+import { outfitSet } from '../outfitset.js';
+import { groupBySet, readOutfits, savedLine } from '../outfits.js';
 
 /** Enough to scroll a couple of weeks back on a phone without paging. */
 const HISTORY_LIMIT = 20;
@@ -24,20 +24,31 @@ export function mountOutfits(ctx) {
    * days is not something you can scan for the outfit you remember. The day
    * moves to the small text on the right, taking the piece count's place: the
    * count is on the card a tap away and the day is not.
+   *
+   * A set holds two or three names and can be led by none of them, so it keeps
+   * the day and says how many outfits it opens into. The names are on the cards
+   * inside, which is where the choice between them is made anyway.
    */
-  function summaryOf(outfit) {
-    const when = savedLine(outfit.createdAt);
+  function summaryOf(set) {
+    // The time the first option landed, which is when the set was composed. The
+    // rest of them were saved in the same turn, seconds behind it.
+    const when = savedLine(set.outfits[0].createdAt);
+    if (set.outfits.length > 1) return { lead: when, aside: `${set.outfits.length} outfits` };
+
+    const [outfit] = set.outfits;
     if (outfit.title === '') return { lead: when, aside: summaryLine(outfit) };
     return { lead: outfit.title, aside: when };
   }
 
-  /** The card is built on the first open: twenty outfits is a hundred photos. */
-  function entry(outfit, index) {
-    const { lead, aside } = summaryOf(outfit);
+  /** The cards are built on the first open: twenty outfits is a hundred photos. */
+  function entry(set, index) {
+    const { lead, aside } = summaryOf(set);
     // The same question the card inside this row asks. A wear logged this
     // session may not be on the row the server just sent back, and a row
     // reading nothing over a card reading Worn is the disagreement to avoid.
-    const worn = outfit.worn || ctx.worn.isWorn(outfit.id);
+    // Any one option worn is a day this set was wearing, since the owner picks
+    // one of them and the rest stay unworn.
+    const worn = set.outfits.some((outfit) => outfit.worn || ctx.worn.isWorn(outfit.id));
 
     const box = el('details', { class: 'entry' }, [
       el('summary', { class: 'entry__summary' }, [
@@ -51,10 +62,13 @@ export function mountOutfits(ctx) {
     const build = () => {
       if (built) return;
       built = true;
+      // The row above already names a single outfit, and it cannot name three,
+      // so the names come back on a set, where they tell the options apart.
+      const showName = set.outfits.length > 1;
       // Read again rather than the row dropped here. The screen keeps no
       // outfits of its own, so asking once more is what stops the count in the
       // title and the list under it from disagreeing.
-      box.append(outfitCard(ctx, outfit, { showName: false, onRemoved: load }));
+      box.append(outfitSet(ctx, set.outfits, { showName, onRemoved: load }));
     };
 
     box.addEventListener('toggle', () => {
@@ -86,7 +100,7 @@ export function mountOutfits(ctx) {
       return;
     }
 
-    show(...outfits.map(entry));
+    show(...groupBySet(outfits).map(entry));
   }
 
   async function load() {
