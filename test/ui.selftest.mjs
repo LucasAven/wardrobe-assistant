@@ -25,7 +25,7 @@ import {
 import { askPosition, positionLine } from '../public/lib/geo.js';
 import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { addableSlots, cautionsFor, pieceLabel } from '../public/lib/outfitcard.js';
+import { CAUTION_WORDS, addableSlots, cautionsFor, pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   bookTally,
@@ -1522,25 +1522,72 @@ test('the two reasons a day can argue against a candidate stay told apart', () =
   assert.deepEqual(cautionsFor(confirmed({ seasons: ['summer'], formality: 5 }), SUMMER_FORMAL), []);
 });
 
-test('a tile never carries more than the two cautions the grid was measured for', () => {
+/**
+ * A season list is matched against a season, so a day with none has nothing to
+ * match it against. `[].includes(null)` and `['winter'].includes(null)` are both
+ * false, so a predicate that dropped this guard would call the whole wardrobe
+ * out of season on a row whose date cannot be read.
+ */
+test('a day the row cannot name argues against nothing', () => {
+  const winterCoat = confirmed({ seasons: ['winter'], formality: 1 });
+
+  assert.deepEqual(cautionsFor(winterCoat, { season: null, minFormality: null }), []);
+  assert.deepEqual(
+    cautionsFor(winterCoat, { season: null, minFormality: 4 }),
+    ['formality'],
+    'no date costs the season line and leaves the floor to speak for itself',
+  );
+  assert.deepEqual(
+    cautionsFor(confirmed({ seasons: [], formality: 5 }), { season: null, minFormality: null }),
+    [],
+    'an empty season list is only worth saying against a season',
+  );
+  assert.deepEqual(
+    cautionsFor(winterCoat, { season: 'summer', minFormality: null }),
+    ['season'],
+    'no event costs the formality line and leaves the season to speak for itself',
+  );
+});
+
+const EVERY_DAY_A_TILE_CAN_MEET = [null, 'spring', 'summer', 'autumn', 'winter'].flatMap((season) =>
+  [null, 1, 2, 3, 4, 5].map((minFormality) => ({ season, minFormality })),
+);
+
+/**
+ * The seam between what a garment can be cautioned for and what the picker has
+ * words for. `CAUTION_WORDS` is read only inside `picker`, which no test draws,
+ * so a key deleted from it renders the literal string "undefined" under a
+ * garment and nothing else in this repo notices.
+ */
+test('every caution a garment can draw has a word to draw it with', () => {
   const garments = [
     NEVER_TAGGED,
     GARMENT,
     { ...GARMENT, seasons: [] },
     confirmed({ seasons: [], formality: 1 }),
-    confirmed({ seasons: ['summer'], formality: 1 }),
+    confirmed({ seasons: ['winter'], formality: 1 }),
+    confirmed({ seasons: ['summer'], formality: 5 }),
     confirmed({ slot: 'accessory', seasons: [], formality: 1 }),
   ];
 
+  const drawn = new Set();
   for (const garment of garments) {
-    for (const season of [null, 'spring', 'summer', 'autumn', 'winter']) {
-      for (const minFormality of [null, 1, 2, 3, 4, 5]) {
-        const cautions = cautionsFor(garment, { season, minFormality });
-        assert.ok(
-          cautions.length <= 2,
-          `${garment.id} against ${season}/${minFormality} said ${cautions.join(' and ')}`,
-        );
-      }
+    for (const day of EVERY_DAY_A_TILE_CAN_MEET) {
+      const cautions = cautionsFor(garment, day);
+      assert.ok(
+        cautions.length <= 2,
+        `${garment.id} against ${day.season}/${day.minFormality} said ${cautions.join(' and ')}`,
+      );
+      for (const caution of cautions) drawn.add(caution);
     }
+  }
+
+  assert.deepEqual(
+    [...drawn].sort(),
+    Object.keys(CAUTION_WORDS).sort(),
+    'the sweep must reach every word, or a stale one could sit here unread',
+  );
+  for (const caution of drawn) {
+    assert.equal(typeof CAUTION_WORDS[caution], 'string', `${caution} has no word`);
   }
 });

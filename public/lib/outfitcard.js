@@ -228,7 +228,7 @@ const FILTER_WORDS = {
  * 'out of season' is the same string in both, which is the short one already
  * being right rather than a reference the two share.
  */
-const CAUTION_WORDS = {
+export const CAUTION_WORDS = {
   untagged: 'not tagged yet',
   no_season: 'no season set',
   season: 'out of season',

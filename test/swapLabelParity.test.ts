@@ -254,7 +254,11 @@ describe('a moment whose local month is not its UTC month', () => {
   });
 
   afterAll(() => {
-    process.env.TZ = ORIGINAL_TZ;
+    // Assigning `undefined` writes the string "undefined", which leaves the
+    // process in UTC rather than back where it started. In a file about reading
+    // a calendar that is the one restore that must not be approximate.
+    if (ORIGINAL_TZ === undefined) delete process.env.TZ;
+    else process.env.TZ = ORIGINAL_TZ;
   });
 
   /**
@@ -272,5 +276,32 @@ describe('a moment whose local month is not its UTC month', () => {
 
     expect(deriveConstraints({ ...MILD_ERRANDS, date }).season).toBe('autumn');
     expect(outfitDay({ createdAt: iso, event: null }).season).toBe('autumn');
+  });
+
+  /**
+   * The other half of the same drift, and the half a `toISOString()` sweep
+   * cannot reach. `created_at TEXT NOT NULL DEFAULT (datetime('now'))` writes
+   * `YYYY-MM-DD HH:MM:SS`, which JS reads as local time, so `new Date` plus
+   * `getUTCMonth` moves a row saved in the last hours of a month into the next
+   * one. On the four months that open a season that is the wrong half of the
+   * year, which is the whole reason the client reads the digits.
+   */
+  it('reads a space separated row by its own digits, not by a parsed instant', () => {
+    const LAST_HOURS: readonly (readonly [string, Season])[] = [
+      ['2026-02-28 22:00:00', 'summer'],
+      ['2026-05-31 23:00:00', 'autumn'],
+      ['2026-08-31 23:30:00', 'winter'],
+      ['2026-11-30 21:15:00', 'spring'],
+    ];
+
+    const wrong = LAST_HOURS.filter(([createdAt, season]) => {
+      const parsed = new Date(createdAt);
+      // The case only bites when the two readings really do differ, so a run in
+      // a zone where they agree fails here rather than passing on nothing.
+      expect(parsed.getUTCMonth()).not.toBe(parsed.getMonth());
+      return outfitDay({ createdAt, event: null }).season !== season;
+    });
+
+    expect(wrong).toEqual([]);
   });
 });
