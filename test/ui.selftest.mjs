@@ -25,7 +25,7 @@ import {
 import { askPosition, positionLine } from '../public/lib/geo.js';
 import { createLimiter } from '../public/lib/limiter.js';
 import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { addableSlots, pieceLabel } from '../public/lib/outfitcard.js';
+import { addableSlots, cautionsFor, pieceLabel } from '../public/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   bookTally,
@@ -33,6 +33,7 @@ import {
   groupBySet,
   wearEntry,
   orderPieces,
+  outfitDay,
   readOutfit,
   readOutfits,
   savedClock,
@@ -1423,4 +1424,123 @@ test('a waiver code the app does not know is dropped, not drawn', () => {
     '',
     'a request with no second opinion still draws',
   );
+});
+
+// ---------------------------------------------------------------------------
+// What the swap picker cautions about
+// ---------------------------------------------------------------------------
+
+test('the event a saved outfit was built for rides along with it', () => {
+  assert.equal(readOutfit({ ...SAVED, event: 'formal' }).event, 'formal');
+  assert.equal(
+    readOutfit({ ...SAVED, event: 'brunch' }).event,
+    null,
+    'an event code the app does not know must never reach a table lookup',
+  );
+  assert.equal(readOutfit(SAVED).event, null, 'an outfit saved before the event reached the phone');
+});
+
+test('a saved outfit gives up the day it was built for, or gives up nothing', () => {
+  assert.deepEqual(outfitDay({ createdAt: '2026-09-03T08:12:00', event: 'formal' }), {
+    season: 'spring',
+    minFormality: 4,
+  });
+  assert.deepEqual(
+    outfitDay({ createdAt: '2026-09-01 10:00:00', event: 'work' }),
+    { season: 'spring', minFormality: 3 },
+    'the space separated form the column DEFAULT writes reads the same as the ISO one',
+  );
+
+  assert.deepEqual(
+    outfitDay({ createdAt: '', event: 'work' }),
+    { season: null, minFormality: 3 },
+    'no date costs the season and leaves the floor',
+  );
+  assert.deepEqual(outfitDay({ createdAt: 'saved a while ago', event: 'work' }), {
+    season: null,
+    minFormality: 3,
+  });
+  assert.deepEqual(
+    outfitDay({ createdAt: '2026-13-04T08:12:00', event: 'work' }).season,
+    null,
+    'a month no calendar has falls through to no season rather than to spring',
+  );
+  assert.deepEqual(
+    outfitDay({ createdAt: '2026-09-03T08:12:00', event: null }),
+    { season: 'spring', minFormality: null },
+    'no event costs the floor and leaves the season',
+  );
+});
+
+/** Nothing has read this photo, so every tag on it is `blankDraft`'s placeholder. */
+const NEVER_TAGGED = { ...UNTAGGED, slot: 'base', formality: 3, seasons: [] };
+
+/** Confirmed by hand, so the tag state itself is never one of the reasons under test. */
+const confirmed = (over) => ({ ...GARMENT, reviewed: true, uncertain: [], ...over });
+
+const SUMMER = { season: 'summer', minFormality: null };
+const SUMMER_FORMAL = { season: 'summer', minFormality: 4 };
+
+test('a garment nobody has tagged says that, and says nothing else', () => {
+  assert.deepEqual(cautionsFor(NEVER_TAGGED, SUMMER), ['untagged']);
+  assert.deepEqual(
+    cautionsFor({ ...NEVER_TAGGED, formality: 1 }, SUMMER_FORMAL),
+    ['untagged'],
+    'the placeholder fails both filters, and both would be a claim about a photo nobody has read',
+  );
+});
+
+test('a garment with no season set is told apart from one in the wrong season', () => {
+  assert.deepEqual(
+    cautionsFor({ ...GARMENT, seasons: ['winter'] }, SUMMER),
+    ['season'],
+    'a guess nobody confirmed is still a reading, so it is judged like any other',
+  );
+  assert.deepEqual(cautionsFor({ ...GARMENT, seasons: [] }, SUMMER), ['no_season']);
+  assert.deepEqual(
+    cautionsFor(confirmed({ seasons: [] }), SUMMER),
+    ['no_season'],
+    'a reviewed row can carry an empty list too, so this is not the untagged test again',
+  );
+});
+
+test('the two reasons a day can argue against a candidate stay told apart', () => {
+  assert.deepEqual(cautionsFor(confirmed({ seasons: [], formality: 2 }), SUMMER_FORMAL), [
+    'no_season',
+    'formality',
+  ]);
+  assert.deepEqual(cautionsFor(confirmed({ seasons: ['winter'], formality: 2 }), SUMMER_FORMAL), [
+    'season',
+    'formality',
+  ]);
+
+  assert.deepEqual(
+    cautionsFor(confirmed({ slot: 'accessory', formality: 1, seasons: ['summer'] }), SUMMER_FORMAL),
+    [],
+    'the floor is about the silhouette, and a ring is not part of one',
+  );
+  assert.deepEqual(cautionsFor(confirmed({ seasons: ['summer'], formality: 5 }), SUMMER_FORMAL), []);
+});
+
+test('a tile never carries more than the two cautions the grid was measured for', () => {
+  const garments = [
+    NEVER_TAGGED,
+    GARMENT,
+    { ...GARMENT, seasons: [] },
+    confirmed({ seasons: [], formality: 1 }),
+    confirmed({ seasons: ['summer'], formality: 1 }),
+    confirmed({ slot: 'accessory', seasons: [], formality: 1 }),
+  ];
+
+  for (const garment of garments) {
+    for (const season of [null, 'spring', 'summer', 'autumn', 'winter']) {
+      for (const minFormality of [null, 1, 2, 3, 4, 5]) {
+        const cautions = cautionsFor(garment, { season, minFormality });
+        assert.ok(
+          cautions.length <= 2,
+          `${garment.id} against ${season}/${minFormality} said ${cautions.join(' and ')}`,
+        );
+      }
+    }
+  }
 });
