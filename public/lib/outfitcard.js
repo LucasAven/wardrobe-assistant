@@ -9,7 +9,17 @@
  * correcting works from the history for free.
  */
 import { append, button, clear, el } from './dom.js';
-import { LAYER_ORDER, bookTally, garmentIds, orderPieces, readOutfit, splitRules, wearEntry } from './outfits.js';
+import { tagState } from './garments.js';
+import {
+  LAYER_ORDER,
+  bookTally,
+  garmentIds,
+  orderPieces,
+  outfitDay,
+  readOutfit,
+  splitRules,
+  wearEntry,
+} from './outfits.js';
 import { imagePath, watchImage } from './photo.js';
 
 /** An outfit without one of these is not an outfit, so neither side offers to empty one. */
@@ -186,14 +196,43 @@ function changeList(corrections) {
 }
 
 /**
- * The same four sentences `FILTER_WORDS` holds in src/worker/compose.ts. Four
- * fixed words rather than a table with rules in it, so the copy cannot drift
- * into saying something the engine does not do.
+ * The three sentences this side mirrors from `FILTER_WORDS` in
+ * src/worker/compose.ts. Fixed words rather than a table with rules in it, so
+ * the copy cannot drift into saying something the engine does not do.
+ *
+ * Nothing pins the two tables together, and they have already parted: the
+ * formality line here says "the day's" where the server's says "today's". This
+ * is the right claim on a card about an outfit saved days ago, so the gap is
+ * worth knowing about rather than closing from this side.
  */
 const FILTER_WORDS = {
   season: 'out of season',
   formality: "under the day's formality floor",
   cooldown: 'worn too recently to come back yet',
+};
+
+/**
+ * What a picker tile says, and deliberately not `FILTER_WORDS`. The two are
+ * allowed to disagree, and the reason for a second table is length.
+ *
+ * "under the day's formality floor" is 31 characters. Measured in the real grid
+ * at a 375px screen, where a tile is 97.66px wide, it takes two lines on its own
+ * and three once the season line joins it, which drags every tile in that row
+ * from 119px to 171px. That is not a rare case: a formal outfit has a floor of
+ * 4, and in a 47 garment wardrobe every bottom, every mid and every base sits
+ * under it, so nearly every tile in the grid would carry the long line at once.
+ *
+ * The other table's words are also fragments, written to be swallowed by the
+ * sentence `honoredLine` wraps them in. These stand alone under a photo.
+ *
+ * 'out of season' is the same string in both, which is the short one already
+ * being right rather than a reference the two share.
+ */
+const CAUTION_WORDS = {
+  untagged: 'not tagged yet',
+  no_season: 'no season set',
+  season: 'out of season',
+  formality: 'too casual',
 };
 
 function honoredLine(honored) {
@@ -355,10 +394,52 @@ export function failedFilters(garment, day) {
 }
 
 /**
+ * What the tile says about a candidate, judged against the day the outfit was
+ * built for.
+ *
+ * An untagged garment says one thing and stops. `blankDraft` writes
+ * `seasons: []` and `formality: 3`, so the predicate above calls it out of
+ * season and a floor of 4 calls it too casual. Both are true of the engine and
+ * lies about the garment, since nobody has looked at the photo yet. A vision
+ * guess is a reading and is judged like any other, so only the placeholder is
+ * held back.
+ *
+ * "no season set" is this file's own, and it sits above the copied predicate on
+ * purpose: what comes from the server is pinned by the parity test, what is
+ * invented here is covered by the selftest, and this function is the seam. A
+ * reviewed garment can carry an empty season list too, so the split is not the
+ * untagged test over again.
+ */
+export function cautionsFor(garment, day) {
+  if (tagState(garment) === 'untagged') return ['untagged'];
+
+  const failed = failedFilters(garment, day);
+  const cautions = [];
+  if (failed.includes('season')) {
+    cautions.push(garment.seasons.length === 0 ? 'no_season' : 'season');
+  }
+  if (failed.includes('formality')) cautions.push('formality');
+  return cautions;
+}
+
+/**
  * The whole wardrobe for that slot, in the order the wardrobe screen shows it.
- * Nothing is filtered and nothing is labeled: the owner is at that moment
+ * Nothing is filtered and nothing is sorted: the owner is at that moment
  * saying the app's own filters were wrong, so a second filter would hide the
  * garment the tap exists to reach.
+ *
+ * Every candidate is labeled instead. A label hides nothing, costs no tap and
+ * refuses nothing, and the tile keeps its place in that order, its photo, its
+ * frame and its tap.
+ *
+ * The day behind the label is the outfit's own and never today's. An outfit
+ * built for a summer day and opened in the winter is still a summer outfit, so
+ * reading it against the day it is opened on would put a false warning on the
+ * one screen where the owner can argue with it least.
+ *
+ * A missing input means no caution rather than a default one. An outfit saved
+ * with no event has no floor to fail, and one with an unreadable date has no
+ * season to be out of.
  *
  * `target` is a piece the outfit wears, or a slot with no garment on it, which
  * is the add: the owner is filling a slot the outfit never had and nothing
@@ -368,6 +449,10 @@ export function failedFilters(garment, day) {
  */
 function picker(ctx, outfit, target, done) {
   const options = ctx.store.garments.filter((garment) => garment.slot === target.slot);
+  // Read once for the whole grid. Every candidate is judged against the same
+  // day, and that day cannot change while the picker is open, because it is the
+  // outfit's and the outfit is already saved.
+  const day = outfitDay(outfit);
   const tiles = new Map();
   let chosen;
 
@@ -425,10 +510,22 @@ function picker(ctx, outfit, target, done) {
       watchImage(frame, image);
     }
 
+    // "Nothing here" is not a garment and has no day to be wrong for.
+    const cautions = garment === null ? [] : cautionsFor(garment, day);
+
     const tile = el(
       'button',
       { type: 'button', class: 'tile', 'aria-pressed': 'false', onclick: () => pick(value) },
-      [frame, el('span', { class: 'tile__name' }, name)],
+      [
+        frame,
+        el('span', { class: 'tile__name' }, name),
+        // Inside the button rather than beside it, so the words join the
+        // control's own accessible name and a screen reader says "wool coat,
+        // out of season" about one thing.
+        cautions.length === 0
+          ? null
+          : el('span', { class: 'tile__warn' }, cautions.map((one) => CAUTION_WORDS[one]).join(' and ')),
+      ],
     );
     tiles.set(value, tile);
     return tile;
