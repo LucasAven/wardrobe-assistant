@@ -1,9 +1,22 @@
 node_modules
-.dev.vars
 .wrangler
 dist
-CONTEXT.md
-docs/
 *.local
+.DS_Store
+
+# Secrets. `.dev.vars` is what wrangler reads locally, the rest are here so a
+# file dropped in under any of the usual names cannot be committed by accident.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Working notes and source material, untracked on purpose. `docs/book` holds a
+# copyrighted guide this repo only cites, and `docs/` also holds body photos.
+CONTEXT.md
 HANDOFF.md
 BACKLOG.md
+docs/
