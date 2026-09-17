@@ -836,11 +836,11 @@ test('the stored type and the suggested one are read apart', () => {
 
 test('the home comes through as a pair of numbers, or as nothing at all', () => {
   const stored = { ...MIRROR.rectangle, bodyType: 'rectangle', language: 'en' };
-  const home = { lat: -34.901112, lon: -56.164531 };
+  const home = { lat: -34.111222, lon: -56.333444 };
 
   assert.deepEqual(readProfile({ profile: stored, suggestedType: 'rectangle', home }).home, home, 'and never rounded');
   assert.equal(readProfile({ profile: stored, suggestedType: 'rectangle' }).home, null, 'a reply without one reads as none');
-  assert.equal(readProfile({ profile: null, suggestedType: null, home: { lat: -34.9 } }).home, null, 'half a position is not one');
+  assert.equal(readProfile({ profile: null, suggestedType: null, home: { lat: -34.111 } }).home, null, 'half a position is not one');
 });
 
 test('the profile PUT carries the observations, the type and the language', () => {
@@ -862,7 +862,7 @@ test('answers count as unchanged only while all five match', () => {
 });
 
 test('a stored position is shown at about a hundred meters', () => {
-  assert.equal(positionLine({ lat: -34.901112, lon: -56.164531 }), '-34.901, -56.165');
+  assert.equal(positionLine({ lat: -34.111222, lon: -56.333444 }), '-34.111, -56.333');
   assert.equal(positionLine({ lat: 0, lon: 10 }), '0.000, 10.000');
 });
 
@@ -1347,7 +1347,7 @@ test('the screens hit the routes the worker registers', async () => {
 
   await api.getProfile();
   await api.saveProfile(profileBody(MIRROR.circular, 'circular', 'es'));
-  await api.getWeather(-34.9011, -56.1645);
+  await api.getWeather(-34.1112, -56.3334);
   await api.getTodayOutfits();
   await api.listOutfits(20);
   await api.wear(wearEntry(readOutfit(SAVED)));
@@ -1356,7 +1356,7 @@ test('the screens hit the routes the worker registers', async () => {
   await api.replacePhoto('a 1', new Uint8Array([1]), 'image/jpeg');
   await api.editPiece('o 1', { fromId: 'm1', toId: null, reason: 'too warm indoors' });
   await api.removeOutfit('o 1');
-  await api.saveHome(-34.901112, -56.164531);
+  await api.saveHome(-34.111222, -56.333444);
   await api.clearHome();
 
   assert.deepEqual(
@@ -1364,7 +1364,7 @@ test('the screens hit the routes the worker registers', async () => {
     [
       'GET /api/profile',
       'PUT /api/profile',
-      'GET /api/weather?lat=-34.9011&lon=-56.1645',
+      'GET /api/weather?lat=-34.1112&lon=-56.3334',
       'GET /api/outfits/today',
       'GET /api/outfits?limit=20',
       'POST /api/wear',
@@ -1385,7 +1385,7 @@ test('the screens hit the routes the worker registers', async () => {
   );
   assert.equal(calls[9].body, '{"fromId":"m1","toId":null,"reason":"too warm indoors"}');
   assert.equal(calls[5].body, '{"garmentIds":["s1","b1","p1","m1","a2"],"outfitId":"o1"}');
-  assert.equal(calls[11].body, '{"lat":-34.901112,"lon":-56.164531}', 'the coordinates go over the wire whole');
+  assert.equal(calls[11].body, '{"lat":-34.111222,"lon":-56.333444}', 'the coordinates go over the wire whole');
 });
 
 const REQUEST = {

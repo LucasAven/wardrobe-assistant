@@ -131,7 +131,7 @@ describe('profile route', () => {
 });
 
 describe('home location route', () => {
-  const HOME = { lat: -34.901112, lon: -56.164531 };
+  const HOME = { lat: -34.111222, lon: -56.333444 };
 
   it('stores both columns and answers the whole profile back', async () => {
     await call('PUT', 'http://x/api/profile', OBSERVATIONS);

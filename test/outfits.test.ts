@@ -1209,7 +1209,7 @@ describe("an owner's request on a stored outfit", () => {
 });
 
 describe('the home location', () => {
-  const HOME = { lat: -34.901112, lon: -56.164531 };
+  const HOME = { lat: -34.111222, lon: -56.333444 };
 
   it('reads back exactly what was written, to the digit', async () => {
     db.profile = { data: JSON.stringify(RECTANGLE) };
