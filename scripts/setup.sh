@@ -63,19 +63,20 @@ echo "==> migrations"
 
 cat <<'NEXT'
 
-Resources are ready. Three secrets left, each will prompt you to paste a value:
+Resources are ready. Two secrets left, each will prompt you to paste a value:
 
-  npx wrangler secret put ANTHROPIC_API_KEY
   npx wrangler secret put APP_PASSWORD
   npx wrangler secret put SESSION_SECRET      # any long random string
 
 For SESSION_SECRET:  openssl rand -base64 32
 
-For local dev, put the same three in .dev.vars (gitignored):
+ANTHROPIC_API_KEY is optional and the Claude connector never reads it. Set it
+only if you want the web app to tag a garment itself right after you photograph
+it, instead of asking the connector to:
 
-  ANTHROPIC_API_KEY="sk-ant-..."
-  APP_PASSWORD="whatever you want"
-  SESSION_SECRET="..."
+  npx wrangler secret put ANTHROPIC_API_KEY
+
+For local dev, copy .env.example to .dev.vars (gitignored) and fill it in.
 
 One thing the CLI cannot do: Cloudflare Images has to be turned on for the
 account in the dashboard, under Images. Background removal is an Images
