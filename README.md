@@ -133,6 +133,9 @@ public/         the web app. No build step.
 `public/` is plain ES modules the browser loads exactly as written, so there is
 no bundler, no framework, and nothing to keep in step with a build.
 
+`DOMAIN.md` covers the records underneath all of that: the slots, the garment
+fields, the body profile, and why the storage is split the way it is.
+
 ## Honest limits
 
 It has one user, by design. The season table is Buenos Aires, so July is winter
