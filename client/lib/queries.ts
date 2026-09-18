@@ -7,14 +7,18 @@ import { readOutfit } from './outfits.js';
 export const api = createApi({ onUnauthorized: () => authGate.open() });
 
 /**
- * The screens this replaces each loaded once a session and refetched only when
- * the user asked. Nothing here goes stale on its own, so a refetch is always
- * something the app asked for by name.
+ * Stale on arrival, which is what the screens this replaces did: every one of
+ * them called `load()` from its own mount, so opening a tab asked the server
+ * again. Only the two reads that went through the old `ensure()` are cached for
+ * the session, and they say so where they are defined.
+ *
+ * `gcTime: Infinity` keeps the last answer, so a screen reopened shows what it
+ * showed before while the refetch is in flight, rather than a spinner. Nothing
+ * refetches on its own: no focus, no reconnect, no interval.
  */
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: Infinity,
       gcTime: Infinity,
       retry: false,
       refetchOnWindowFocus: false,
@@ -36,14 +40,22 @@ export const weatherKey = (lat: number, lon: number) => ['weather', lat, lon] as
 export const gapsKey = ['gaps'] as const;
 export const reviewKey = (id: string | null) => ['review', id ?? 'queue'] as const;
 
+/**
+ * The wardrobe and the profile are the two the old app loaded once a session
+ * and refetched only when the user asked, so they keep that. Every screen that
+ * changes a garment writes the answer straight into this cache through
+ * `upsertGarment` or `removeGarment`, which is what makes one read enough.
+ */
 export const garmentsQuery = {
   queryKey: garmentsKey,
   queryFn: (): Promise<Garment[]> => api.listGarments(),
+  staleTime: Infinity,
 };
 
 export const profileQuery = {
   queryKey: profileKey,
   queryFn: (): Promise<ProfileData> => api.getProfile().then(readProfile),
+  staleTime: Infinity,
 };
 
 export function readGarments(): Garment[] {

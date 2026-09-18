@@ -142,7 +142,7 @@ export function Today() {
               are in one. */}
           {view !== null &&
             view.kind === 'sets' &&
-            view.sets.map((set, at: number) => {
+            view.sets.map((set) => {
               // The time the first option landed, which is when the set was
               // composed. The rest were saved in the same turn, seconds behind.
               const clock = savedClock(set.outfits[0]?.createdAt);
@@ -155,7 +155,9 @@ export function Today() {
                   // outfit of its own, so asking once more is the only thing
                   // that reaches its empty state.
                   onRemoved={() => void today.refetch()}
-                  key={set.outfits[0]?.id ?? at}
+                  // The ids, not the set, so removing one option rebuilds the
+                  // pager rather than leaving it on "Option 3 of 2".
+                  key={set.outfits.map((outfit) => outfit.id).join()}
                 />
               );
             })}

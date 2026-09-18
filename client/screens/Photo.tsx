@@ -9,6 +9,7 @@ import { retryPath } from '../lib/photo.js';
  */
 export function Photo({
   src,
+  alt = '',
   frameClass = 'tile__frame',
   imageClass = 'tile__img',
   retry = false,
@@ -16,6 +17,12 @@ export function Photo({
   children = null,
 }: {
   src: string | null;
+  /**
+   * Empty wherever the garment's name is already on screen next to the frame,
+   * which is every grid and picker tile. The review photo and the pieces on an
+   * outfit card are the two that have to say it themselves.
+   */
+  alt?: string;
   frameClass?: string;
   imageClass?: string;
   retry?: boolean;
@@ -43,7 +50,7 @@ export function Photo({
       <img
         className={imageClass}
         src={shown}
-        alt=""
+        alt={alt}
         loading={lazy ? 'lazy' : undefined}
         decoding="async"
         onError={() => setFailed(true)}

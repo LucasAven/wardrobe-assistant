@@ -501,6 +501,22 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
     );
   }
 
+  if (garments.isError) {
+    return (
+      <Body>
+        <div className="empty">
+          <p className="empty__text">{garments.error.message}</p>
+          <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
+            Try again
+          </button>
+        </div>
+      </Body>
+    );
+  }
+
+  // Only once the wardrobe was read and this garment was not in it. A failed
+  // read is answered above, or this would tell the owner a garment they can see
+  // on the wardrobe screen has been deleted.
   if (found === null) {
     return (
       <Body>

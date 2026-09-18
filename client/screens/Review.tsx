@@ -160,7 +160,9 @@ function Field({
 
       {field.control === 'chips' ? (
         <ChipsControl field={field} value={value} onChange={(next) => onChange(field.name, next)} />
-      ) : field.control === 'select' ? (
+      ) : field.control === 'text' || field.control === 'textarea' ? (
+        <TextControl field={field} value={value} onChange={(next) => onChange(field.name, next)} />
+      ) : (
         <>
           <select
             className="control control--select"
@@ -177,8 +179,6 @@ function Field({
           </select>
           {field.anchors !== undefined && <Anchors field={field} value={value} />}
         </>
-      ) : (
-        <TextControl field={field} value={value} onChange={(next) => onChange(field.name, next)} />
       )}
 
       {field.hint !== undefined && <p className="field__hint">{field.hint}</p>}
@@ -250,6 +250,8 @@ function ReviewCard({
   const [draft, setDraft] = useState<Draft>(() => ({ ...garment }));
   const [busy, setBusy] = useState(false);
   const [saveLabel, setSaveLabel] = useState<string | null>(null);
+  /** Its own, because one flag across three buttons makes Save relabel the retag. */
+  const [retagging, setRetagging] = useState(false);
 
   const patch = buildPatch(garment, draft);
   const dirty = Object.keys(patch).length > 0;
@@ -282,6 +284,7 @@ function ReviewCard({
   async function retag() {
     if (busy) return;
     setBusy(true);
+    setRetagging(true);
     try {
       const updated = await api.retagGarment(garment.id);
       upsertGarment(updated);
@@ -293,6 +296,7 @@ function ReviewCard({
       toast(error instanceof Error ? error.message : String(error), 'error');
     } finally {
       setBusy(false);
+      setRetagging(false);
     }
   }
 
@@ -315,7 +319,7 @@ function ReviewCard({
 
   return (
     <>
-      <Photo src={imagePath(garment)} frameClass="photo" imageClass="photo__img" retry lazy={false} />
+      <Photo src={imagePath(garment)} alt={garment.subtype} frameClass="photo" imageClass="photo__img" retry lazy={false} />
 
       {/* Both of these are about the whole garment rather than one field, and
           both belong above the fields. Removing used to sit under all nineteen
@@ -366,7 +370,7 @@ function ReviewCard({
           ))}
           <div className="grouprow">
             <button className="btn btn--small btn--ghost" type="button" disabled={busy} onClick={() => void retag()}>
-              {busy ? 'Sending it back' : 'Ask Claude again'}
+              {retagging ? 'Sending it back' : 'Ask Claude again'}
             </button>
           </div>
         </div>
@@ -405,21 +409,26 @@ export function Review({ route }: { route: { id: string | null } }) {
   const [index, setIndex] = useState(0);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const key = reviewKey(route.id);
+  /**
+   * One garment is the wardrobe filtered, not a second thing to keep in step.
+   * A cache entry of its own would still hold the pre-edit row after the photo
+   * editor wrote the new one into `['garments']`, and the review screen is
+   * exactly where the editor sends the user back to.
+   */
+  const garments = useQuery(garmentsQuery);
+  const key = reviewKey(null);
   const queue = useQuery({
     queryKey: key,
+    enabled: !single,
     queryFn: async (): Promise<Garment[]> => {
-      if (route.id !== null) {
-        const rows = await queryClient.ensureQueryData(garmentsQuery);
-        return rows.filter((row) => row.id === route.id);
-      }
       const rows: Garment[] = await api.listGarments({ reviewed: false });
       for (const row of rows) upsertGarment(row);
       return rows;
     },
   });
 
-  const rows = queue.data ?? [];
+  const source = single ? garments : queue;
+  const rows = single ? (garments.data ?? []).filter((row) => row.id === route.id) : (queue.data ?? []);
   const garment = rows[index] ?? null;
   const left = rows.length - index;
 
@@ -429,8 +438,13 @@ export function Review({ route }: { route: { id: string | null } }) {
     back: single ? '#/wardrobe' : null,
   });
 
+  /**
+   * Only the queue is a list this screen owns. In single mode the screen leaves
+   * for the wardrobe the moment anything changes, and the garment itself was
+   * already written to the cache by whoever changed it.
+   */
   function replace(next: Garment[]) {
-    queryClient.setQueryData(key, next);
+    if (!single) queryClient.setQueryData(key, next);
   }
 
   function advance() {
@@ -438,12 +452,12 @@ export function Review({ route }: { route: { id: string | null } }) {
     else setIndex((at) => at + 1);
   }
 
-  if (queue.isPending) return <Body>{message('Loading the queue.')}</Body>;
-  if (queue.isError) {
+  if (source.isPending) return <Body>{message('Loading the queue.')}</Body>;
+  if (source.isError) {
     return (
       <Body>
-        {message(queue.error.message, (
-          <button className="btn btn--primary" type="button" onClick={() => void queue.refetch()}>
+        {message(source.error.message, (
+          <button className="btn btn--primary" type="button" onClick={() => void source.refetch()}>
             Try again
           </button>
         ))}

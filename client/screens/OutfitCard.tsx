@@ -10,7 +10,7 @@
  *
  * What the card computes lives in `client/lib/outfitcard.js`.
  */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Photo } from './Photo.js';
 import {
@@ -47,7 +47,14 @@ type Target = { slot: string; garment: Garment | null };
 function PieceTile({ label, garment, onPick }: { label: string; garment: Garment; onPick: (() => void) | null }) {
   const body = (
     <>
-      <Photo src={imagePath(garment)} frameClass="piece__frame" imageClass="piece__img" retry lazy={false} />
+      <Photo
+        src={imagePath(garment)}
+        alt={garment.subtype}
+        frameClass="piece__frame"
+        imageClass="piece__img"
+        retry
+        lazy={false}
+      />
       <span className="piece__slot">{label}</span>
       <span className="piece__name">{garment.subtype}</span>
     </>
@@ -310,9 +317,19 @@ function Picker({
 }) {
   const { toast } = useShell();
   const garments = useQuery(garmentsQuery);
+  const reasonRef = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<{ id: string | null } | null>(null);
   const [reason, setReason] = useState('');
   const [saving, setSaving] = useState(false);
+
+  /**
+   * The sentence is the point of the whole gesture, so picking opens the
+   * keyboard on it. After the render, not in the handler: the field is still
+   * hidden while the pick is being applied, and a hidden input takes no focus.
+   */
+  useEffect(() => {
+    if (chosen !== null) reasonRef.current?.focus();
+  }, [chosen]);
 
   const adding = target.garment === null;
   // Null rides all the way to the wire, where it is the whole of what tells the
@@ -326,9 +343,22 @@ function Picker({
    */
   if (garments.isPending) return <p className="empty__text">Reading your wardrobe.</p>;
   if (garments.isError) {
-    toast(garments.error.message, 'error');
-    onDone(null);
-    return null;
+    // Said here rather than toasted on the way back to the card. The old screen
+    // could toast and redraw because it was doing this from a click handler,
+    // and doing it from a render would be a setState in the middle of one.
+    return (
+      <div className="swap">
+        <p className="empty__text">{garments.error.message}</p>
+        <div className="swap__actions">
+          <button className="btn btn--ghost" type="button" onClick={() => onDone(null)}>
+            Cancel
+          </button>
+          <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
+            Try again
+          </button>
+        </div>
+      </div>
+    );
   }
 
   const options = garments.data.filter((garment) => garment.slot === target.slot);
@@ -356,6 +386,7 @@ function Picker({
 
   const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !kept.has(garment.accessoryKind));
   const canSave = chosen !== null && reason.trim() !== '';
+
 
   async function save() {
     if (!canSave || chosen === null) return;
@@ -434,6 +465,7 @@ function Picker({
           // history rows are two cards in one page, and one fixed id there
           // points the label at the other card's input.
           id={`swap-reason-${outfit.id}`}
+          ref={reasonRef}
           maxLength={280}
           autoComplete="off"
           // The swap asks what was wrong with the garment going out. An add has
@@ -512,6 +544,19 @@ export function OutfitCard({
   const [current, setCurrent] = useState<Outfit>(outfit);
   const [target, setTarget] = useState<Target | null>(null);
   const [wornNow, setWornNow] = useState(false);
+
+  /**
+   * A swap lands here rather than in a query, because the card is handed one
+   * outfit and does not know which list holds it. So the screen above has to be
+   * able to overrule it: a refetch builds new outfit objects, and the card that
+   * ignored them would sit on what it read when it mounted. The old card was
+   * rebuilt from scratch on every refetch, which is the behaviour this keeps.
+   */
+  const given = useRef(outfit);
+  if (given.current !== outfit) {
+    given.current = outfit;
+    setCurrent(outfit);
+  }
 
   if (target !== null) {
     return (

@@ -81,6 +81,9 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
       </summary>
       {built && (
         <OutfitSet
+          // The ids, not the set, so removing one option rebuilds the pager
+          // rather than leaving it on "Option 3 of 2".
+          key={set.outfits.map((outfit) => outfit.id).join()}
           outfits={set.outfits}
           // The row above already names a single outfit, and it cannot name
           // three, so the names come back on a set, where they tell the options
