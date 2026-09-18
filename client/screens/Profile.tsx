@@ -22,6 +22,7 @@ import { api, profileKey, profileQuery, queryClient } from '../lib/queries.js';
 import type { ProfileData } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome, useShell } from '../lib/shell.js';
+import { useWrite } from '../lib/write.js';
 
 /** The two waits behind one tap, so the button says which one it is in. */
 const HOME_STEP_LABEL = { asking: 'Asking', saving: 'Saving' };
@@ -99,9 +100,8 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
         },
   );
   const [language, setLanguage] = useState<string>(() => stored.profile?.language ?? DEFAULT_LANGUAGE);
-  const [busy, setBusy] = useState(false);
-  /** Null, or the step the one home action is in. */
-  const [homeStep, setHomeStep] = useState<'asking' | 'saving' | null>(null);
+  /** True while the browser is being asked where we are, which is not a write. */
+  const [asking, setAsking] = useState(false);
   const [saveLabel] = useState(stored.profile === null ? 'Save profile' : 'Save changes');
 
   /**
@@ -124,42 +124,43 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
   const left = unanswered(answers).length;
   const complete = isComplete(answers);
   const type = BODY_TYPES.find((entry) => entry.value === chosen) ?? null;
-  const working = homeStep === null ? null : HOME_STEP_LABEL[homeStep];
-
-  /** Both writes answer the whole profile, so the card redraws from the reply. */
-  async function applyHome(call: () => Promise<unknown>, done: string) {
-    setHomeStep('saving');
-    try {
-      queryClient.setQueryData(profileKey, readProfile(await call()));
+  /**
+   * Saving and forgetting are one control on screen, so they are one write
+   * here. Both answer the whole profile, so the card redraws from the reply and
+   * the only thing that differs is the line it says afterwards.
+   */
+  const home = useWrite({
+    run: ({ call }: { call: () => Promise<unknown>; done: string }) => call(),
+    onDone: (body, { done }) => {
+      queryClient.setQueryData(profileKey, readProfile(body));
       toast(done);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    } finally {
-      setHomeStep(null);
-    }
-  }
+    },
+  });
+
+  /** Asking comes before saving, and only one of the two is a write. */
+  const homeStep = asking ? 'asking' : home.isPending ? 'saving' : null;
+  const working = homeStep === null ? null : HOME_STEP_LABEL[homeStep];
 
   async function useHere() {
     if (homeStep !== null) return;
-    setHomeStep('asking');
+    setAsking(true);
 
     // The owner just tapped this, which is a newer answer than a denial
     // remembered on the Today screen days ago, so that one does not stop it.
     const position = await askPosition({ remembered: false });
+    setAsking(false);
     if (!position.found) {
-      setHomeStep(null);
       toast(NO_POSITION[position.cause] ?? NO_POSITION['unknown'] ?? '', 'error');
       return;
     }
-    await applyHome(() => api.saveHome(position.lat, position.lon), 'Home saved.');
+    home.mutate({ call: () => api.saveHome(position.lat, position.lon), done: 'Home saved.' });
   }
 
-  async function submit() {
-    if (busy) return;
-    const first = stored.profile === null;
-    setBusy(true);
-    try {
-      const next = readProfile(await api.saveProfile(profileBody(answers, chosen, language)));
+  const submit = useWrite({
+    run: () => api.saveProfile(profileBody(answers, chosen, language)),
+    onDone: (body) => {
+      const first = stored.profile === null;
+      const next = readProfile(body);
       queryClient.setQueryData(profileKey, next);
       // A saved profile is the only thing standing between the user and the
       // screen they came for, so the first save walks them there.
@@ -169,12 +170,8 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
       }
       setOverride(next.suggestedType === next.profile?.bodyType ? null : (next.profile?.bodyType ?? null));
       toast('Profile saved.');
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
+    },
+  });
 
   return (
     <Body>
@@ -294,7 +291,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
                 className="btn btn--small btn--ghost"
                 type="button"
                 disabled={working !== null}
-                onClick={() => void applyHome(() => api.clearHome(), 'Home forgotten.')}
+                onClick={() => home.mutate({ call: () => api.clearHome(), done: 'Home forgotten.' })}
               >
                 Forget it
               </button>
@@ -316,10 +313,10 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
         <button
           className="btn btn--primary btn--wide"
           type="button"
-          disabled={!complete || busy}
-          onClick={() => void submit()}
+          disabled={!complete || submit.isPending}
+          onClick={() => submit.mutate()}
         >
-          {busy ? 'Saving' : saveLabel}
+          {submit.isPending ? 'Saving' : saveLabel}
         </button>
       </div>
     </Body>
