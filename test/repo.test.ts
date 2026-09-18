@@ -176,7 +176,10 @@ describe('toJson', () => {
     expect(json['uncertain']).toEqual(['fit']);
     expect(json['archived']).toBe(false);
     expect(json['createdAt']).toBe('2026-09-01 08:30:00');
-    expect(json['image_cutout']).toBeUndefined();
+    // `toJson` returns `StoredGarmentView` now, so reading a snake_case key off
+    // it is a compile error. The keys are still worth checking at runtime: the
+    // body is spread from the parsed row, and a spread carries whatever it has.
+    expect(Object.keys(json)).not.toContain('image_cutout');
   });
 });
 

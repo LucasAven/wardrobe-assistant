@@ -27,7 +27,7 @@ type Shot = {
  * kept so a retry does not decode the photo a second time, and the release is
  * the object URL `createThumbnail` falls back to when a canvas is not available.
  */
-type Work = { file: File; cutout: boolean; body: unknown; release: (() => void) | null };
+type Work = { file: File; cutout: boolean; body: Blob | null; release: (() => void) | null };
 
 function finishedLine(total: number, done: number, failed: number, untagged: number) {
   if (failed > 0) return `${done} saved, ${failed} failed. Retry them above.`;
@@ -71,13 +71,15 @@ export function Upload() {
       limiters.uploads
         .run(async () => {
           patch(id, { state: 'uploading', status: 'Preparing' });
-          if (row.body === null) {
-            const { body, normalized } = await normalizeForUpload(row.file, { cutout: row.cutout });
+          let body = row.body;
+          if (body === null) {
+            const prepared = await normalizeForUpload(row.file, { cutout: row.cutout });
+            body = prepared.body;
             row.body = body;
-            if (!normalized) patch(id, { note: 'Sent full size.' });
+            if (!prepared.normalized) patch(id, { note: 'Sent full size.' });
           }
           patch(id, { state: 'uploading', status: 'Uploading' });
-          return api.uploadGarment(row.body, { cutout: row.cutout });
+          return api.uploadGarment(body, { cutout: row.cutout });
         })
         .then(
           (garment) => {

@@ -379,12 +379,15 @@ function Picker({
   // accessory the outfit wears keeps its claim.
   const kept = new Set<string>(
     outfit.accessories
-      .filter((garment: Garment) => garment.id !== fromId)
-      .map((garment: Garment) => garment.accessoryKind)
-      .filter((kind: string) => ONE_PER_OUTFIT.includes(kind)),
+      .filter((garment) => garment.id !== fromId)
+      .map((garment) => garment.accessoryKind)
+      // An accessory with no kind claims nothing, which is what the old
+      // `ONE_PER_OUTFIT.includes(null)` already answered.
+      .filter((kind): kind is string => kind !== null && ONE_PER_OUTFIT.includes(kind)),
   );
 
-  const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !kept.has(garment.accessoryKind));
+  const claimed = (garment: Garment) => garment.accessoryKind !== null && kept.has(garment.accessoryKind);
+  const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !claimed(garment));
   const canSave = chosen !== null && reason.trim() !== '';
 
 
@@ -425,7 +428,7 @@ function Picker({
         {options.map((garment) =>
           alreadyOn.has(garment.id) ? (
             <HeldTile garment={garment} note="in this outfit" worn key={garment.id} />
-          ) : kept.has(garment.accessoryKind) ? (
+          ) : claimed(garment) ? (
             <HeldTile
               garment={garment}
               note={`already wearing a ${garment.accessoryKind}`}

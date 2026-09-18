@@ -43,10 +43,11 @@ function Weather() {
     };
   }, [asks]);
 
+  const at = located;
   const forecast = useQuery({
-    queryKey: located === null ? ['weather', 'none'] : weatherKey(located.lat, located.lon),
-    enabled: located !== null,
-    queryFn: async () => readWeather(await api.getWeather(located?.lat, located?.lon)),
+    queryKey: at === null ? ['weather', 'none'] : weatherKey(at.lat, at.lon),
+    enabled: at !== null,
+    queryFn: async () => (at === null ? null : readWeather(await api.getWeather(at.lat, at.lon))),
   });
 
   const reading = forecast.data ?? null;

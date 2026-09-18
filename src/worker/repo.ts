@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Garment, GarmentId } from '../domain/types';
+import type { StoredGarmentView } from './contract';
 import type { GarmentTags } from './vision';
 import { GarmentDraftSchema, TAGGED_FIELDS } from './vision';
 
@@ -108,7 +109,7 @@ export function parseGarmentRow(row: unknown): StoredGarment {
 }
 
 /** Flat shape for the API. The PWA wants one object, not a garment inside a wrapper. */
-export function toJson(stored: StoredGarment): Record<string, unknown> {
+export function toJson(stored: StoredGarment): StoredGarmentView {
   return {
     ...stored.garment,
     photoVersion: stored.photoVersion,

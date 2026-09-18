@@ -56,6 +56,11 @@ async function reencode(file, type) {
  * A decode or an export that fails hands back the untouched file. A slow upload
  * beats a garment that never lands.
  */
+/**
+ * @param {Blob} file
+ * @param {{ cutout?: boolean }} [options]
+ * @returns {Promise<{ body: Blob, normalized: boolean }>}
+ */
 export async function normalizeForUpload(file, { cutout = false } = {}) {
   try {
     const blob = await reencode(file, normalizedType(cutout));
