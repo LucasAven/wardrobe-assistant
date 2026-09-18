@@ -37,7 +37,7 @@ import { imagePath } from '../lib/photo.js';
 import { api, garmentsQuery } from '../lib/queries.js';
 import type { Garment, Outfit } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
-import { isWorn, markWorn } from '../lib/worn.js';
+import { markWorn, useWorn } from '../lib/worn.js';
 
 const REMOVE_ARM_MS = 4000;
 
@@ -150,7 +150,7 @@ function BookSection({ cited, missed, outfitId }: { cited: Rule[]; missed: Rule[
  * wear also flips the outfit's own `worn` flag is the Worker's business, and
  * leaving the screen and coming back must not offer to log the same day twice.
  */
-function WearButton({ outfit, already, onWorn }: { outfit: Outfit; already: boolean; onWorn: () => void }) {
+function WearButton({ outfit, already }: { outfit: Outfit; already: boolean }) {
   const { toast } = useShell();
   const [saving, setSaving] = useState(false);
 
@@ -159,7 +159,6 @@ function WearButton({ outfit, already, onWorn }: { outfit: Outfit; already: bool
     try {
       await api.wear(wearEntry(outfit));
       markWorn(outfit.id);
-      onWorn();
     } catch (error) {
       setSaving(false);
       toast(error instanceof Error ? error.message : String(error), 'error');
@@ -546,7 +545,7 @@ export function OutfitCard({
 }) {
   const [current, setCurrent] = useState<Outfit>(outfit);
   const [target, setTarget] = useState<Target | null>(null);
-  const [wornNow, setWornNow] = useState(false);
+  const wornSession = useWorn();
 
   /**
    * A swap lands here rather than in a query, because the card is handed one
@@ -581,11 +580,11 @@ export function OutfitCard({
   // The test the wear button already made, read once: an outfit that was worn
   // is the record of a day, so the server refuses to change one and the card
   // offers no tap.
-  const worn = current.worn || isWorn(current.id) || wornNow;
+  const worn = current.worn || wornSession.has(current.id);
   // A narrower question than `worn`, and the one the remove control needs: an
   // outfit worn before migration 009, or through a log_wear that left the id
   // out, is worn off the day and the garments and no row claims it.
-  const wearNamed = current.wearNamed || isWorn(current.id) || wornNow;
+  const wearNamed = current.wearNamed || wornSession.has(current.id);
   const open = addableSlots(current, worn);
   const request = current.ownerRequest;
 
@@ -727,7 +726,7 @@ export function OutfitCard({
         </section>
       )}
 
-      <WearButton outfit={current} already={worn} onWorn={() => setWornNow(true)} />
+      <WearButton outfit={current} already={worn} />
 
       {onRemoved !== null && (
         <div className="outfit__remove">

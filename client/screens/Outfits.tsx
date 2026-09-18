@@ -6,7 +6,7 @@ import { api, outfitsKey } from '../lib/queries.js';
 import type { Outfit } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome } from '../lib/shell.js';
-import { isWorn } from '../lib/worn.js';
+import { useWorn } from '../lib/worn.js';
 
 /** Enough to scroll a couple of weeks back on a phone without paging. */
 const HISTORY_LIMIT = 20;
@@ -53,6 +53,7 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
   // left rather than reloading its photos.
   const [built, setBuilt] = useState(openFirst);
   const box = useRef<HTMLDetailsElement>(null);
+  const wornSession = useWorn();
   const { lead, aside } = summaryOf(set);
 
   useEffect(() => {
@@ -61,10 +62,11 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
 
   // The same question the card inside this row asks. A wear logged this session
   // may not be on the row the server just sent back, and a row reading nothing
-  // over a card reading Worn is the disagreement to avoid. Any one option worn
-  // is a day this set was wearing, since the owner picks one of them and the
-  // rest stay unworn.
-  const worn = set.outfits.some((outfit) => outfit.worn || isWorn(outfit.id));
+  // over a card reading Worn is the disagreement to avoid, so this subscribes
+  // and the tap inside the row reaches the summary above it. Any one option
+  // worn is a day this set was wearing, since the owner picks one of them and
+  // the rest stay unworn.
+  const worn = set.outfits.some((outfit) => outfit.worn || wornSession.has(outfit.id));
 
   return (
     <details
