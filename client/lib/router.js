@@ -13,6 +13,11 @@ export function parseRoute(hash) {
   return { name, id: id === undefined || id === '' ? null : decodeURIComponent(id) };
 }
 
+/**
+ * @param {string} name
+ * @param {string | null} [id]
+ * @returns {string}
+ */
 export function routeHash(name, id = null) {
   return id === null ? `#/${name}` : `#/${name}/${encodeURIComponent(id)}`;
 }

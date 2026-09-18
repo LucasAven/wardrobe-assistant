@@ -51,7 +51,7 @@ import {
   rotateCrop,
   rotatedSize,
   sourcePoint,
-} from '../client/lib/screens/editphoto.js';
+} from '../client/lib/photoedit.js';
 import { forgetPref, readChoice, readPref, writePref } from '../client/lib/prefs.js';
 import { parseRoute, routeHash } from '../client/lib/router.js';
 import { FIELDS, isAsked, isRelevant, relevantFields } from '../client/lib/vocab.js';

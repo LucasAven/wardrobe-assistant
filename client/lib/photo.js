@@ -69,21 +69,3 @@ export function retryPath(src, now = Date.now()) {
   return `${url.pathname}${url.search}`;
 }
 
-/**
- * `/img/*` is behind the session too, so an expired cookie turns every photo
- * into a broken frame. A failed image says so and can be asked again.
- */
-export function watchImage(frame, image, { retry = false } = {}) {
-  image.addEventListener('error', () => {
-    frame.dataset.failed = 'true';
-  });
-  image.addEventListener('load', () => {
-    delete frame.dataset.failed;
-  });
-  if (!retry) return;
-
-  frame.addEventListener('click', () => {
-    if (frame.dataset.failed !== 'true') return;
-    image.src = retryPath(image.src);
-  });
-}

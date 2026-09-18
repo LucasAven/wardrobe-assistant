@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AuthOverlay } from './screens/AuthOverlay.js';
+import { EditPhoto } from './screens/EditPhoto.js';
 import { Outfits } from './screens/Outfits.js';
 import { Profile } from './screens/Profile.js';
 import { Review } from './screens/Review.js';
 import { Today } from './screens/Today.js';
 import { Upload } from './screens/Upload.js';
 import { Wardrobe } from './screens/Wardrobe.js';
-import { vanillaScreen } from './screens/VanillaScreen.js';
 import { garmentsQuery, profileQuery, queryClient } from './lib/queries.js';
 import { go, routeSnapshot, subscribeRoute } from './lib/route.js';
 import { ShellContext } from './lib/shell.js';
 import type { Route } from './lib/route.js';
-import { mountEditPhoto } from './lib/screens/editphoto.js';
 
 const TOAST_MS = 5000;
 
@@ -99,7 +98,7 @@ const SCREENS: Record<string, (props: { route: Route }) => React.ReactNode> = {
   upload: Upload,
   review: Review,
   wardrobe: Wardrobe,
-  edit: vanillaScreen(mountEditPhoto),
+  edit: EditPhoto,
 };
 
 function onLandingHash() {
