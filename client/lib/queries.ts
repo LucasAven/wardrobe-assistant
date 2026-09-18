@@ -31,6 +31,7 @@ export const todayKey = ['outfits', 'today'] as const;
 export const outfitsKey = (limit: number) => ['outfits', 'list', limit] as const;
 export const weatherKey = (lat: number, lon: number) => ['weather', lat, lon] as const;
 export const gapsKey = ['gaps'] as const;
+export const reviewKey = (id: string | null) => ['review', id ?? 'queue'] as const;
 
 export const garmentsQuery = {
   queryKey: garmentsKey,

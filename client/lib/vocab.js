@@ -56,6 +56,23 @@ export const ANCHORS = {
 const anchorOptions = (field) =>
   ANCHORS[field].steps.map((step) => ({ value: String(step.value), label: `${step.value}  ${step.text}` }));
 
+/**
+ * @typedef {{ value: string, label: string }} FieldOption
+ * @typedef {{
+ *   name: string,
+ *   label: string,
+ *   type: 'enum' | 'string' | 'number' | 'boolean' | 'colors' | 'seasons',
+ *   control: 'select' | 'text' | 'textarea' | 'chips',
+ *   options?: FieldOption[] | string[],
+ *   nullable?: boolean,
+ *   hint?: string,
+ *   placeholder?: string,
+ *   anchors?: 'warmth' | 'formality',
+ *   asked?: boolean,
+ * }} Field
+ */
+
+/** @type {Field[]} */
 export const FIELDS = [
   { name: 'slot', label: 'Slot', type: 'enum', control: 'select', options: SLOT_OPTIONS },
   {
