@@ -11,6 +11,7 @@ import { routeHash } from '../lib/router.js';
 import { useScreenChrome, useShell } from '../lib/shell.js';
 import { ANCHORS, FIELDS, FIELD_BY_NAME, isAsked, isRelevant } from '../lib/vocab.js';
 import type { Field as FieldSpec } from '../lib/vocab.js';
+import { useWrite } from '../lib/write.js';
 
 const ARCHIVE_ARM_MS = 4000;
 
@@ -197,7 +198,7 @@ function summaryChips(garment: Garment) {
  * look the owner already wore. Two taps, because the only other guard against a
  * mis-tap is undoing it in the database by hand.
  */
-function RemoveButton({ busy, onRemove }: { busy: boolean; onRemove: () => Promise<void> }) {
+function RemoveButton({ busy, onRemove }: { busy: boolean; onRemove: () => void }) {
   const { toast } = useShell();
   const [armed, setArmed] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,7 +218,7 @@ function RemoveButton({ busy, onRemove }: { busy: boolean; onRemove: () => Promi
           return;
         }
         clearTimeout(timer.current ?? undefined);
-        void onRemove();
+        onRemove();
       }}
     >
       {armed ? 'Tap again to remove' : 'Remove from wardrobe'}
@@ -248,10 +249,6 @@ function ReviewCard({
   // A failed save keeps the edits on screen: the draft only lives here, so
   // dropping it after an error would throw the corrections away.
   const [draft, setDraft] = useState<Draft>(() => ({ ...garment }));
-  const [busy, setBusy] = useState(false);
-  const [saveLabel, setSaveLabel] = useState<string | null>(null);
-  /** Its own, because one flag across three buttons makes Save relabel the retag. */
-  const [retagging, setRetagging] = useState(false);
 
   const patch = buildPatch(garment, draft);
   const dirty = Object.keys(patch).length > 0;
@@ -265,53 +262,39 @@ function ReviewCard({
 
   const change = (name: string, value: unknown) => setDraft((rows) => ({ ...rows, [name]: value }));
 
-  async function save() {
-    if (busy) return;
-    setBusy(true);
-    setSaveLabel('Saving');
-    try {
-      const updated = await api.patchGarment(garment.id, confirmPatch(patch));
+  const save = useWrite({
+    run: () => api.patchGarment(garment.id, confirmPatch(patch)),
+    onDone: (updated) => {
       upsertGarment(updated);
       onSaved(updated);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    } finally {
-      setBusy(false);
-      setSaveLabel(null);
-    }
-  }
+    },
+  });
 
-  async function retag() {
-    if (busy) return;
-    setBusy(true);
-    setRetagging(true);
-    try {
-      const updated = await api.retagGarment(garment.id);
+  const retag = useWrite({
+    run: () => api.retagGarment(garment.id),
+    onDone: (updated) => {
       upsertGarment(updated);
       // The row is back to placeholders, so there is nothing to check here
       // until Claude has looked at the photo again. Move on and say so.
       toast('Back in Claude’s queue. Ask it to tag the untagged garments.');
       onRetagged(updated);
-    } catch (error) {
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    } finally {
-      setBusy(false);
-      setRetagging(false);
-    }
-  }
+    },
+  });
 
-  async function remove() {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await api.archiveGarment(garment.id);
+  const remove = useWrite({
+    run: () => api.archiveGarment(garment.id),
+    onDone: () => {
       removeGarment(garment.id);
       onRemoved();
-    } catch (error) {
-      setBusy(false);
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    }
-  }
+    },
+  });
+
+  /**
+   * One flag over three writes, because the three buttons sit together and a
+   * garment takes one write at a time. Each keeps its own label off its own
+   * `isPending`, so Save cannot relabel the retag.
+   */
+  const busy = save.isPending || retag.isPending || remove.isPending;
 
   // Every field is flagged on a garment nothing ever looked at, so the head
   // says why rather than leaving the user to read nineteen warnings.
@@ -325,7 +308,7 @@ function ReviewCard({
           both belong above the fields. Removing used to sit under all nineteen
           of them, which is why it read as missing. */}
       <div className="photoedit">
-        <RemoveButton busy={busy} onRemove={remove} />
+        <RemoveButton busy={busy} onRemove={() => remove.mutate()} />
         <button
           className="btn btn--small btn--ghost"
           type="button"
@@ -369,8 +352,8 @@ function ReviewCard({
             <Field field={field} value={draft[field.name]} flagged={false} onChange={change} key={field.name} />
           ))}
           <div className="grouprow">
-            <button className="btn btn--small btn--ghost" type="button" disabled={busy} onClick={() => void retag()}>
-              {retagging ? 'Sending it back' : 'Ask Claude again'}
+            <button className="btn btn--small btn--ghost" type="button" disabled={busy} onClick={() => retag.mutate()}>
+              {retag.isPending ? 'Sending it back' : 'Ask Claude again'}
             </button>
           </div>
         </div>
@@ -386,9 +369,9 @@ function ReviewCard({
             className={dirty ? 'btn btn--primary btn--edited' : 'btn btn--primary'}
             type="button"
             disabled={busy}
-            onClick={() => void save()}
+            onClick={() => save.mutate()}
           >
-            {saveLabel ?? (dirty ? 'Save changes' : 'Looks right')}
+            {save.isPending ? 'Saving' : dirty ? 'Save changes' : 'Looks right'}
           </button>
         </div>
       </div>
