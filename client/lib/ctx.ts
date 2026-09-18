@@ -11,14 +11,7 @@ import {
 } from './queries.js';
 import type { Garment, ProfileData } from './queries.js';
 import type { ShellHooks } from './shell.js';
-
-/**
- * Which outfits were logged as worn this session. Whether the Worker flips the
- * outfit's own flag is its business, so the tap is remembered here as well and
- * the same day is never offered twice. It is not server state, so it is a plain
- * set rather than a query.
- */
-const wornThisSession = new Set<string>();
+import { isWorn, markWorn } from './worn.js';
 
 const store = {
   get garments(): Garment[] {
@@ -48,11 +41,6 @@ const profile = {
   },
 };
 
-const worn = {
-  isWorn: (id: string) => wornThisSession.has(id),
-  markWorn: (id: string) => wornThisSession.add(id),
-};
-
 /**
  * What a not yet ported screen is handed. Every read and write goes through the
  * React Query cache, so a screen still running the old code and a React screen
@@ -60,7 +48,7 @@ const worn = {
  * `mount` it serves.
  */
 export function createVanillaCtx(shell: ShellHooks) {
-  return { api, store, profile, worn, go, ...shell };
+  return { api, store, profile, worn: { isWorn, markWorn }, go, ...shell };
 }
 
 export type VanillaCtx = ReturnType<typeof createVanillaCtx>;

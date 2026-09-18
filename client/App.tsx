@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AuthOverlay } from './screens/AuthOverlay.js';
+import { Outfits } from './screens/Outfits.js';
 import { Profile } from './screens/Profile.js';
 import { Review } from './screens/Review.js';
+import { Today } from './screens/Today.js';
 import { Upload } from './screens/Upload.js';
 import { Wardrobe } from './screens/Wardrobe.js';
 import { vanillaScreen } from './screens/VanillaScreen.js';
@@ -11,8 +13,6 @@ import { go, routeSnapshot, subscribeRoute } from './lib/route.js';
 import { ShellContext } from './lib/shell.js';
 import type { Route } from './lib/route.js';
 import { mountEditPhoto } from './lib/screens/editphoto.js';
-import { mountOutfits } from './lib/screens/outfits.js';
-import { mountToday } from './lib/screens/today.js';
 
 const TOAST_MS = 5000;
 
@@ -93,8 +93,8 @@ const TABS = [
 const TAB_FOR_ROUTE: Record<string, string> = { edit: 'review' };
 
 const SCREENS: Record<string, (props: { route: Route }) => React.ReactNode> = {
-  today: vanillaScreen(mountToday),
-  outfits: vanillaScreen(mountOutfits),
+  today: Today,
+  outfits: Outfits,
   profile: Profile,
   upload: Upload,
   review: Review,
