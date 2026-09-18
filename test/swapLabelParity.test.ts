@@ -4,8 +4,8 @@
  * `deriveConstraints` in `src/domain/constraints.ts` turns a moment into the
  * season and the formality floor every recommendation is built from, and
  * `failedFilters` in `src/domain/menu.ts` says which of those two a garment
- * fails. `outfitDay` in `public/lib/outfits.js` and `failedFilters` in
- * `public/lib/outfitcard.js` are the client copies, so the swap picker can
+ * fails. `outfitDay` in `client/lib/outfits.js` and `failedFilters` in
+ * `client/lib/outfitcard.js` are the client copies, so the swap picker can
  * label a candidate with what the outfit's own day would have said about it.
  * The picker reads the wardrobe already on the phone and makes no call at all,
  * so it cannot ask for either answer.
@@ -21,12 +21,12 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-// `public/lib` is plain JS outside the tsconfig `include`, so it ships no
+// `client/lib` is plain JS outside the tsconfig `include`, so it ships no
 // declaration file. The shapes are stated once here and the rest is typed.
 // @ts-expect-error TS7016: untyped ES module.
-import { failedFilters as untypedClientFailedFilters } from '../public/lib/outfitcard.js';
+import { failedFilters as untypedClientFailedFilters } from '../client/lib/outfitcard.js';
 // @ts-expect-error TS7016: untyped ES module.
-import { outfitDay as untypedOutfitDay } from '../public/lib/outfits.js';
+import { outfitDay as untypedOutfitDay } from '../client/lib/outfits.js';
 import { deriveConstraints } from '../src/domain/constraints';
 import { failedFilters as serverFailedFilters } from '../src/domain/menu';
 import type {

@@ -93,6 +93,23 @@ export interface GarmentView extends Garment {
   readonly photoVersion: number;
 }
 
+/**
+ * What `/api/garments` answers with: the domain garment flattened, plus the
+ * stored facts the screens read. `toJson` in repo.ts builds it and the web
+ * app's `api.js` is written against it, so neither side gets to invent a shape.
+ *
+ * `taggingError` and `missing` ride along only on a 201 from an upload, where
+ * they say the photo is stored and nothing looked at it yet.
+ */
+export interface StoredGarmentView extends GarmentView {
+  readonly reviewed: boolean;
+  readonly uncertain: readonly string[];
+  readonly archived: boolean;
+  readonly createdAt: string;
+  readonly taggingError?: string;
+  readonly missing?: readonly string[];
+}
+
 export interface OutfitView {
   /** Ordered base, top, mid, outer, bottom, shoes. Absent slots omitted. */
   readonly pieces: readonly { readonly slot: Slot; readonly garment: Garment }[];

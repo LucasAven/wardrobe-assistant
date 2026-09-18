@@ -1,5 +1,15 @@
 import { uploadContentType } from './photo.js';
 
+/**
+ * The wire types, taken from the Worker's own contract rather than redeclared
+ * here. `tsc` reads these through JSDoc, so nothing is imported at runtime and
+ * the bundle never reaches into `src/`.
+ *
+ * @typedef {import('../../src/worker/contract').StoredGarmentView} GarmentRow
+ * @typedef {import('../../src/worker/contract').ProfileResponse} ProfileResponse
+ * @typedef {import('../../src/worker/contract').WeatherResponse} WeatherResponse
+ */
+
 /** A tagging call runs a vision request, so the cap is generous. It exists so a
  * connection that died mid switch from wifi to cellular frees its upload slot. */
 const UPLOAD_TIMEOUT_MS = 120000;
@@ -116,12 +126,21 @@ export function createApi(options = {}) {
       return json('/api/garments/gaps');
     },
 
+    /**
+     * @param {{ reviewed?: boolean }} [filter]
+     * @returns {Promise<GarmentRow[]>}
+     */
     listGarments(filter = {}) {
       const path =
         filter.reviewed === undefined ? '/api/garments' : `/api/garments?reviewed=${filter.reviewed ? '1' : '0'}`;
       return json(path);
     },
 
+    /**
+     * @param {Blob} file
+     * @param {{ cutout?: boolean }} [options]
+     * @returns {Promise<GarmentRow>}
+     */
     uploadGarment(file, { cutout = false } = {}) {
       const contentType = uploadContentType(file);
       if (contentType === null) {
@@ -135,14 +154,21 @@ export function createApi(options = {}) {
       });
     },
 
+    /**
+     * @param {string} id
+     * @param {Record<string, unknown>} patch
+     * @returns {Promise<GarmentRow>}
+     */
     patchGarment(id, patch) {
       return json(`/api/garments/${encodeURIComponent(id)}`, { method: 'PATCH', ...jsonBody(patch) });
     },
 
+    /** @param {string} id @returns {Promise<GarmentRow>} */
     retagGarment(id) {
       return json(`/api/garments/${encodeURIComponent(id)}/retag`, { method: 'POST' });
     },
 
+    /** @param {string} id @param {Blob} blob @returns {Promise<GarmentRow>} */
     putCutout(id, blob) {
       return json(`/api/garments/${encodeURIComponent(id)}/cutout`, {
         method: 'PUT',
@@ -152,10 +178,17 @@ export function createApi(options = {}) {
       });
     },
 
+    /** @param {string} id @returns {Promise<GarmentRow>} */
     resetCutout(id) {
       return json(`/api/garments/${encodeURIComponent(id)}/cutout/reset`, { method: 'POST' });
     },
 
+    /**
+     * @param {string} id
+     * @param {Blob} body
+     * @param {string} contentType
+     * @returns {Promise<GarmentRow>}
+     */
     replacePhoto(id, body, contentType) {
       return json(`/api/garments/${encodeURIComponent(id)}/photo`, {
         method: 'PUT',
@@ -169,22 +202,27 @@ export function createApi(options = {}) {
       return json(`/api/garments/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
+    /** @returns {Promise<ProfileResponse>} */
     getProfile() {
       return json('/api/profile');
     },
 
+    /** @param {unknown} profile @returns {Promise<ProfileResponse>} */
     saveProfile(profile) {
       return json('/api/profile', { method: 'PUT', ...jsonBody(profile) });
     },
 
+    /** @param {number} lat @param {number} lon @returns {Promise<ProfileResponse>} */
     saveHome(lat, lon) {
       return json('/api/profile/home', { method: 'PUT', ...jsonBody({ lat, lon }) });
     },
 
+    /** @returns {Promise<ProfileResponse>} */
     clearHome() {
       return json('/api/profile/home', { method: 'DELETE' });
     },
 
+    /** @param {number} lat @param {number} lon @returns {Promise<WeatherResponse>} */
     getWeather(lat, lon) {
       return json(`/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
     },

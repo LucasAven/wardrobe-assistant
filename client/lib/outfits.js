@@ -227,6 +227,11 @@ export function groupBySet(outfits) {
  * What Today shows: every set saved today, newest first, or the sentence that
  * says how to get one. One request can be answered with two or three outfits,
  * so a day holds sets rather than a single outfit.
+ *
+ * @typedef {NonNullable<ReturnType<typeof readOutfit>>} SavedOutfit
+ * @typedef {{ setId: string, outfits: SavedOutfit[] }} OutfitSetGroup
+ * @param {unknown} body
+ * @returns {{ kind: 'empty', title: string, detail: string } | { kind: 'sets', sets: OutfitSetGroup[] }}
  */
 export function todayView(body) {
   const outfits = readOutfits(body);

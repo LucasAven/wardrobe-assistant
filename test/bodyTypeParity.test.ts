@@ -2,7 +2,7 @@
  * One rule, two implementations.
  *
  * `classify` in `src/domain/bodyType.ts` is the body type every recommendation
- * is computed from. `deriveBodyType` in `public/lib/body.js` is a client copy,
+ * is computed from. `deriveBodyType` in `client/lib/body.js` is a client copy,
  * so the profile screen can name a type the moment the fifth question is
  * answered instead of waiting for a round trip. Nothing but this file stops the
  * two from drifting, and the symptom of drift is quiet: the screen shows one
@@ -13,11 +13,11 @@
  */
 
 import { describe, expect, it } from 'vitest';
-// `public/lib` is plain JS outside the tsconfig `include`, so it ships no
+// `client/lib` is plain JS outside the tsconfig `include`, so it ships no
 // declaration file. The shape is stated once here and the rest of the file is
 // typed normally.
 // @ts-expect-error TS7016: untyped ES module.
-import { deriveBodyType as untypedDeriveBodyType } from '../public/lib/body.js';
+import { deriveBodyType as untypedDeriveBodyType } from '../client/lib/body.js';
 import type { BodyObservations } from '../src/domain/bodyType';
 import { classify } from '../src/domain/bodyType';
 import type { BodyType } from '../src/domain/types';

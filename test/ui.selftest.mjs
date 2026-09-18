@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ApiError, AuthError, NetworkError, createApi } from '../public/lib/api.js';
+import { ApiError, AuthError, NetworkError, createApi } from '../client/lib/api.js';
 import {
   BODY_TYPES,
   BODY_TYPE_BY_VALUE,
@@ -14,18 +14,18 @@ import {
   readProfile,
   sameObservations,
   unanswered,
-} from '../public/lib/body.js';
+} from '../client/lib/body.js';
 import {
   countTagStates,
   isUntagged,
   tagState,
   taggingPending,
   uploadStatus,
-} from '../public/lib/garments.js';
-import { askPosition, positionLine } from '../public/lib/geo.js';
-import { createLimiter } from '../public/lib/limiter.js';
-import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { CAUTION_WORDS, addableSlots, cautionsFor, pieceLabel } from '../public/lib/outfitcard.js';
+} from '../client/lib/garments.js';
+import { askPosition, positionLine } from '../client/lib/geo.js';
+import { createLimiter } from '../client/lib/limiter.js';
+import { normalizeForUpload, normalizedType, targetSize } from '../client/lib/normalize.js';
+import { CAUTION_WORDS, addableSlots, cautionsFor, pieceLabel } from '../client/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   bookTally,
@@ -40,9 +40,9 @@ import {
   savedLine,
   splitRules,
   todayView,
-} from '../public/lib/outfits.js';
-import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
-import { imagePath, retryPath, uploadContentType } from '../public/lib/photo.js';
+} from '../client/lib/outfits.js';
+import { buildPatch, confirmPatch, formatColors, parseColors } from '../client/lib/patch.js';
+import { imagePath, retryPath, uploadContentType } from '../client/lib/photo.js';
 import {
   canvasPoint,
   clampCrop,
@@ -51,11 +51,11 @@ import {
   rotateCrop,
   rotatedSize,
   sourcePoint,
-} from '../public/lib/screens/editphoto.js';
-import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
-import { parseRoute, routeHash } from '../public/lib/router.js';
-import { FIELDS, isAsked, isRelevant, relevantFields } from '../public/lib/vocab.js';
-import { readWeather, weatherLine } from '../public/lib/weather.js';
+} from '../client/lib/photoedit.js';
+import { forgetPref, readChoice, readPref, writePref } from '../client/lib/prefs.js';
+import { parseRoute, routeHash } from '../client/lib/router.js';
+import { FIELDS, isAsked, isRelevant, relevantFields } from '../client/lib/vocab.js';
+import { readWeather, weatherLine } from '../client/lib/weather.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

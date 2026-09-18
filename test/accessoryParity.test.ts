@@ -3,7 +3,7 @@
  *
  * `ONE_PER_OUTFIT` in `src/domain/certify.ts` is the list `certify` and
  * `swapPiece` both refuse a second of. `ONE_PER_OUTFIT` in
- * `public/lib/outfitcard.js` is a client copy, so the swap picker can stop
+ * `client/lib/outfitcard.js` is a client copy, so the swap picker can stop
  * offering a garment the server will turn down without making a call for it.
  *
  * Nothing but this file stops the two from drifting, and the symptom is quiet
@@ -13,10 +13,10 @@
  */
 
 import { describe, expect, it } from 'vitest';
-// `public/lib` is plain JS outside the tsconfig `include`, so it ships no
+// `client/lib` is plain JS outside the tsconfig `include`, so it ships no
 // declaration file. The shape is stated once here and the rest is typed.
 // @ts-expect-error TS7016: untyped ES module.
-import { ONE_PER_OUTFIT as untypedClientKinds } from '../public/lib/outfitcard.js';
+import { ONE_PER_OUTFIT as untypedClientKinds } from '../client/lib/outfitcard.js';
 import { ONE_PER_OUTFIT as serverKinds } from '../src/domain/certify';
 import type { AccessoryKind } from '../src/domain/types';
 

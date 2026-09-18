@@ -1,4 +1,4 @@
-// Writes public/icon-180.png. iOS often ignores a data URI apple-touch-icon and
+// Writes client/public/icon-180.png. iOS often ignores a data URI apple-touch-icon and
 // falls back to a screenshot of the page, which looks broken on the home screen.
 import { deflateSync } from 'node:zlib';
 import { writeFileSync } from 'node:fs';
@@ -50,10 +50,10 @@ ihdr.writeUInt32BE(SIZE, 0);
 ihdr.writeUInt32BE(SIZE, 4);
 ihdr[8] = 8; ihdr[9] = 2;
 
-writeFileSync('public/icon-180.png', Buffer.concat([
+writeFileSync('client/public/icon-180.png', Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   chunk('IHDR', ihdr),
   chunk('IDAT', deflateSync(raw, { level: 9 })),
   chunk('IEND', Buffer.alloc(0)),
 ]));
-console.log('public/icon-180.png written');
+console.log('client/public/icon-180.png written');
