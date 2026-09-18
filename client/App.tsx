@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { AuthOverlay } from './screens/AuthOverlay.js';
-import { VanillaScreen } from './screens/VanillaScreen.js';
-import type { MountScreen } from './screens/VanillaScreen.js';
-import { createVanillaCtx } from './lib/ctx.js';
+import { Upload } from './screens/Upload.js';
+import { vanillaScreen } from './screens/VanillaScreen.js';
 import { garmentsQuery, profileQuery, queryClient } from './lib/queries.js';
 import { go, routeSnapshot, subscribeRoute } from './lib/route.js';
+import { ShellContext } from './lib/shell.js';
+import type { Route } from './lib/route.js';
 import { mountEditPhoto } from './lib/screens/editphoto.js';
 import { mountOutfits } from './lib/screens/outfits.js';
 import { mountProfile } from './lib/screens/profile.js';
 import { mountReview } from './lib/screens/review.js';
 import { mountToday } from './lib/screens/today.js';
-import { mountUpload } from './lib/screens/upload.js';
 import { mountWardrobe } from './lib/screens/wardrobe.js';
 
 const TOAST_MS = 5000;
@@ -92,14 +92,14 @@ const TABS = [
 /** The photo editor hangs off Review, so the tab the user tapped stays lit. */
 const TAB_FOR_ROUTE: Record<string, string> = { edit: 'review' };
 
-const SCREENS: Record<string, MountScreen> = {
-  today: mountToday,
-  outfits: mountOutfits,
-  profile: mountProfile,
-  upload: mountUpload,
-  review: mountReview,
-  wardrobe: mountWardrobe,
-  edit: mountEditPhoto,
+const SCREENS: Record<string, (props: { route: Route }) => React.ReactNode> = {
+  today: vanillaScreen(mountToday),
+  outfits: vanillaScreen(mountOutfits),
+  profile: vanillaScreen(mountProfile),
+  upload: Upload,
+  review: vanillaScreen(mountReview),
+  wardrobe: vanillaScreen(mountWardrobe),
+  edit: vanillaScreen(mountEditPhoto),
 };
 
 function onLandingHash() {
@@ -121,14 +121,13 @@ export function App() {
     toastTimer.current = setTimeout(() => setToastState(null), TOAST_MS);
   }, []);
 
-  const ctx = useMemo(
-    () =>
-      createVanillaCtx({
-        toast,
-        setTitle: (next, meta) => setTitleState({ title: next, meta }),
-        setBack: (hash) => setBackState(hash),
-        onRefresh: (handler) => setRefreshHandler(() => handler),
-      }),
+  const shell = useMemo(
+    () => ({
+      toast,
+      setTitle: (next: string, meta: string) => setTitleState({ title: next, meta }),
+      setBack: (hash: string | null) => setBackState(hash),
+      onRefresh: (handler: (() => void) | null) => setRefreshHandler(() => handler),
+    }),
     [toast],
   );
 
@@ -161,10 +160,10 @@ export function App() {
 
   const unreviewed = (garments.data ?? []).filter((garment) => !garment.reviewed).length;
   const lit = TAB_FOR_ROUTE[route.name] ?? route.name;
-  const mount = SCREENS[route.name];
+  const Screen = SCREENS[route.name];
 
   return (
-    <>
+    <ShellContext.Provider value={shell}>
       <div className="app">
         <header className="topbar">
           <button className="topbar__back" type="button" hidden={back === null} onClick={() => back !== null && go(back)}>
@@ -182,14 +181,14 @@ export function App() {
           </button>
         </header>
 
-        {booting || mount === undefined ? (
+        {booting || Screen === undefined ? (
           <main className="screen">
             <div className="empty">
               <p className="empty__text">Opening.</p>
             </div>
           </main>
         ) : (
-          <VanillaScreen key={`${route.name}/${route.id ?? ''}/${route.nonce}`} mount={mount} ctx={ctx} route={route} />
+          <Screen key={`${route.name}/${route.id ?? ''}/${route.nonce}`} route={route} />
         )}
 
         <nav className="tabbar">
@@ -214,6 +213,6 @@ export function App() {
       <p className="toast" role="status" hidden={toastState === null} data-kind={toastState?.kind}>
         {toastState?.message}
       </p>
-    </>
+    </ShellContext.Provider>
   );
 }

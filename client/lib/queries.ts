@@ -49,3 +49,13 @@ export function readGarments(): Garment[] {
 export function writeGarments(next: Garment[]) {
   queryClient.setQueryData(garmentsKey, next);
 }
+
+export function upsertGarment(garment: Garment) {
+  const rows = readGarments();
+  const at = rows.findIndex((row) => row.id === garment.id);
+  writeGarments(at < 0 ? [garment, ...rows] : rows.map((row) => (row.id === garment.id ? garment : row)));
+}
+
+export function removeGarment(id: string) {
+  writeGarments(readGarments().filter((row) => row.id !== id));
+}

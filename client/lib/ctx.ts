@@ -6,16 +6,11 @@ import {
   profileQuery,
   queryClient,
   readGarments,
-  writeGarments,
+  removeGarment,
+  upsertGarment,
 } from './queries.js';
 import type { Garment, ProfileData } from './queries.js';
-
-export type ShellHooks = {
-  toast: (message: string, kind?: string) => void;
-  setTitle: (title: string, meta: string) => void;
-  setBack: (hash: string | null) => void;
-  onRefresh: (handler: (() => void) | null) => void;
-};
+import type { ShellHooks } from './shell.js';
 
 /**
  * Which outfits were logged as worn this session. Whether the Worker flips the
@@ -32,14 +27,8 @@ const store = {
   refresh: () => queryClient.fetchQuery({ ...garmentsQuery, staleTime: 0 }),
   ensure: () => queryClient.ensureQueryData(garmentsQuery),
   find: (id: string): Garment | null => readGarments().find((row) => row.id === id) ?? null,
-  upsert(garment: Garment) {
-    const rows = readGarments();
-    const at = rows.findIndex((row) => row.id === garment.id);
-    writeGarments(at < 0 ? [garment, ...rows] : rows.map((row) => (row.id === garment.id ? garment : row)));
-  },
-  remove(id: string) {
-    writeGarments(readGarments().filter((row) => row.id !== id));
-  },
+  upsert: upsertGarment,
+  remove: removeGarment,
 };
 
 const profile = {
