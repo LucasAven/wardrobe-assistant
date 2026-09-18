@@ -142,7 +142,7 @@ export function Today() {
               are in one. */}
           {view !== null &&
             view.kind === 'sets' &&
-            view.sets.map((set: { outfits: Record<string, any>[] }, at: number) => {
+            view.sets.map((set, at: number) => {
               // The time the first option landed, which is when the set was
               // composed. The rest were saved in the same turn, seconds behind.
               const clock = savedClock(set.outfits[0]?.createdAt);

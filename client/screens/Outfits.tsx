@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { OutfitSet } from './OutfitSet.js';
 import { groupBySet, readOutfits, savedLine } from '../lib/outfits.js';
 import { api, outfitsKey } from '../lib/queries.js';
+import type { Outfit } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome } from '../lib/shell.js';
 import { isWorn } from '../lib/worn.js';
@@ -10,11 +11,10 @@ import { isWorn } from '../lib/worn.js';
 /** Enough to scroll a couple of weeks back on a phone without paging. */
 const HISTORY_LIMIT = 20;
 
-type Outfit = Record<string, any>;
 type Group = { setId: string; outfits: Outfit[] };
 
 function summaryLine(outfit: Outfit) {
-  const count = outfit['pieces'].length + outfit['accessories'].length;
+  const count = outfit.pieces.length + outfit.accessories.length;
   return count === 1 ? '1 piece' : `${count} pieces`;
 }
 
@@ -29,14 +29,15 @@ function summaryLine(outfit: Outfit) {
  * inside, which is where the choice between them is made anyway.
  */
 function summaryOf(set: Group) {
+  const [first] = set.outfits;
+  if (first === undefined) return { lead: '', aside: '' };
+
   // The time the first option landed, which is when the set was composed. The
   // rest of them were saved in the same turn, seconds behind it.
-  const when = savedLine(set.outfits[0]?.createdAt);
+  const when = savedLine(first.createdAt);
   if (set.outfits.length > 1) return { lead: when, aside: `${set.outfits.length} outfits` };
-
-  const outfit = set.outfits[0];
-  if (outfit === undefined || outfit['title'] === '') return { lead: when, aside: summaryLine(outfit ?? {}) };
-  return { lead: outfit['title'], aside: when };
+  if (first.title === '') return { lead: when, aside: summaryLine(first) };
+  return { lead: first.title, aside: when };
 }
 
 /**
@@ -63,7 +64,7 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
   // over a card reading Worn is the disagreement to avoid. Any one option worn
   // is a day this set was wearing, since the owner picks one of them and the
   // rest stay unworn.
-  const worn = set.outfits.some((outfit) => outfit['worn'] || isWorn(outfit['id']));
+  const worn = set.outfits.some((outfit) => outfit.worn || isWorn(outfit.id));
 
   return (
     <details

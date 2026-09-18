@@ -228,7 +228,8 @@ export function groupBySet(outfits) {
  * says how to get one. One request can be answered with two or three outfits,
  * so a day holds sets rather than a single outfit.
  *
- * @typedef {{ setId: string, outfits: any[] }} OutfitSetGroup
+ * @typedef {NonNullable<ReturnType<typeof readOutfit>>} SavedOutfit
+ * @typedef {{ setId: string, outfits: SavedOutfit[] }} OutfitSetGroup
  * @param {unknown} body
  * @returns {{ kind: 'empty', title: string, detail: string } | { kind: 'sets', sets: OutfitSetGroup[] }}
  */

@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query';
 import { createApi } from './api.js';
 import { authGate } from './authGate.js';
 import { readProfile } from './body.js';
+import { readOutfit } from './outfits.js';
 
 export const api = createApi({ onUnauthorized: () => authGate.open() });
 
@@ -24,6 +25,8 @@ export const queryClient = new QueryClient({
 
 export type Garment = Awaited<ReturnType<typeof api.listGarments>>[number];
 export type ProfileData = ReturnType<typeof readProfile>;
+/** A SavedOutfit as the card reads it, which is whatever `readOutfit` hands back. */
+export type Outfit = NonNullable<ReturnType<typeof readOutfit>>;
 
 export const garmentsKey = ['garments'] as const;
 export const profileKey = ['profile'] as const;

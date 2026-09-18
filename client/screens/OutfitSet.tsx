@@ -10,8 +10,8 @@
  */
 import { useState } from 'react';
 import { OutfitCard } from './OutfitCard.js';
+import type { Outfit } from '../lib/queries.js';
 
-type Outfit = Record<string, any>;
 
 export function OutfitSet({
   outfits,
@@ -40,7 +40,7 @@ export function OutfitSet({
       meta={meta}
       showName={showName}
       onRemoved={onRemoved}
-      key={outfit['id'] ?? index}
+      key={outfit.id ?? index}
     />
   );
 
@@ -76,7 +76,7 @@ export function OutfitSet({
       <div className="set__stage">
         {outfits.map((outfit, index) =>
           built.includes(index) ? (
-            <div hidden={index !== at} key={outfit['id'] ?? index}>
+            <div hidden={index !== at} key={outfit.id ?? index}>
               {card(outfit, index)}
             </div>
           ) : null,

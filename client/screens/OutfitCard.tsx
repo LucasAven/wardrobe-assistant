@@ -35,13 +35,12 @@ import {
 } from '../lib/outfits.js';
 import { imagePath } from '../lib/photo.js';
 import { api, garmentsQuery } from '../lib/queries.js';
-import type { Garment } from '../lib/queries.js';
+import type { Garment, Outfit } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { isWorn, markWorn } from '../lib/worn.js';
 
 const REMOVE_ARM_MS = 4000;
 
-type Outfit = Record<string, any>;
 type Rule = { id: string; short: string; because: string };
 type Target = { slot: string; garment: Garment | null };
 
@@ -349,7 +348,7 @@ function Picker({
   // add nothing steps out, and a null `fromId` matches no garment, so every
   // accessory the outfit wears keeps its claim.
   const kept = new Set<string>(
-    outfit['accessories']
+    outfit.accessories
       .filter((garment: Garment) => garment.id !== fromId)
       .map((garment: Garment) => garment.accessoryKind)
       .filter((kind: string) => ONE_PER_OUTFIT.includes(kind)),
@@ -362,7 +361,7 @@ function Picker({
     if (!canSave || chosen === null) return;
     setSaving(true);
     try {
-      const body = await api.editPiece(outfit['id'], { fromId, toId: chosen.id, reason: reason.trim() });
+      const body = await api.editPiece(outfit.id, { fromId, toId: chosen.id, reason: reason.trim() });
       const next = readOutfit(body?.outfit);
       if (next === null) throw new Error('The server sent back an outfit the app could not read.');
       onDone(next);
@@ -425,7 +424,7 @@ function Picker({
       </div>
 
       <div className="field" hidden={chosen === null}>
-        <label className="field__label" htmlFor={`swap-reason-${outfit['id']}`}>
+        <label className="field__label" htmlFor={`swap-reason-${outfit.id}`}>
           Why the change?
         </label>
         <input
@@ -434,7 +433,7 @@ function Picker({
           // Named after the outfit, the way the book panel above is. Two open
           // history rows are two cards in one page, and one fixed id there
           // points the label at the other card's input.
-          id={`swap-reason-${outfit['id']}`}
+          id={`swap-reason-${outfit.id}`}
           maxLength={280}
           autoComplete="off"
           // The swap asks what was wrong with the garment going out. An add has
@@ -529,23 +528,23 @@ export function OutfitCard({
     );
   }
 
-  const pieces = orderPieces(current['pieces']);
+  const pieces = orderPieces(current.pieces);
   const { cited, missed, broke } = splitRules(current);
   // The test the wear button already made, read once: an outfit that was worn
   // is the record of a day, so the server refuses to change one and the card
   // offers no tap.
-  const worn = current['worn'] || isWorn(current['id']) || wornNow;
+  const worn = current.worn || isWorn(current.id) || wornNow;
   // A narrower question than `worn`, and the one the remove control needs: an
   // outfit worn before migration 009, or through a log_wear that left the id
   // out, is worn off the day and the garments and no row claims it.
-  const wearNamed = current['wearNamed'] || isWorn(current['id']) || wornNow;
+  const wearNamed = current.wearNamed || isWorn(current.id) || wornNow;
   const open = addableSlots(current, worn);
-  const request = current['ownerRequest'];
+  const request = current.ownerRequest;
 
   return (
     <section className="outfit">
       <CardHead
-        named={showName && current['title'] !== '' ? current['title'] : null}
+        named={showName && current.title !== '' ? current.title : null}
         caption={caption}
         meta={meta}
       />
@@ -587,11 +586,11 @@ export function OutfitCard({
       {/* The same tile the pieces get, and tappable for the same reason. It
           keeps a section of its own because an accessory has no place in the
           base to shoes order above it, and there can be several. */}
-      {current['accessories'].length > 0 && (
+      {current.accessories.length > 0 && (
         <div className="accessories">
           <h4 className="section__title">With</h4>
           <ul className="looks">
-            {current['accessories'].map((garment: Garment) => (
+            {current.accessories.map((garment: Garment) => (
               <PieceTile
                 label={pieceLabel('accessory', garment)}
                 garment={garment}
@@ -621,11 +620,11 @@ export function OutfitCard({
         </section>
       )}
 
-      {current['rationale'] !== '' && (
+      {current.rationale !== '' && (
         <div className="rationale">
-          <p className="rationale__text">{current['rationale']}</p>
+          <p className="rationale__text">{current.rationale}</p>
           <p className="source source--model">
-            {current['corrections'].length === 0
+            {current.corrections.length === 0
               ? 'The assistant wrote this. It is not from the book.'
               : 'The assistant wrote this for the pieces it chose, before you changed one. It is not from the book.'}
           </p>
@@ -645,11 +644,11 @@ export function OutfitCard({
 
       {/* A third voice, kept apart from the book's and the assistant's the way
           those two are. */}
-      {current['corrections'].length > 0 && (
+      {current.corrections.length > 0 && (
         <section className="section">
           <h3 className="section__title">What you changed</h3>
           <ul className="changes">
-            {current['corrections'].map((correction: { reason: string }, at: number) => (
+            {current.corrections.map((correction: { reason: string }, at: number) => (
               <li className="change" key={at}>
                 <p className="change__what">{changeLine(correction)}</p>
                 <p className="change__why">{`"${correction.reason}"`}</p>
@@ -661,7 +660,7 @@ export function OutfitCard({
       )}
 
       {(cited.length > 0 || missed.length > 0) && (
-        <BookSection cited={cited} missed={missed} outfitId={current['id']} />
+        <BookSection cited={cited} missed={missed} outfitId={current.id} />
       )}
 
       {/* Apart from the missed section because a dont is not a preference. The
