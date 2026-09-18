@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { useQuery } from '@tanstack/react-query';
 import { AuthOverlay } from './screens/AuthOverlay.js';
 import { Upload } from './screens/Upload.js';
+import { Wardrobe } from './screens/Wardrobe.js';
 import { vanillaScreen } from './screens/VanillaScreen.js';
 import { garmentsQuery, profileQuery, queryClient } from './lib/queries.js';
 import { go, routeSnapshot, subscribeRoute } from './lib/route.js';
@@ -12,7 +13,6 @@ import { mountOutfits } from './lib/screens/outfits.js';
 import { mountProfile } from './lib/screens/profile.js';
 import { mountReview } from './lib/screens/review.js';
 import { mountToday } from './lib/screens/today.js';
-import { mountWardrobe } from './lib/screens/wardrobe.js';
 
 const TOAST_MS = 5000;
 
@@ -98,7 +98,7 @@ const SCREENS: Record<string, (props: { route: Route }) => React.ReactNode> = {
   profile: vanillaScreen(mountProfile),
   upload: Upload,
   review: vanillaScreen(mountReview),
-  wardrobe: vanillaScreen(mountWardrobe),
+  wardrobe: Wardrobe,
   edit: vanillaScreen(mountEditPhoto),
 };
 
