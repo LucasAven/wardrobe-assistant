@@ -380,7 +380,7 @@ function parseOwnerRequest(
 
   // An empty list is no request. The words only mean something next to the
   // garments they let in, which is the same call `readOwnerRequest` makes in
-  // public/lib/outfits.js, and the two have to agree or the card and the API
+  // client/lib/outfits.js, and the two have to agree or the card and the API
   // disagree about whether a request exists.
   if (honored.length === 0) return null;
 

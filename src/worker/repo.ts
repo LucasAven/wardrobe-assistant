@@ -311,7 +311,7 @@ export function describeGarment(
 /**
  * Nothing has ever looked at this photo. `blankDraft` flags every tagged field,
  * so a row still flagging all of them is a row holding placeholders. Mirrors
- * `isUntagged` in public/lib/garments.js.
+ * `isUntagged` in client/lib/garments.js.
  */
 export function isUntagged(stored: StoredGarment): boolean {
   const flagged = new Set(stored.uncertain);
