@@ -15,7 +15,6 @@ import { useQuery } from '@tanstack/react-query';
 import { Photo } from './Photo.js';
 import {
   CAUTION_WORDS,
-  MISSING_NAME,
   ONE_PER_OUTFIT,
   REQUIRED_SLOTS,
   addableSlots,

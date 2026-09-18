@@ -31,7 +31,7 @@ export function addableSlots(outfit, worn) {
   return [...ADDABLE_LAYERS.filter((slot) => !held.has(slot)), 'accessory'];
 }
 
-export const MISSING_NAME = 'a garment no longer in the wardrobe';
+const MISSING_NAME = 'a garment no longer in the wardrobe';
 
 /**
  * What a tile calls the piece under it. Every other slot holds one garment and
