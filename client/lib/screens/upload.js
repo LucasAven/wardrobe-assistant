@@ -150,7 +150,6 @@ export function mountUpload(ctx) {
     }).then(
       (garment) => {
         ctx.store.upsert(garment);
-        ctx.refreshBadge();
         // An upload with nothing to tag it is the normal one now, so the row
         // reports where the tags come from instead of reading as a failure.
         const status = uploadStatus(garment);

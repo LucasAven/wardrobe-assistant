@@ -90,7 +90,6 @@ export function mountReview(ctx, route) {
       try {
         const updated = await ctx.api.retagGarment(original.id);
         ctx.store.upsert(updated);
-        ctx.refreshBadge();
         queue[index] = updated;
         busy = false;
         // The row is back to placeholders, so there is nothing to check here
@@ -137,7 +136,6 @@ export function mountReview(ctx, route) {
       try {
         await ctx.api.archiveGarment(original.id);
         ctx.store.remove(original.id);
-        ctx.refreshBadge();
         queue.splice(index, 1);
         busy = false;
         if (single) ctx.go('#/wardrobe');
@@ -229,7 +227,6 @@ export function mountReview(ctx, route) {
       try {
         const updated = await ctx.api.patchGarment(original.id, confirmPatch(buildPatch(original, draft)));
         ctx.store.upsert(updated);
-        ctx.refreshBadge();
         queue[index] = updated;
         busy = false;
         advance();
@@ -276,7 +273,6 @@ export function mountReview(ctx, route) {
       } else {
         const rows = await ctx.api.listGarments({ reviewed: false });
         for (const row of rows) ctx.store.upsert(row);
-        ctx.refreshBadge();
         queue = rows;
       }
       if (gone) return;

@@ -16,68 +16,7 @@
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
-    <div class="app">
-      <header class="topbar">
-        <button class="topbar__back" id="back" type="button" hidden>Back</button>
-        <h1 class="topbar__title" id="title">Wardrobe</h1>
-        <span class="topbar__meta" id="meta"></span>
-        <button class="topbar__refresh" id="refresh" type="button" hidden>Refresh</button>
-      </header>
-
-      <main class="screen" id="screen"></main>
-
-      <nav class="tabbar">
-        <a class="tab" href="#/today" data-route="today">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="4.2" />
-            <path d="M12 2.5v2.4M12 19.1v2.4M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.5 12h2.4M19.1 12h2.4M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
-          </svg>
-          <span>Today</span>
-        </a>
-        <a class="tab" href="#/outfits" data-route="outfits">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3.5" y="3.5" width="17" height="7" rx="2.4" />
-            <rect x="3.5" y="13.5" width="17" height="7" rx="2.4" />
-          </svg>
-          <span>Outfits</span>
-        </a>
-        <a class="tab" href="#/upload" data-route="upload">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 8.5v7M8.5 12h7" />
-          </svg>
-          <span>Add</span>
-        </a>
-        <a class="tab" href="#/review" data-route="review">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M20.5 11.3V12a8.5 8.5 0 1 1-5-7.8" />
-            <path d="M20.5 5.5 12 14l-2.5-2.5" />
-          </svg>
-          <span>Review</span>
-          <span class="tab__badge" id="review-badge" hidden></span>
-        </a>
-        <a class="tab" href="#/wardrobe" data-route="wardrobe">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
-            <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
-            <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
-            <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
-          </svg>
-          <span>Wardrobe</span>
-        </a>
-        <a class="tab" href="#/profile" data-route="profile">
-          <svg class="tab__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <circle cx="12" cy="8" r="3.6" />
-            <path d="M4.8 20.2a7.2 7.2 0 0 1 14.4 0" />
-          </svg>
-          <span>Profile</span>
-        </a>
-      </nav>
-    </div>
-
-    <div class="overlay" id="auth" hidden></div>
-    <p class="toast" id="toast" role="status" hidden></p>
-
-    <script type="module" src="./app.js"></script>
+    <div id="root"></div>
+    <script type="module" src="./main.tsx"></script>
   </body>
 </html>

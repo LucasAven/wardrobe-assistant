@@ -203,7 +203,6 @@ export function mountWardrobe(ctx) {
     try {
       await (force ? ctx.store.refresh() : ctx.store.ensure());
       if (gone) return;
-      ctx.refreshBadge();
       renderAll();
       void loadGaps();
     } catch (error) {
