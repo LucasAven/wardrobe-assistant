@@ -1,38 +1,26 @@
 import { useMutation } from '@tanstack/react-query';
+import type { UseMutationOptions } from '@tanstack/react-query';
 import { useShell } from './shell.js';
 
-/** What the api threw, said in the one line a toast has room for. */
-export function said(error: unknown): string {
+/** What the api threw, in the one line there is room to show. */
+export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 /**
- * A write with its failure already handled. Every screen was repeating the same
- * three things around one api call: a boolean for "a write is in flight", a
- * catch that toasts whatever came back, and a finally that puts the boolean
- * down again. That is what a mutation already is, so this is one with the toast
- * wired in and `isPending` in place of the boolean.
+ * `useMutation` with the shell toast already wired to `onError`. Every screen
+ * was repeating the same three things around one api call: a boolean for "a
+ * write is in flight", a catch that toasts whatever came back, and a finally
+ * that puts the boolean down again. Only the toast is worth wrapping, so the
+ * options stay React Query's own rather than a second vocabulary to translate.
  *
- * `onDone` runs only when the write succeeded, which is where the cache write
- * and whatever the screen does next belong. Pass `onFailed` only when a screen
- * has to do something besides say so.
+ * A caller that passes its own `onError` replaces the toast instead of adding
+ * to it, so one that still wants it said has to say it.
  */
-export function useWrite<TResult, TInput = void>({
-  run,
-  onDone,
-  onFailed,
-}: {
-  run: (input: TInput) => Promise<TResult>;
-  onDone?: (result: TResult, input: TInput) => void;
-  onFailed?: (error: Error) => void;
-}) {
+export function useWrite<TResult, TInput = void>(options: UseMutationOptions<TResult, Error, TInput>) {
   const { toast } = useShell();
   return useMutation<TResult, Error, TInput>({
-    mutationFn: run,
-    ...(onDone === undefined ? {} : { onSuccess: onDone }),
-    onError: (error) => {
-      if (onFailed !== undefined) onFailed(error);
-      else toast(said(error), 'error');
-    },
+    onError: (error) => toast(errorMessage(error), 'error'),
+    ...options,
   });
 }

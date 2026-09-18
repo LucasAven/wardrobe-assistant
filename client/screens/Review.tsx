@@ -263,16 +263,16 @@ function ReviewCard({
   const change = (name: string, value: unknown) => setDraft((rows) => ({ ...rows, [name]: value }));
 
   const save = useWrite({
-    run: () => api.patchGarment(garment.id, confirmPatch(patch)),
-    onDone: (updated) => {
+    mutationFn: () => api.patchGarment(garment.id, confirmPatch(patch)),
+    onSuccess: (updated) => {
       upsertGarment(updated);
       onSaved(updated);
     },
   });
 
   const retag = useWrite({
-    run: () => api.retagGarment(garment.id),
-    onDone: (updated) => {
+    mutationFn: () => api.retagGarment(garment.id),
+    onSuccess: (updated) => {
       upsertGarment(updated);
       // The row is back to placeholders, so there is nothing to check here
       // until Claude has looked at the photo again. Move on and say so.
@@ -282,8 +282,8 @@ function ReviewCard({
   });
 
   const remove = useWrite({
-    run: () => api.archiveGarment(garment.id),
-    onDone: () => {
+    mutationFn: () => api.archiveGarment(garment.id),
+    onSuccess: () => {
       removeGarment(garment.id);
       onRemoved();
     },

@@ -100,8 +100,12 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
         },
   );
   const [language, setLanguage] = useState<string>(() => stored.profile?.language ?? DEFAULT_LANGUAGE);
-  /** True while the browser is being asked where we are, which is not a write. */
-  const [asking, setAsking] = useState(false);
+  /**
+   * Null, or the step the one home control is in. Kept as its own state rather
+   * than derived from the write: asking comes first and is not a write, and a
+   * derived step reads null for the render between the two.
+   */
+  const [homeStep, setHomeStep] = useState<'asking' | 'saving' | null>(null);
   const [saveLabel] = useState(stored.profile === null ? 'Save profile' : 'Save changes');
 
   /**
@@ -124,41 +128,47 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
   const left = unanswered(answers).length;
   const complete = isComplete(answers);
   const type = BODY_TYPES.find((entry) => entry.value === chosen) ?? null;
-  /**
-   * Saving and forgetting are one control on screen, so they are one write
-   * here. Both answer the whole profile, so the card redraws from the reply and
-   * the only thing that differs is the line it says afterwards.
-   */
-  const home = useWrite({
-    run: ({ call }: { call: () => Promise<unknown>; done: string }) => call(),
-    onDone: (body, { done }) => {
-      queryClient.setQueryData(profileKey, readProfile(body));
-      toast(done);
-    },
+  /** Both home writes answer the whole profile, so the card redraws from the reply. */
+  function applyHome(body: unknown, done: string) {
+    queryClient.setQueryData(profileKey, readProfile(body));
+    toast(done);
+  }
+
+  const saveHome = useWrite({
+    mutationFn: (at: { lat: number; lon: number }) => api.saveHome(at.lat, at.lon),
+    onSuccess: (body) => applyHome(body, 'Home saved.'),
+    onSettled: () => setHomeStep(null),
   });
 
-  /** Asking comes before saving, and only one of the two is a write. */
-  const homeStep = asking ? 'asking' : home.isPending ? 'saving' : null;
+  const clearHome = useWrite({
+    mutationFn: () => api.clearHome(),
+    onSuccess: (body) => applyHome(body, 'Home forgotten.'),
+    onSettled: () => setHomeStep(null),
+  });
+
   const working = homeStep === null ? null : HOME_STEP_LABEL[homeStep];
 
   async function useHere() {
     if (homeStep !== null) return;
-    setAsking(true);
+    setHomeStep('asking');
 
     // The owner just tapped this, which is a newer answer than a denial
     // remembered on the Today screen days ago, so that one does not stop it.
     const position = await askPosition({ remembered: false });
-    setAsking(false);
     if (!position.found) {
+      setHomeStep(null);
       toast(NO_POSITION[position.cause] ?? NO_POSITION['unknown'] ?? '', 'error');
       return;
     }
-    home.mutate({ call: () => api.saveHome(position.lat, position.lon), done: 'Home saved.' });
+    // Set before the write starts, because React Query reports `isPending`
+    // through a scheduler and the label would blink back to idle in between.
+    setHomeStep('saving');
+    saveHome.mutate({ lat: position.lat, lon: position.lon });
   }
 
   const submit = useWrite({
-    run: () => api.saveProfile(profileBody(answers, chosen, language)),
-    onDone: (body) => {
+    mutationFn: () => api.saveProfile(profileBody(answers, chosen, language)),
+    onSuccess: (body) => {
       const first = stored.profile === null;
       const next = readProfile(body);
       queryClient.setQueryData(profileKey, next);
@@ -291,7 +301,10 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
                 className="btn btn--small btn--ghost"
                 type="button"
                 disabled={working !== null}
-                onClick={() => home.mutate({ call: () => api.clearHome(), done: 'Home forgotten.' })}
+                onClick={() => {
+                  setHomeStep('saving');
+                  clearHome.mutate();
+                }}
               >
                 Forget it
               </button>

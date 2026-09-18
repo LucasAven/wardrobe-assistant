@@ -38,7 +38,7 @@ import { api, garmentsQuery } from '../lib/queries.js';
 import type { Garment, Outfit } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { markWorn, useWorn } from '../lib/worn.js';
-import { said, useWrite } from '../lib/write.js';
+import { errorMessage, useWrite } from '../lib/write.js';
 
 const REMOVE_ARM_MS = 4000;
 
@@ -153,8 +153,8 @@ function BookSection({ cited, missed, outfitId }: { cited: Rule[]; missed: Rule[
  */
 function WearButton({ outfit, already }: { outfit: Outfit; already: boolean }) {
   const wear = useWrite({
-    run: () => api.wear(wearEntry(outfit)),
-    onDone: () => markWorn(outfit.id),
+    mutationFn: () => api.wear(wearEntry(outfit)),
+    onSuccess: () => markWorn(outfit.id),
   });
 
   return (
@@ -191,9 +191,9 @@ function RemoveButton({
   const [armed, setArmed] = useState(false);
 
   const remove = useWrite({
-    run: () => api.removeOutfit(outfit.id),
-    onDone: () => onRemoved(),
-    onFailed: (error) => {
+    mutationFn: () => api.removeOutfit(outfit.id),
+    onSuccess: () => onRemoved(),
+    onError: (error) => {
       // A 404 means the outfit is already gone, which is the outcome the tap
       // asked for. Two surfaces open on one outfit make that ordinary, and
       // reporting it would leave a card on screen for an outfit nothing holds.
@@ -201,7 +201,7 @@ function RemoveButton({
         onRemoved();
         return;
       }
-      toast(said(error), 'error');
+      toast(errorMessage(error), 'error');
     },
   });
 
@@ -209,7 +209,7 @@ function RemoveButton({
     <button
       className="btn btn--small btn--danger"
       type="button"
-      disabled={remove.isPending}
+      disabled={remove.isPending || remove.isSuccess}
       onClick={() => {
         if (!armed) {
           setArmed(true);
@@ -322,6 +322,21 @@ function Picker({
   const fromId = adding ? null : target.garment?.id ?? null;
 
   /**
+   * Above the two returns below it, because it is a hook. The pick rides in as
+   * the write's input rather than being read off the render, so the write
+   * cannot be started from a state where there is nothing chosen to send.
+   */
+  const save = useWrite({
+    mutationFn: async ({ toId, reason: why }: { toId: string | null; reason: string }) => {
+      const body = await api.editPiece(outfit.id, { fromId, toId, reason: why });
+      const next = readOutfit(body?.outfit);
+      if (next === null) throw new Error('The server sent back an outfit the app could not read.');
+      return next;
+    },
+    onSuccess: (next) => onDone(next),
+  });
+
+  /**
    * The wardrobe is loaded once at boot, and Today's own fetch for the outfit
    * normally lands after it. Normally is not always, and a picker drawn from an
    * empty cache would tell the owner they own nothing in this slot.
@@ -375,20 +390,6 @@ function Picker({
   const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !claimed(garment));
   const canSave = chosen !== null && reason.trim() !== '';
 
-
-  /**
-   * The pick rides in rather than being read off the render, so the write
-   * cannot be started from a state where there is nothing chosen to send.
-   */
-  const save = useWrite({
-    run: async ({ toId, reason: why }: { toId: string | null; reason: string }) => {
-      const body = await api.editPiece(outfit.id, { fromId, toId, reason: why });
-      const next = readOutfit(body?.outfit);
-      if (next === null) throw new Error('The server sent back an outfit the app could not read.');
-      return next;
-    },
-    onDone: (next) => onDone(next),
-  });
 
   return (
     <div className="swap">

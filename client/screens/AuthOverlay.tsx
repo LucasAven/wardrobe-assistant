@@ -1,6 +1,7 @@
 import { useState, useSyncExternalStore } from 'react';
 import { authGate } from '../lib/authGate.js';
 import { api } from '../lib/queries.js';
+import { errorMessage } from '../lib/write.js';
 
 export function AuthOverlay() {
   const open = useSyncExternalStore(authGate.subscribe, authGate.isOpen);
@@ -19,7 +20,7 @@ export function AuthOverlay() {
       setPassword('');
       authGate.close();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      setMessage(errorMessage(error));
     } finally {
       setChecking(false);
     }

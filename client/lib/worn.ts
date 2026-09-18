@@ -31,7 +31,7 @@ export function markWorn(id: string) {
   for (const listener of listeners) listener();
 }
 
-/** The set as it stands, plus a re-render when a wear is logged anywhere. */
+/** Subscribed rather than read once, because the row above the card reads it too. */
 export function useWorn(): ReadonlySet<string> {
   return useSyncExternalStore(subscribeWorn, wornSnapshot);
 }

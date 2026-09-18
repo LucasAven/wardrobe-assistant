@@ -25,7 +25,7 @@ import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
 import { useScreenChrome, useShell } from '../lib/shell.js';
-import { said, useWrite } from '../lib/write.js';
+import { errorMessage, useWrite } from '../lib/write.js';
 
 const OUTLINE_DASH = [16, 12];
 
@@ -293,7 +293,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
         work.current.size = targetSize(next.width, next.height);
         setPhoto({ state: 'ready' });
       } catch (error) {
-        if (live) setPhoto({ state: 'failed', message: said(error) });
+        if (live) setPhoto({ state: 'failed', message: errorMessage(error) });
       }
     })();
 
@@ -433,7 +433,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
    * defined above the point where a missing garment has been answered.
    */
   const saveEdit = useWrite({
-    run: async (id: string) => {
+    mutationFn: async (id: string) => {
       // The dashed line and the crop frame are screen overlays. Exporting the
       // cropped view drops both and applies the crop, which nothing else does.
       work.current.current = null;
@@ -444,50 +444,61 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
       if (blob === null) throw new Error('The phone could not export the edited photo.');
       return api.putCutout(id, blob);
     },
-    onDone: (updated, id) => {
+    onSuccess: (updated, id) => {
       upsertGarment(updated);
       go(routeHash('review', id));
     },
-    onFailed: (error) => {
+    onError: (error) => {
       // The lines only live in this screen, so a failed save leaves them on the
       // canvas rather than throwing the drawing away.
       refresh();
-      toast(said(error), 'error');
+      toast(errorMessage(error), 'error');
     },
   });
 
   /** Both of these keep the tags and change only the photo, so they reload it in place. */
-  const reload = useWrite({
-    run: ({ request }: { request: () => Promise<Garment>; note: string }) => request(),
-    onDone: (updated, { note }) => {
-      upsertGarment(updated);
-      work.current.paths = [];
-      work.current.current = null;
-      work.current.quarterTurns = 0;
-      work.current.crop = null;
-      setPhoto({ state: 'loading' });
-      setReloads((at) => at + 1);
-      toast(note);
-    },
+  function reloaded(updated: Garment, note: string) {
+    upsertGarment(updated);
+    work.current.paths = [];
+    work.current.current = null;
+    work.current.quarterTurns = 0;
+    work.current.crop = null;
+    setPhoto({ state: 'loading' });
+    setReloads((at) => at + 1);
+    toast(note);
+  }
+
+  const resetCutout = useWrite({
+    mutationFn: (id: string) => api.resetCutout(id),
+    onSuccess: (updated) => reloaded(updated, 'Back to what Images makes of the photo.'),
+    // On the hook rather than on the call, because a second write while this
+    // one is in flight would drop a per-call callback and leave Asking on.
+    onSettled: () => setAsking(false),
+  });
+
+  const replace = useWrite({
+    mutationFn: ({ id, body, contentType }: { id: string; body: Blob; contentType: string }) =>
+      api.replacePhoto(id, body, contentType),
+    onSuccess: (updated) => reloaded(updated, 'New photo saved, and the tags are untouched.'),
   });
 
   /** One at a time, because all of them rewrite the same stored photo. */
-  const busy = saveEdit.isPending || reload.isPending;
+  const busy = saveEdit.isPending || resetCutout.isPending || replace.isPending;
 
   async function replacePhoto(file: File) {
+    // The label this hangs off cannot be disabled, so this is the only thing
+    // keeping a pick during a save from starting a second write on the photo.
+    if (busy || found === null) return;
+
     const { body } = await normalizeForUpload(file);
     const contentType = uploadContentType(body);
     if (contentType === null) {
       toast('This file is not an image the app can read.', 'error');
       return;
     }
-    if (found === null) return;
 
     toast('Uploading the new photo.');
-    reload.mutate({
-      request: () => api.replacePhoto(found.id, body, contentType),
-      note: 'New photo saved, and the tags are untouched.',
-    });
+    replace.mutate({ id: found.id, body, contentType });
   }
 
   if (garments.isPending || (photo.state === 'loading' && found !== null)) {
@@ -683,10 +694,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
             disabled={asking || busy}
             onClick={() => {
               setAsking(true);
-              reload.mutate(
-                { request: () => api.resetCutout(found.id), note: 'Back to what Images makes of the photo.' },
-                { onSettled: () => setAsking(false) },
-              );
+              resetCutout.mutate(found.id);
             }}
           >
             {asking ? 'Asking' : 'Ask Images again'}
