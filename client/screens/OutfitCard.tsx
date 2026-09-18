@@ -38,6 +38,7 @@ import { api, garmentsQuery } from '../lib/queries.js';
 import type { Garment, Outfit } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { markWorn, useWorn } from '../lib/worn.js';
+import { said, useWrite } from '../lib/write.js';
 
 const REMOVE_ARM_MS = 4000;
 
@@ -151,28 +152,19 @@ function BookSection({ cited, missed, outfitId }: { cited: Rule[]; missed: Rule[
  * leaving the screen and coming back must not offer to log the same day twice.
  */
 function WearButton({ outfit, already }: { outfit: Outfit; already: boolean }) {
-  const { toast } = useShell();
-  const [saving, setSaving] = useState(false);
-
-  async function wear() {
-    setSaving(true);
-    try {
-      await api.wear(wearEntry(outfit));
-      markWorn(outfit.id);
-    } catch (error) {
-      setSaving(false);
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    }
-  }
+  const wear = useWrite({
+    run: () => api.wear(wearEntry(outfit)),
+    onDone: () => markWorn(outfit.id),
+  });
 
   return (
     <button
       className={already ? 'btn btn--wide' : 'btn btn--wide btn--primary'}
       type="button"
-      disabled={already || saving}
-      onClick={() => void wear()}
+      disabled={already || wear.isPending}
+      onClick={() => wear.mutate()}
     >
-      {already ? 'Worn' : saving ? 'Saving' : 'Wore this'}
+      {already ? 'Worn' : wear.isPending ? 'Saving' : 'Wore this'}
     </button>
   );
 }
@@ -197,14 +189,11 @@ function RemoveButton({
 }) {
   const { toast } = useShell();
   const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState(false);
 
-  async function remove() {
-    setBusy(true);
-    try {
-      await api.removeOutfit(outfit.id);
-      onRemoved();
-    } catch (error) {
+  const remove = useWrite({
+    run: () => api.removeOutfit(outfit.id),
+    onDone: () => onRemoved(),
+    onFailed: (error) => {
       // A 404 means the outfit is already gone, which is the outcome the tap
       // asked for. Two surfaces open on one outfit make that ordinary, and
       // reporting it would leave a card on screen for an outfit nothing holds.
@@ -212,16 +201,15 @@ function RemoveButton({
         onRemoved();
         return;
       }
-      setBusy(false);
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    }
-  }
+      toast(said(error), 'error');
+    },
+  });
 
   return (
     <button
       className="btn btn--small btn--danger"
       type="button"
-      disabled={busy}
+      disabled={remove.isPending}
       onClick={() => {
         if (!armed) {
           setArmed(true);
@@ -233,7 +221,7 @@ function RemoveButton({
           setTimeout(() => setArmed(false), REMOVE_ARM_MS);
           return;
         }
-        void remove();
+        remove.mutate();
       }}
     >
       {armed ? 'Tap again to remove' : 'Remove this outfit'}
@@ -314,12 +302,10 @@ function Picker({
   target: Target;
   onDone: (next: Outfit | null) => void;
 }) {
-  const { toast } = useShell();
   const garments = useQuery(garmentsQuery);
   const reasonRef = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<{ id: string | null } | null>(null);
   const [reason, setReason] = useState('');
-  const [saving, setSaving] = useState(false);
 
   /**
    * The sentence is the point of the whole gesture, so picking opens the
@@ -390,19 +376,19 @@ function Picker({
   const canSave = chosen !== null && reason.trim() !== '';
 
 
-  async function save() {
-    if (!canSave || chosen === null) return;
-    setSaving(true);
-    try {
-      const body = await api.editPiece(outfit.id, { fromId, toId: chosen.id, reason: reason.trim() });
+  /**
+   * The pick rides in rather than being read off the render, so the write
+   * cannot be started from a state where there is nothing chosen to send.
+   */
+  const save = useWrite({
+    run: async ({ toId, reason: why }: { toId: string | null; reason: string }) => {
+      const body = await api.editPiece(outfit.id, { fromId, toId, reason: why });
       const next = readOutfit(body?.outfit);
       if (next === null) throw new Error('The server sent back an outfit the app could not read.');
-      onDone(next);
-    } catch (error) {
-      setSaving(false);
-      toast(error instanceof Error ? error.message : String(error), 'error');
-    }
-  }
+      return next;
+    },
+    onDone: (next) => onDone(next),
+  });
 
   return (
     <div className="swap">
@@ -488,8 +474,15 @@ function Picker({
           Cancel
         </button>
         {/* The sentence is the point of the whole gesture, so it is what unlocks Save. */}
-        <button className="btn btn--primary" type="button" disabled={!canSave || saving} onClick={() => void save()}>
-          {saving ? 'Saving' : 'Save'}
+        <button
+          className="btn btn--primary"
+          type="button"
+          disabled={!canSave || save.isPending}
+          onClick={() => {
+            if (chosen !== null) save.mutate({ toId: chosen.id, reason: reason.trim() });
+          }}
+        >
+          {save.isPending ? 'Saving' : 'Save'}
         </button>
       </div>
     </div>
