@@ -48,7 +48,21 @@ export function bodyTypeLabel(value) {
   return BODY_TYPE_BY_VALUE.get(value)?.label ?? 'not set';
 }
 
-/** The five questions, in the book's order. Values match BodyObservations in the contract. */
+/**
+ * @typedef {{ value: string, label: string }} ChipOption
+ * @typedef {{
+ *   name: string,
+ *   label: string,
+ *   type: 'enum' | 'boolean',
+ *   hint?: string,
+ *   options: ChipOption[],
+ * }} MirrorQuestion
+ */
+
+/**
+ * The five questions, in the book's order. Values match BodyObservations in the contract.
+ * @type {MirrorQuestion[]}
+ */
 export const MIRROR_QUESTIONS = [
   {
     name: 'shouldersVsHips',
