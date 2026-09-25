@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 
 export type ShellHooks = {
   toast: (message: string, kind?: string) => void;
@@ -53,6 +53,11 @@ export type ScreenChrome = {
  * The topbar belongs to the shell and the screen is what knows what goes in it,
  * so every screen sets all of it in one call. Three separate calls would let a
  * screen forget one and inherit the last screen's Back button.
+ *
+ * Before paint, not after. A passive effect runs once the browser has already
+ * drawn, so the first frame of a new screen carried the last one's title, meta
+ * and Back target: going from the wardrobe to Add garments showed "Add
+ * garments" under a meta still reading "47 pieces".
  */
 export function useScreenChrome({ title, meta = '', back = null, refresh = null }: ScreenChrome) {
   const shell = useShell();
@@ -60,15 +65,15 @@ export function useScreenChrome({ title, meta = '', back = null, refresh = null 
   latestRefresh.current = refresh;
   const hasRefresh = refresh !== null;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     shell.setTitle(title, meta);
   }, [shell, title, meta]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     shell.setBack(back);
   }, [shell, back]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     shell.onRefresh(hasRefresh ? () => latestRefresh.current?.() : null);
   }, [shell, hasRefresh]);
 }

@@ -1,13 +1,29 @@
 import { parseRoute } from './router.js';
 
-export type Route = { name: string; id: string | null; nonce: number };
+export type Route = { name: string; id: string | null; landing: boolean; nonce: number };
 
-let snapshot: Route = { ...parseRoute(location.hash), nonce: 0 };
+/**
+ * The hash the app is opened on, before anything has decided where to send the
+ * owner. `parseRoute` clamps it to the wardrobe like any other name it does not
+ * know, so the shell has to be able to tell the two apart: rendering the
+ * wardrobe for the one task it takes the boot `hashchange` to arrive mounted
+ * that screen and fired its gaps request on every launch.
+ */
+function onLandingHash() {
+  return location.hash === '' || location.hash === '#' || location.hash === '#/';
+}
+
+let snapshot: Route = { ...parseRoute(location.hash), landing: onLandingHash(), nonce: 0 };
 const listeners = new Set<() => void>();
 
 function read(bump: boolean) {
   const next = parseRoute(location.hash);
-  snapshot = { name: next.name, id: next.id, nonce: bump ? snapshot.nonce + 1 : snapshot.nonce };
+  snapshot = {
+    name: next.name,
+    id: next.id,
+    landing: onLandingHash(),
+    nonce: bump ? snapshot.nonce + 1 : snapshot.nonce,
+  };
   for (const listener of listeners) listener();
 }
 

@@ -101,10 +101,6 @@ const SCREENS: Record<string, (props: { route: Route }) => React.ReactNode> = {
   edit: EditPhoto,
 };
 
-function onLandingHash() {
-  return location.hash === '' || location.hash === '#' || location.hash === '#/';
-}
-
 export function App() {
   const route = useSyncExternalStore(subscribeRoute, routeSnapshot);
 
@@ -131,35 +127,48 @@ export function App() {
   );
 
   const garments = useQuery(garmentsQuery);
+  /**
+   * The badge reads the wardrobe, and a screen that does not read it has no
+   * other way to say the read failed, so the shell says it once. Only the first
+   * failure: a later one belongs to whichever screen asked again, and that
+   * screen says so itself.
+   */
   useEffect(() => {
-    if (garments.error instanceof Error) toast(garments.error.message, 'error');
-  }, [garments.error, toast]);
+    if (garments.error instanceof Error && garments.data === undefined) toast(garments.error.message, 'error');
+  }, [garments.error, garments.data, toast]);
 
   /**
    * The app opens on what Claude saved for today, unless there is no body type
    * yet, in which case nothing downstream can run and the setup is the only
-   * useful screen. A profile that fails to load still lands on Today.
+   * useful screen. A profile that cannot be read has no body type either, so it
+   * lands on the setup as well.
+   *
+   * Read off the route rather than held as a flag of its own. Setting
+   * `location.hash` queues the `hashchange` rather than firing it, so a flag
+   * lowered next to the `go()` call was already false for the render before the
+   * new route arrived, and that render drew the screen the empty hash clamps to.
    */
-  const [booting, setBooting] = useState(onLandingHash);
+  const booting = route.landing;
   useEffect(() => {
-    if (!booting) return;
+    if (!route.landing) return;
     let live = true;
     queryClient
       .ensureQueryData(profileQuery)
       .catch(() => null)
       .then((data) => {
-        if (!live) return;
-        go(data?.profile == null ? '#/profile' : '#/today');
-        setBooting(false);
+        if (live) go(data?.profile == null ? '#/profile' : '#/today');
       });
     return () => {
       live = false;
     };
-  }, [booting]);
+  }, [route.landing]);
 
   const unreviewed = (garments.data ?? []).filter((garment) => !garment.reviewed).length;
   const lit = TAB_FOR_ROUTE[route.name] ?? route.name;
-  const Screen = SCREENS[route.name];
+  // `parseRoute` already clamps a name it does not know to the wardrobe, so
+  // this is the same answer written where a reader can see it rather than a
+  // branch for a case that cannot arrive.
+  const Screen = SCREENS[route.name] ?? Wardrobe;
 
   return (
     <ShellContext.Provider value={shell}>
@@ -180,7 +189,7 @@ export function App() {
           </button>
         </header>
 
-        {booting || Screen === undefined ? (
+        {booting ? (
           <main className="screen">
             <div className="empty">
               <p className="empty__text">Opening.</p>
