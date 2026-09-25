@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { OutfitSet } from './OutfitSet.js';
 import { askPosition } from '../lib/geo.js';
-import { savedClock, todayView } from '../lib/outfits.js';
+import { readOutfits, savedClock, todayView } from '../lib/outfits.js';
 import { forgetPref } from '../lib/prefs.js';
-import { api, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
+import { api, outfitListOptions, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome } from '../lib/shell.js';
 import { readWeather, weatherLine } from '../lib/weather.js';
@@ -87,7 +87,14 @@ function Weather() {
 }
 
 export function Today() {
-  const today = useQuery({ queryKey: todayKey, queryFn: () => api.getTodayOutfits() });
+  // Read inside the fetch, not on render. The cache then holds the outfit
+  // objects the cards are handed, so an edit written back to it reaches them
+  // and a re-render does not build a second set of them.
+  const today = useQuery({
+    queryKey: todayKey,
+    queryFn: async () => readOutfits(await api.getTodayOutfits()),
+    ...outfitListOptions,
+  });
   useScreenChrome({ title: 'Today', refresh: () => void today.refetch() });
 
   // The profile is a nudge on this screen, not a gate. A failed read stays quiet.
@@ -152,10 +159,6 @@ export function Today() {
                   outfits={set.outfits}
                   caption="Today"
                   meta={clock === '' ? '' : `saved ${clock}`}
-                  // Read again rather than cleared here. The screen keeps no
-                  // outfit of its own, so asking once more is the only thing
-                  // that reaches its empty state.
-                  onRemoved={() => void today.refetch()}
                   // The ids, not the set, so removing one option rebuilds the
                   // pager rather than leaving it on "Option 3 of 2".
                   key={set.outfits.map((outfit) => outfit.id).join()}

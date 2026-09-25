@@ -34,7 +34,7 @@ import {
   wearEntry,
 } from '../lib/outfits.js';
 import { imagePath } from '../lib/photo.js';
-import { api, garmentsQuery } from '../lib/queries.js';
+import { api, dropOutfit, garmentsQuery, writeOutfit } from '../lib/queries.js';
 import type { Garment, Outfit } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { markWorn, useWorn } from '../lib/worn.js';
@@ -43,7 +43,12 @@ import { errorMessage, useWrite } from '../lib/write.js';
 const REMOVE_ARM_MS = 4000;
 
 type Rule = { id: string; short: string; because: string };
-type Target = { slot: string; garment: Garment | null };
+/**
+ * What the owner tapped, by id rather than by object. The outfit under an open
+ * picker can be replaced by a refetch, and a held garment object would then
+ * describe a piece the outfit no longer wears.
+ */
+type Target = { slot: string; garmentId: string | null };
 
 function PieceTile({ label, garment, onPick }: { label: string; garment: Garment; onPick: (() => void) | null }) {
   const body = (
@@ -178,27 +183,21 @@ function WearButton({ outfit, already }: { outfit: Outfit; already: boolean }) {
  * a card to do on its way off the screen. It is told on `wearNamed` and not on
  * `worn`, since only a wear row naming this outfit is one the delete can reach.
  */
-function RemoveButton({
-  outfit,
-  wearNamed,
-  onRemoved,
-}: {
-  outfit: Outfit;
-  wearNamed: boolean;
-  onRemoved: () => void;
-}) {
+function RemoveButton({ outfit, wearNamed }: { outfit: Outfit; wearNamed: boolean }) {
   const { toast } = useShell();
   const [armed, setArmed] = useState(false);
 
   const remove = useWrite({
     mutationFn: () => api.removeOutfit(outfit.id),
-    onSuccess: () => onRemoved(),
+    // Taking it out of every list that holds it is what takes this card off the
+    // screen, so the card no longer needs the screen to hand it a way out.
+    onSuccess: () => dropOutfit(outfit.id),
     onError: (error) => {
       // A 404 means the outfit is already gone, which is the outcome the tap
       // asked for. Two surfaces open on one outfit make that ordinary, and
       // reporting it would leave a card on screen for an outfit nothing holds.
       if ((error as { status?: number })?.status === 404) {
-        onRemoved();
+        dropOutfit(outfit.id);
         return;
       }
       toast(errorMessage(error), 'error');
@@ -290,8 +289,9 @@ function HeldTile({ garment, note, worn }: { garment: Garment; note: string; wor
  * one screen where the owner can argue with it least.
  *
  * `target.garment` is null on an add: the owner is filling a slot the outfit
- * never had and nothing steps out. `onDone` takes the outfit the server sent
- * back, or null when they backed out.
+ * never had and nothing steps out. `onDone` closes the picker, whether the
+ * owner saved or backed out, because the saved outfit reaches the card through
+ * the cache rather than through this callback.
  */
 function Picker({
   outfit,
@@ -299,8 +299,8 @@ function Picker({
   onDone,
 }: {
   outfit: Outfit;
-  target: Target;
-  onDone: (next: Outfit | null) => void;
+  target: { slot: string; garment: Garment | null };
+  onDone: () => void;
 }) {
   const garments = useQuery(garmentsQuery);
   const reasonRef = useRef<HTMLInputElement>(null);
@@ -333,7 +333,13 @@ function Picker({
       if (next === null) throw new Error('The server sent back an outfit the app could not read.');
       return next;
     },
-    onSuccess: (next) => onDone(next),
+    // Into the cache, not into the card. Every list holding this outfit shows
+    // the change, so the history row's piece count above an open card moves
+    // with it and no re-render of the shell can undo it.
+    onSuccess: (next) => {
+      writeOutfit(next);
+      onDone();
+    },
   });
 
   /**
@@ -350,7 +356,7 @@ function Picker({
       <div className="swap">
         <p className="empty__text">{garments.error.message}</p>
         <div className="swap__actions">
-          <button className="btn btn--ghost" type="button" onClick={() => onDone(null)}>
+          <button className="btn btn--ghost" type="button" onClick={onDone}>
             Cancel
           </button>
           <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
@@ -471,7 +477,7 @@ function Picker({
       </div>
 
       <div className="swap__actions">
-        <button className="btn btn--ghost" type="button" onClick={() => onDone(null)}>
+        <button className="btn btn--ghost" type="button" onClick={onDone}>
           Cancel
         </button>
         {/* The sentence is the point of the whole gesture, so it is what unlocks Save. */}
@@ -519,73 +525,66 @@ function CardHead({ named, caption, meta }: { named: string | null; caption: str
  * `showName` is false where it has already shown the outfit's own name. The
  * history does exactly that, in the row you tap to open the card.
  *
- * `onRemoved` runs once the outfit is deleted, and a screen that passes none
- * gets no remove control at all. The card cannot take itself off the screen, so
- * offering the tap where nobody handles it would leave a card for an outfit
- * that is gone.
+ * The card is a function of `outfit` and holds no copy of it. Every edit it
+ * makes goes to the cache, so the screen above it, the row above that, and this
+ * card all read one outfit. Holding the edit here instead meant any re-render
+ * of the shell handed the card the pre-edit outfit again and threw the edit
+ * away, and a toast is a re-render of the shell.
  */
 export function OutfitCard({
   outfit,
   caption = null,
   meta = '',
   showName = true,
-  onRemoved = null,
 }: {
   outfit: Outfit;
   caption?: string | null;
   meta?: string;
   showName?: boolean;
-  onRemoved?: (() => void) | null;
 }) {
-  const [current, setCurrent] = useState<Outfit>(outfit);
   const [target, setTarget] = useState<Target | null>(null);
   const wornSession = useWorn();
 
-  /**
-   * A swap lands here rather than in a query, because the card is handed one
-   * outfit and does not know which list holds it. So the screen above has to be
-   * able to overrule it: a refetch builds new outfit objects, and the card that
-   * ignored them would sit on what it read when it mounted. The old card was
-   * rebuilt from scratch on every refetch, which is the behaviour this keeps.
-   */
-  const given = useRef(outfit);
-  if (given.current !== outfit) {
-    given.current = outfit;
-    setCurrent(outfit);
-  }
+  // Resolved every render from the outfit the cache holds now. An outfit
+  // replaced under an open picker can no longer wear the tapped piece, and
+  // there is nothing to change about a garment the outfit does not hold, so
+  // the picker closes rather than pointing at it.
+  const tapped =
+    target === null || target.garmentId === null
+      ? null
+      : [...outfit.pieces.map((piece) => piece.garment), ...outfit.accessories].find(
+          (garment: Garment) => garment.id === target.garmentId,
+        ) ?? null;
 
-  if (target !== null) {
+  if (target !== null && (target.garmentId === null || tapped !== null)) {
     return (
       <section className="outfit">
         <Picker
-          outfit={current}
-          target={target}
-          onDone={(next) => {
-            if (next !== null) setCurrent(next);
-            setTarget(null);
-          }}
+          outfit={outfit}
+          target={{ slot: target.slot, garment: tapped }}
+          onDone={() => setTarget(null)}
         />
       </section>
     );
   }
 
-  const pieces = orderPieces(current.pieces);
-  const { cited, missed, broke } = splitRules(current);
+  const pieces = orderPieces(outfit.pieces);
+  const { cited, missed, broke } = splitRules(outfit);
   // The test the wear button already made, read once: an outfit that was worn
   // is the record of a day, so the server refuses to change one and the card
   // offers no tap.
-  const worn = current.worn || wornSession.has(current.id);
+  const worn = outfit.worn || wornSession.has(outfit.id);
   // A narrower question than `worn`, and the one the remove control needs: an
   // outfit worn before migration 009, or through a log_wear that left the id
   // out, is worn off the day and the garments and no row claims it.
-  const wearNamed = current.wearNamed || wornSession.has(current.id);
-  const open = addableSlots(current, worn);
-  const request = current.ownerRequest;
+  const wearNamed = outfit.wearNamed || wornSession.has(outfit.id);
+  const open = addableSlots(outfit, worn);
+  const request = outfit.ownerRequest;
 
   return (
     <section className="outfit">
       <CardHead
-        named={showName && current.title !== '' ? current.title : null}
+        named={showName && outfit.title !== '' ? outfit.title : null}
         caption={caption}
         meta={meta}
       />
@@ -595,7 +594,7 @@ export function OutfitCard({
           <PieceTile
             label={pieceLabel(piece.slot, piece.garment)}
             garment={piece.garment}
-            onPick={worn ? null : () => setTarget(piece)}
+            onPick={worn ? null : () => setTarget({ slot: piece.slot, garmentId: piece.garment.id })}
             key={piece.slot}
           />
         ))}
@@ -614,7 +613,7 @@ export function OutfitCard({
                 className="filter"
                 type="button"
                 aria-label={`Add ${article(slot)} ${slot}`}
-                onClick={() => setTarget({ slot, garment: null })}
+                onClick={() => setTarget({ slot, garmentId: null })}
                 key={slot}
               >
                 {slot}
@@ -627,15 +626,15 @@ export function OutfitCard({
       {/* The same tile the pieces get, and tappable for the same reason. It
           keeps a section of its own because an accessory has no place in the
           base to shoes order above it, and there can be several. */}
-      {current.accessories.length > 0 && (
+      {outfit.accessories.length > 0 && (
         <div className="accessories">
           <h4 className="section__title">With</h4>
           <ul className="looks">
-            {current.accessories.map((garment: Garment) => (
+            {outfit.accessories.map((garment: Garment) => (
               <PieceTile
                 label={pieceLabel('accessory', garment)}
                 garment={garment}
-                onPick={worn ? null : () => setTarget({ slot: 'accessory', garment })}
+                onPick={worn ? null : () => setTarget({ slot: 'accessory', garmentId: garment.id })}
                 key={garment.id}
               />
             ))}
@@ -661,11 +660,11 @@ export function OutfitCard({
         </section>
       )}
 
-      {current.rationale !== '' && (
+      {outfit.rationale !== '' && (
         <div className="rationale">
-          <p className="rationale__text">{current.rationale}</p>
+          <p className="rationale__text">{outfit.rationale}</p>
           <p className="source source--model">
-            {current.corrections.length === 0
+            {outfit.corrections.length === 0
               ? 'The assistant wrote this. It is not from the book.'
               : 'The assistant wrote this for the pieces it chose, before you changed one. It is not from the book.'}
           </p>
@@ -685,11 +684,11 @@ export function OutfitCard({
 
       {/* A third voice, kept apart from the book's and the assistant's the way
           those two are. */}
-      {current.corrections.length > 0 && (
+      {outfit.corrections.length > 0 && (
         <section className="section">
           <h3 className="section__title">What you changed</h3>
           <ul className="changes">
-            {current.corrections.map((correction: { reason: string }, at: number) => (
+            {outfit.corrections.map((correction: { reason: string }, at: number) => (
               <li className="change" key={at}>
                 <p className="change__what">{changeLine(correction)}</p>
                 <p className="change__why">{`"${correction.reason}"`}</p>
@@ -701,7 +700,7 @@ export function OutfitCard({
       )}
 
       {(cited.length > 0 || missed.length > 0) && (
-        <BookSection cited={cited} missed={missed} outfitId={current.id} />
+        <BookSection cited={cited} missed={missed} outfitId={outfit.id} />
       )}
 
       {/* Apart from the missed section because a dont is not a preference. The
@@ -720,13 +719,11 @@ export function OutfitCard({
         </section>
       )}
 
-      <WearButton outfit={current} already={worn} />
+      <WearButton outfit={outfit} already={worn} />
 
-      {onRemoved !== null && (
-        <div className="outfit__remove">
-          <RemoveButton outfit={current} wearNamed={wearNamed} onRemoved={onRemoved} />
-        </div>
-      )}
+      <div className="outfit__remove">
+        <RemoveButton outfit={outfit} wearNamed={wearNamed} />
+      </div>
     </section>
   );
 }

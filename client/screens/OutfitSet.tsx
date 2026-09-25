@@ -18,13 +18,11 @@ export function OutfitSet({
   caption = null,
   meta = '',
   showName = true,
-  onRemoved = null,
 }: {
   outfits: Outfit[];
   caption?: string | null;
   meta?: string;
   showName?: boolean;
-  onRemoved?: (() => void) | null;
 }) {
   const [at, setAt] = useState(0);
   // Built on the first show and kept. Three outfits is up to fifteen photos,
@@ -39,7 +37,6 @@ export function OutfitSet({
       caption={caption}
       meta={meta}
       showName={showName}
-      onRemoved={onRemoved}
       key={outfit.id ?? index}
     />
   );

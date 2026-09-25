@@ -1241,7 +1241,7 @@ test('every garment in a saved outfit reaches the wear log once', () => {
 
 test('nothing saved for today is a sentence, not a blank screen', () => {
   for (const body of [{ outfits: [] }, {}, null, { outfits: [{ pieces: [] }] }, { outfits: null }]) {
-    const view = todayView(body);
+    const view = todayView(readOutfits(body));
     assert.equal(view.kind, 'empty');
     assert.equal(view.title, NOTHING_SAVED.title);
     assert.ok(view.title.length > 0, 'a blank screen is the one outcome worth avoiding');
@@ -1256,7 +1256,7 @@ test('today shows every outfit saved today, with the sets kept together', () => 
   ];
   const alone = { ...SAVED, id: 'b1', planId: 'plan-b', createdAt: '2026-09-03T19:40:00' };
 
-  const view = todayView({ outfits: [alone, ...options] });
+  const view = todayView(readOutfits({ outfits: [alone, ...options] }));
   assert.equal(view.kind, 'sets');
   assert.deepEqual(
     view.sets.map((set) => set.outfits.map((outfit) => outfit.id)),
@@ -1265,7 +1265,7 @@ test('today shows every outfit saved today, with the sets kept together', () => 
   );
   assert.equal(view.sets[1].outfits[0].pieces.length, 4, 'and every outfit in one is the card it was');
 
-  const one = todayView({ outfits: [SAVED] });
+  const one = todayView(readOutfits({ outfits: [SAVED] }));
   assert.equal(one.kind, 'sets', 'a single outfit is a set of one, so neither screen asks which it got');
   assert.deepEqual(one.sets.map((set) => set.outfits.length), [1]);
 });

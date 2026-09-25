@@ -228,13 +228,16 @@ export function groupBySet(outfits) {
  * says how to get one. One request can be answered with two or three outfits,
  * so a day holds sets rather than a single outfit.
  *
+ * Takes outfits already read, not a response body. The screen keeps them in its
+ * query cache and hands the same objects to the card, so parsing here as well
+ * would build a second set of them on every render.
+ *
  * @typedef {NonNullable<ReturnType<typeof readOutfit>>} SavedOutfit
  * @typedef {{ setId: string, outfits: SavedOutfit[] }} OutfitSetGroup
- * @param {unknown} body
+ * @param {SavedOutfit[]} outfits
  * @returns {{ kind: 'empty', title: string, detail: string } | { kind: 'sets', sets: OutfitSetGroup[] }}
  */
-export function todayView(body) {
-  const outfits = readOutfits(body);
+export function todayView(outfits) {
   if (outfits.length === 0) return { kind: 'empty', ...NOTHING_SAVED };
   return { kind: 'sets', sets: groupBySet(outfits) };
 }

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { OutfitSet } from './OutfitSet.js';
 import { groupBySet, readOutfits, savedLine } from '../lib/outfits.js';
-import { api, outfitsKey } from '../lib/queries.js';
+import { api, historyKey, outfitListOptions } from '../lib/queries.js';
 import type { Outfit } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome } from '../lib/shell.js';
@@ -48,7 +48,7 @@ function summaryOf(set: Group) {
  * every render would make the rows one accordion, and each row's own `toggle`
  * would then close the row that just opened.
  */
-function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; onRemoved: () => void }) {
+function Entry({ set, openFirst }: { set: Group; openFirst: boolean }) {
   // Built once and kept, so a row closed and opened again comes back as it was
   // left rather than reloading its photos.
   const [built, setBuilt] = useState(openFirst);
@@ -91,7 +91,6 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
           // three, so the names come back on a set, where they tell the options
           // apart.
           showName={set.outfits.length > 1}
-          onRemoved={onRemoved}
         />
       )}
     </details>
@@ -100,8 +99,9 @@ function Entry({ set, openFirst, onRemoved }: { set: Group; openFirst: boolean; 
 
 export function Outfits() {
   const history = useQuery({
-    queryKey: outfitsKey(HISTORY_LIMIT),
+    queryKey: historyKey(HISTORY_LIMIT),
     queryFn: async () => readOutfits(await api.listOutfits(HISTORY_LIMIT)),
+    ...outfitListOptions,
   });
 
   const outfits = history.data ?? [];
@@ -147,10 +147,6 @@ export function Outfits() {
           <Entry
             set={set}
             openFirst={set.setId === sets[0]?.setId}
-            // Read again rather than the row dropped here. The screen keeps no
-            // outfits of its own, so asking once more is what stops the count
-            // in the title and the list under it from disagreeing.
-            onRemoved={() => void history.refetch()}
             key={set.setId}
           />
         ))}

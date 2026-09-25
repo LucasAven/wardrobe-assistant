@@ -4,7 +4,7 @@ import { Photo } from './Photo.js';
 import { tagState } from '../lib/garments.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../lib/patch.js';
 import { imagePath } from '../lib/photo.js';
-import { api, garmentsQuery, queryClient, removeGarment, reviewKey, upsertGarment } from '../lib/queries.js';
+import { api, garmentsKey, garmentsQuery, queryClient, removeGarment, upsertGarment } from '../lib/queries.js';
 import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
@@ -240,8 +240,8 @@ function ReviewCard({
   count: string;
   detailsOpen: boolean;
   onDetailsToggle: (open: boolean) => void;
-  onSaved: (updated: Garment) => void;
-  onRetagged: (updated: Garment) => void;
+  onSaved: () => void;
+  onRetagged: () => void;
   onRemoved: () => void;
   onSkip: () => void;
 }) {
@@ -266,7 +266,7 @@ function ReviewCard({
     mutationFn: () => api.patchGarment(garment.id, confirmPatch(patch)),
     onSuccess: (updated) => {
       upsertGarment(updated);
-      onSaved(updated);
+      onSaved();
     },
   });
 
@@ -277,7 +277,7 @@ function ReviewCard({
       // The row is back to placeholders, so there is nothing to check here
       // until Claude has looked at the photo again. Move on and say so.
       toast('Back in Claude’s queue. Ask it to tag the untagged garments.');
-      onRetagged(updated);
+      onRetagged();
     },
   });
 
@@ -387,60 +387,72 @@ function Body({ children }: { children: React.ReactNode }) {
   );
 }
 
+/**
+ * The queue is the wardrobe filtered, not a list of its own.
+ *
+ * It used to be a second query that fetched the unreviewed rows and wrote each
+ * one into the wardrobe entry from inside its own `queryFn`. That made the
+ * wardrobe a function of this screen's fetch, which is how a failed wardrobe
+ * read plus a visit here left the app believing it owned three garments. The
+ * predicate is the same one the tab badge counts with, so deriving it here
+ * makes the badge and the "N left" meta one number rather than two that agree.
+ *
+ * `passed` is the skip cursor. Indexing into the list is what let a save renumber
+ * the rows under the user and step over the next garment, so nothing indexes:
+ * a row leaves the queue when the server says it is reviewed or gone, and Skip
+ * and "Ask Claude again" put it aside by id for this visit only.
+ */
 export function Review({ route }: { route: { id: string | null } }) {
   const single = route.id !== null;
-  const [index, setIndex] = useState(0);
+  const [passed, setPassed] = useState<ReadonlySet<string>>(() => new Set());
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  /**
-   * One garment is the wardrobe filtered, not a second thing to keep in step.
-   * A cache entry of its own would still hold the pre-edit row after the photo
-   * editor wrote the new one into `['garments']`, and the review screen is
-   * exactly where the editor sends the user back to.
-   */
   const garments = useQuery(garmentsQuery);
-  const key = reviewKey(null);
-  const queue = useQuery({
-    queryKey: key,
-    enabled: !single,
-    queryFn: async (): Promise<Garment[]> => {
-      const rows: Garment[] = await api.listGarments({ reviewed: false });
-      for (const row of rows) upsertGarment(row);
-      return rows;
-    },
-  });
 
-  const source = single ? garments : queue;
-  const rows = single ? (garments.data ?? []).filter((row) => row.id === route.id) : (queue.data ?? []);
-  const garment = rows[index] ?? null;
-  const left = rows.length - index;
+  /**
+   * The wardrobe is cached for the session, so without this the screen would
+   * show the rows that were unreviewed at boot. This is the one screen whose
+   * whole job is what Claude tagged since, so it is the one that asks again.
+   */
+  useEffect(() => {
+    void queryClient.invalidateQueries({ queryKey: garmentsKey });
+  }, []);
+
+  const all = garments.data ?? [];
+  const rows = single
+    ? all.filter((row) => row.id === route.id)
+    : all.filter((row) => !row.reviewed && !passed.has(row.id));
+  const garment = rows[0] ?? null;
 
   useScreenChrome({
     title: 'Review',
-    meta: garment === null || single ? '' : `${left} left`,
+    meta: garment === null || single ? '' : `${rows.length} left`,
     back: single ? '#/wardrobe' : null,
   });
 
+  /** Put aside for this visit. A row the server still calls unreviewed would come back otherwise. */
+  function pass(id: string) {
+    setPassed((seen) => new Set(seen).add(id));
+  }
+
   /**
-   * Only the queue is a list this screen owns. In single mode the screen leaves
-   * for the wardrobe the moment anything changes, and the garment itself was
-   * already written to the cache by whoever changed it.
+   * A write already told the cache what it did, so the row leaves the queue on
+   * its own. Passing the id as well makes that independent of what the server
+   * set: the user answered this garment, so it does not come back either way.
    */
-  function replace(next: Garment[]) {
-    if (!single) queryClient.setQueryData(key, next);
-  }
-
-  function advance() {
+  function done(id: string) {
     if (single) go('#/wardrobe');
-    else setIndex((at) => at + 1);
+    else pass(id);
   }
 
-  if (source.isPending) return <Body>{message('Loading the queue.')}</Body>;
-  if (source.isError) {
+  if (garments.isPending) {
+    return <Body>{message(single ? 'Loading the garment.' : 'Loading the queue.')}</Body>;
+  }
+  if (garments.isError) {
     return (
       <Body>
-        {message(source.error.message, (
-          <button className="btn btn--primary" type="button" onClick={() => void source.refetch()}>
+        {message(garments.error.message, (
+          <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
             Try again
           </button>
         ))}
@@ -448,7 +460,7 @@ export function Review({ route }: { route: { id: string | null } }) {
     );
   }
 
-  if (single && rows.length === 0) return <Body>{message('That garment is not in the wardrobe any more.')}</Body>;
+  if (single && garment === null) return <Body>{message('That garment is not in the wardrobe any more.')}</Body>;
 
   if (garment === null) {
     return (
@@ -467,22 +479,16 @@ export function Review({ route }: { route: { id: string | null } }) {
       <ReviewCard
         key={garment.id}
         garment={garment}
-        count={single ? '' : `${index + 1} of ${rows.length}`}
+        count={single ? '' : `${passed.size + 1} of ${passed.size + rows.length}`}
         detailsOpen={detailsOpen}
         onDetailsToggle={setDetailsOpen}
-        onSaved={(updated) => {
-          replace(rows.map((row, at) => (at === index ? updated : row)));
-          advance();
-        }}
-        onRetagged={(updated) => {
-          replace(rows.map((row, at) => (at === index ? updated : row)));
-          advance();
-        }}
-        onRemoved={() => {
-          replace(rows.filter((_, at) => at !== index));
-          if (single) go('#/wardrobe');
-        }}
-        onSkip={advance}
+        onSaved={() => done(garment.id)}
+        // Retagging puts the row back to placeholders, so the server still calls
+        // it unreviewed and it would be the next thing shown. The toast says to
+        // move on, so it is put aside.
+        onRetagged={() => done(garment.id)}
+        onRemoved={() => done(garment.id)}
+        onSkip={() => pass(garment.id)}
       />
     </Body>
   );
