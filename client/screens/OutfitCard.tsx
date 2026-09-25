@@ -33,6 +33,7 @@ import {
   splitRules,
   wearEntry,
 } from '../lib/outfits.js';
+import { useArmedTap } from '../lib/armed.js';
 import { imagePath } from '../lib/photo.js';
 import { api, dropOutfit, garmentsQuery, writeOutfit } from '../lib/queries.js';
 import type { Garment, Outfit } from '../lib/queries.js';
@@ -185,7 +186,6 @@ function WearButton({ outfit, already }: { outfit: Outfit; already: boolean }) {
  */
 function RemoveButton({ outfit, wearNamed }: { outfit: Outfit; wearNamed: boolean }) {
   const { toast } = useShell();
-  const [armed, setArmed] = useState(false);
 
   const remove = useWrite({
     mutationFn: () => api.removeOutfit(outfit.id),
@@ -204,24 +204,23 @@ function RemoveButton({ outfit, wearNamed }: { outfit: Outfit; wearNamed: boolea
     },
   });
 
+  const { armed, tap } = useArmedTap({
+    ms: REMOVE_ARM_MS,
+    onArm: () =>
+      toast(
+        wearNamed
+          ? 'This outfit and the wear you logged both go, so its garments come off their cooldown.'
+          : 'This outfit leaves the app for good.',
+      ),
+    onFire: () => remove.mutate(),
+  });
+
   return (
     <button
       className="btn btn--small btn--danger"
       type="button"
       disabled={remove.isPending || remove.isSuccess}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          toast(
-            wearNamed
-              ? 'This outfit and the wear you logged both go, so its garments come off their cooldown.'
-              : 'This outfit leaves the app for good.',
-          );
-          setTimeout(() => setArmed(false), REMOVE_ARM_MS);
-          return;
-        }
-        remove.mutate();
-      }}
+      onClick={tap}
     >
       {armed ? 'Tap again to remove' : 'Remove this outfit'}
     </button>

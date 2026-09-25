@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Photo } from './Photo.js';
+import { useArmedTap } from '../lib/armed.js';
 import { tagState } from '../lib/garments.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../lib/patch.js';
 import { imagePath } from '../lib/photo.js';
@@ -200,27 +201,14 @@ function summaryChips(garment: Garment) {
  */
 function RemoveButton({ busy, onRemove }: { busy: boolean; onRemove: () => void }) {
   const { toast } = useShell();
-  const [armed, setArmed] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => () => clearTimeout(timer.current ?? undefined), []);
+  const { armed, tap } = useArmedTap({
+    ms: ARCHIVE_ARM_MS,
+    onArm: () => toast('Outfits you already saved keep this piece and its photo.'),
+    onFire: onRemove,
+  });
 
   return (
-    <button
-      className="btn btn--small btn--danger"
-      type="button"
-      disabled={busy}
-      onClick={() => {
-        if (!armed) {
-          setArmed(true);
-          toast('Outfits you already saved keep this piece and its photo.');
-          timer.current = setTimeout(() => setArmed(false), ARCHIVE_ARM_MS);
-          return;
-        }
-        clearTimeout(timer.current ?? undefined);
-        onRemove();
-      }}
-    >
+    <button className="btn btn--small btn--danger" type="button" disabled={busy} onClick={tap}>
       {armed ? 'Tap again to remove' : 'Remove from wardrobe'}
     </button>
   );
