@@ -90,6 +90,9 @@ const asText = (value) => (typeof value === 'string' ? value : '');
  * whole of what a pill on the card can show. A rule saved before the book
  * carried one still has its sentence, and a pill with nothing on it is worse
  * than a pill reading `rect-01`, so the id stands in and the rule stays.
+ *
+ * @param {unknown} value
+ * @returns {{ id: string, because: string, short: string }[]}
  */
 function readRules(value) {
   return asArray(value)
@@ -101,6 +104,10 @@ function readRules(value) {
     }));
 }
 
+/**
+ * @param {unknown} value
+ * @returns {{ id: string, subtype: string | null } | null}
+ */
 function readNamed(value) {
   if (!isObject(value) || typeof value.id !== 'string') return null;
   return { id: value.id, subtype: typeof value.subtype === 'string' ? value.subtype : null };
@@ -113,6 +120,14 @@ function readNamed(value) {
  * Both sides are nullable and they mean opposite things. No `to` is a piece the
  * owner took out, no `from` is one they added to a slot the outfit never had,
  * so only a row with neither side left says nothing a card can draw.
+ *
+ * @param {unknown} value
+ * @returns {{
+ *   slot: string,
+ *   from: { id: string, subtype: string | null } | null,
+ *   to: { id: string, subtype: string | null } | null,
+ *   reason: string,
+ * }[]}
  */
 function readCorrections(value) {
   return asArray(value).flatMap((row) => {
@@ -133,6 +148,13 @@ const WAIVED = ['season', 'formality', 'cooldown'];
  * empty, and the whole block is dropped when the words are gone, because a
  * waiver with nothing to justify it is the one thing this section exists to
  * make impossible to hide.
+ *
+ * @param {unknown} value
+ * @returns {{
+ *   words: string,
+ *   disagreement: string,
+ *   honored: { id: string, subtype: string | null, waived: string[] }[],
+ * } | null}
  */
 function readOwnerRequest(value) {
   if (!isObject(value) || typeof value.words !== 'string' || value.words === '') return null;
@@ -151,6 +173,16 @@ function readOwnerRequest(value) {
   };
 }
 
+/**
+ * The garment an outfit carries, which is the wire's `GarmentView` and not the
+ * wardrobe row: an outfit piece has no `reviewed`, `uncertain` or `archived` on
+ * it. The card reads only what both shapes have, so one type covers both.
+ *
+ * @typedef {import('../../src/worker/contract').GarmentView} OutfitGarment
+ *
+ * @param {unknown} value
+ * @returns {{ slot: string, garment: OutfitGarment }[]}
+ */
 function readPieces(value) {
   return asArray(value).filter((piece) => isObject(piece) && typeof piece.slot === 'string' && isObject(piece.garment));
 }
@@ -175,7 +207,7 @@ export function readOutfit(value) {
     // The picker judges a candidate against the day this outfit was built for.
     event: EVENTS.includes(value.event) ? value.event : null,
     pieces,
-    accessories: asArray(value.accessories).filter(isObject),
+    accessories: /** @type {OutfitGarment[]} */ (asArray(value.accessories).filter(isObject)),
     title: asText(value.title),
     rationale: asText(value.rationale),
     cited: readRules(value.cited),

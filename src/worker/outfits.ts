@@ -22,7 +22,24 @@ import type {
   Waived,
 } from '../domain/types';
 import { ruleView } from './compose';
-import type { GarmentView, OutfitView, RuleView } from './contract';
+import type {
+  Correction,
+  GarmentView,
+  HonoredRequest,
+  OutfitPiece,
+  OutfitView,
+  OwnerRequest,
+  RuleView,
+  SavedOutfit,
+  Waiver,
+} from './contract';
+
+/**
+ * The shapes the web app reads live in `./contract`, which is the file both
+ * sides are written against. They are re-exported here because this module is
+ * where they are built and where every worker caller already looks for them.
+ */
+export type { Correction, HonoredRequest, OutfitPiece, OwnerRequest, SavedOutfit, Waiver };
 import { getProfile } from './profile';
 import { getGarment, listGarments } from './repo';
 import type { LoggedWear } from './routes/wear';
@@ -74,17 +91,7 @@ export async function clearHome(db: D1Database): Promise<void> {
   await db.prepare('UPDATE profile SET home_lat = NULL, home_lon = NULL WHERE id = 1').run();
 }
 
-export interface OutfitPiece {
-  readonly slot: Slot;
-  readonly id: string;
-}
 
-/** One garment the owner asked for, and the filters admitting it turned off. */
-export interface Waiver {
-  readonly id: string;
-  /** Empty when the garment passed today's filters anyway and the request changed nothing. */
-  readonly waived: readonly Waived[];
-}
 
 /**
  * An owner's request as it is stored. The words are theirs, captured when the
@@ -99,16 +106,7 @@ export interface NewOwnerRequest {
   readonly honored: readonly Waiver[];
 }
 
-/** The same, as the app reads it. `subtype` is null for a garment archived since. */
-export interface HonoredRequest extends Waiver {
-  readonly subtype: string | null;
-}
 
-export interface OwnerRequest {
-  readonly words: string;
-  readonly disagreement: string | null;
-  readonly honored: readonly HonoredRequest[];
-}
 
 export interface NewOutfit {
   readonly planId: string;
@@ -173,97 +171,7 @@ export type OutfitEdit =
   | { readonly kind: 'drop'; readonly fromId: string; readonly reason: string }
   | { readonly kind: 'add'; readonly toId: string; readonly reason: string };
 
-/** One correction, hydrated. `subtype` is null for a garment archived since. */
-export interface Correction {
-  readonly at: string;
-  readonly event: EventKind | null;
-  readonly slot: Slot;
-  /** Null when the owner added a piece the outfit never had. */
-  readonly from: { readonly id: string; readonly subtype: string | null } | null;
-  readonly to: { readonly id: string; readonly subtype: string | null } | null;
-  readonly reason: string;
-  /**
-   * The rest of the outfit the rejected garment was standing in, newest state.
-   *
-   * Without it a reason like "too many layers" names no layers and cannot be
-   * acted on: the reader is told a garment was taken out and never told what it
-   * was taken out of. Derived rather than stored, by dropping the incoming
-   * garment from the outfit as it stands, which is exact for one correction and
-   * approximate once an outfit has been corrected twice.
-   */
-  readonly alongside: readonly { readonly slot: Slot; readonly subtype: string }[];
-}
 
-/** What the web app reads. `OutfitView` plus the state only a stored outfit has. */
-export interface SavedOutfit extends OutfitView {
-  /**
-   * Narrowed to the view garment, because these are the ones the card draws and
-   * a cutout the owner edited only reaches them through `photoVersion`.
-   */
-  readonly pieces: readonly { readonly slot: Slot; readonly garment: GarmentView }[];
-  readonly accessories: readonly GarmentView[];
-  readonly id: string;
-  /**
-   * The plan this outfit was composed against. Outfits sharing one were composed
-   * as options for a single request, and this is the only thing that says two
-   * cards are two answers to one question.
-   *
-   * Not a key a reader can follow. The plan itself lives in KV for an hour and
-   * is gone long before a card is drawn, so the id groups the outfits and
-   * nothing else.
-   */
-  readonly planId: string;
-  readonly event: EventKind | null;
-  /**
-   * What the assistant called this outfit, its own words the way the rationale
-   * is. Null on anything saved before the column existed.
-   */
-  readonly title: string | null;
-  readonly createdAt: string;
-  /**
-   * The book's donts this outfit breaks, which `missed` never holds: that list
-   * is the preferences it set aside, and the two read as different things.
-   *
-   * Almost always the work of a change made by hand, because `certify` refuses
-   * `broke_required_rule` before an outfit is saved and `editPiece` records what
-   * the owner did rather than turning them away. Not a claim that the owner
-   * caused it, and nothing here should say so. A garment retagged after the
-   * outfit was saved, or a rule the book has since made a dont, both land a
-   * `require` id here having broken nothing at the time.
-   */
-  readonly broke: readonly RuleView[];
-  /**
-   * Worn on either reading: a wear row that names this outfit, or, for a row
-   * that names none, the day and the garments.
-   */
-  readonly worn: boolean;
-  /**
-   * Whether a wear row names this outfit, which `worn` does not say. Removing
-   * an outfit takes only the rows that name it, so this is what answers whether
-   * removing it hands the garments their cooldown back. Every row written
-   * before migration 009 names none, so an outfit worn before this shipped
-   * reads `worn` and not this.
-   */
-  readonly wearNamed: boolean;
-  /**
-   * What the owner changed by hand, oldest first. Empty for an untouched
-   * outfit, which is also what says the outfit was never corrected: the rows
-   * are the record, so no column repeats it.
-   */
-  readonly corrections: readonly Correction[];
-  /**
-   * Pieces whose garment has been archived since. The card cannot draw one, it
-   * has no photo left, but leaving them out of a reader's count would show an
-   * outfit missing a slot every outfit is required to have.
-   */
-  readonly gone: readonly OutfitPiece[];
-  /**
-   * What the owner asked for by name on the day this was planned, and what
-   * admitting it turned off. Null for every outfit nobody overrode a filter for,
-   * which is almost all of them.
-   */
-  readonly ownerRequest: OwnerRequest | null;
-}
 
 interface OutfitRow {
   readonly id: string;

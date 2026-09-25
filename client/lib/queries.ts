@@ -28,6 +28,13 @@ export type Garment = Awaited<ReturnType<typeof api.listGarments>>[number];
 export type ProfileData = ReturnType<typeof readProfile>;
 /** A SavedOutfit as the card reads it, which is whatever `readOutfit` hands back. */
 export type Outfit = NonNullable<ReturnType<typeof readOutfit>>;
+/**
+ * The garment an outfit carries. Narrower than a wardrobe row: an outfit piece
+ * has no `reviewed`, `uncertain`, `archived` or `createdAt` on it, because the
+ * Worker sends the view rather than the stored row. A `Garment` is assignable to
+ * this, so the swap picker can offer wardrobe rows against outfit pieces.
+ */
+export type OutfitGarment = Outfit['accessories'][number];
 
 export const garmentsKey = ['garments'] as const;
 export const profileKey = ['profile'] as const;

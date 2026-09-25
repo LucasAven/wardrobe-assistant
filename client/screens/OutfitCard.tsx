@@ -36,7 +36,7 @@ import {
 import { useArmedTap } from '../lib/armed.js';
 import { imagePath } from '../lib/photo.js';
 import { api, dropOutfit, garmentsQuery, writeOutfit } from '../lib/queries.js';
-import type { Garment, Outfit } from '../lib/queries.js';
+import type { Garment, Outfit, OutfitGarment } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { markWorn, useWorn } from '../lib/worn.js';
 import { errorMessage, useWrite } from '../lib/write.js';
@@ -51,7 +51,7 @@ type Rule = { id: string; short: string; because: string };
  */
 type Target = { slot: string; garmentId: string | null };
 
-function PieceTile({ label, garment, onPick }: { label: string; garment: Garment; onPick: (() => void) | null }) {
+function PieceTile({ label, garment, onPick }: { label: string; garment: OutfitGarment; onPick: (() => void) | null }) {
   const body = (
     <>
       <Photo
@@ -235,7 +235,7 @@ function OptionTile({
   onPick,
 }: {
   name: string;
-  garment: Garment | null;
+  garment: OutfitGarment | null;
   cautions: string[];
   pressed: boolean;
   onPick: () => void;
@@ -262,7 +262,7 @@ function OptionTile({
  * glasses when it already wears one, and that keeps its color so a grid holding
  * both still answers which garment is in use at a glance.
  */
-function HeldTile({ garment, note, worn }: { garment: Garment; note: string; worn: boolean }) {
+function HeldTile({ garment, note, worn }: { garment: OutfitGarment; note: string; worn: boolean }) {
   return (
     <div className={worn ? 'tile tile--current tile--worn' : 'tile tile--current'}>
       <Photo src={imagePath(garment)} />
@@ -298,7 +298,7 @@ function Picker({
   onDone,
 }: {
   outfit: Outfit;
-  target: { slot: string; garment: Garment | null };
+  target: { slot: string; garment: OutfitGarment | null };
   onDone: () => void;
 }) {
   const garments = useQuery(garmentsQuery);
@@ -388,10 +388,10 @@ function Picker({
       .map((garment) => garment.accessoryKind)
       // An accessory with no kind claims nothing, which is what the old
       // `ONE_PER_OUTFIT.includes(null)` already answered.
-      .filter((kind): kind is string => kind !== null && ONE_PER_OUTFIT.includes(kind)),
+      .filter((kind): kind is NonNullable<typeof kind> => kind !== null && ONE_PER_OUTFIT.includes(kind)),
   );
 
-  const claimed = (garment: Garment) => garment.accessoryKind !== null && kept.has(garment.accessoryKind);
+  const claimed = (garment: OutfitGarment) => garment.accessoryKind !== null && kept.has(garment.accessoryKind);
   const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !claimed(garment));
   const canSave = chosen !== null && reason.trim() !== '';
 
@@ -552,7 +552,7 @@ export function OutfitCard({
     target === null || target.garmentId === null
       ? null
       : [...outfit.pieces.map((piece) => piece.garment), ...outfit.accessories].find(
-          (garment: Garment) => garment.id === target.garmentId,
+          (garment: OutfitGarment) => garment.id === target.garmentId,
         ) ?? null;
 
   if (target !== null && (target.garmentId === null || tapped !== null)) {
@@ -589,7 +589,7 @@ export function OutfitCard({
       />
 
       <ul className="looks">
-        {pieces.map((piece: { slot: string; garment: Garment }) => (
+        {pieces.map((piece: { slot: string; garment: OutfitGarment }) => (
           <PieceTile
             label={pieceLabel(piece.slot, piece.garment)}
             garment={piece.garment}
@@ -629,7 +629,7 @@ export function OutfitCard({
         <div className="accessories">
           <h4 className="section__title">With</h4>
           <ul className="looks">
-            {outfit.accessories.map((garment: Garment) => (
+            {outfit.accessories.map((garment: OutfitGarment) => (
               <PieceTile
                 label={pieceLabel('accessory', garment)}
                 garment={garment}

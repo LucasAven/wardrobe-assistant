@@ -10,9 +10,9 @@ import { routeHash } from '../lib/router.js';
 import { useScreenChrome } from '../lib/shell.js';
 import { SLOTS } from '../lib/vocab.js';
 
-type Gap = { id: string; because: string; slots: string[]; needs: string | null };
+type Gap = { id: string; because: string; slots: readonly string[]; needs: string | null };
 
-function orList(words: string[]) {
+function orList(words: readonly string[]) {
   if (words.length < 2) return words[0];
   return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]}`;
 }
@@ -100,7 +100,7 @@ export function Wardrobe() {
    */
   const gaps = useQuery({
     queryKey: gapsKey,
-    queryFn: (): Promise<{ gaps?: unknown[] }> => api.listGaps(),
+    queryFn: () => api.listGaps(),
   });
 
   const rows = garments.data ?? [];

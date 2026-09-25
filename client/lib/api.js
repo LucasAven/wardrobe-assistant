@@ -8,6 +8,11 @@ import { uploadContentType } from './photo.js';
  * @typedef {import('../../src/worker/contract').StoredGarmentView} GarmentRow
  * @typedef {import('../../src/worker/contract').ProfileResponse} ProfileResponse
  * @typedef {import('../../src/worker/contract').WeatherResponse} WeatherResponse
+ * @typedef {import('../../src/worker/contract').OutfitsResponse} OutfitsResponse
+ * @typedef {import('../../src/worker/contract').EditPieceResponse} EditPieceResponse
+ * @typedef {import('../../src/worker/contract').RemoveOutfitResponse} RemoveOutfitResponse
+ * @typedef {import('../../src/worker/contract').GapsResponse} GapsResponse
+ * @typedef {import('../../src/worker/contract').WearRequest} WearRequest
  */
 
 /** A tagging call runs a vision request, so the cap is generous. It exists so a
@@ -75,10 +80,22 @@ export function createApi(options = {}) {
     return authRun;
   }
 
-  async function send(path, init, allowRetry) {
+  /**
+   * `timeoutMs` is ours rather than `fetch`'s, because the signal has to be
+   * built per attempt. A 401 parks the request on the login prompt for as long
+   * as the owner takes to find their password, and a signal carried over from
+   * the first attempt hands the retry whatever is left of the budget. A login
+   * slower than the cap left the retry with a signal that had already fired, so
+   * a successful login was followed a second later by "That took too long."
+   */
+  async function send(path, { timeoutMs, ...init }, allowRetry) {
     let response;
     try {
-      response = await doFetch(path, { credentials: 'same-origin', ...init });
+      response = await doFetch(path, {
+        credentials: 'same-origin',
+        ...init,
+        ...(timeoutMs === undefined ? {} : { signal: AbortSignal.timeout(timeoutMs) }),
+      });
     } catch (error) {
       throw timedOut(error) ? new NetworkError('That took too long. Try it again.') : new NetworkError();
     }
@@ -122,6 +139,7 @@ export function createApi(options = {}) {
       return true;
     },
 
+    /** @returns {Promise<GapsResponse>} */
     listGaps() {
       return json('/api/garments/gaps');
     },
@@ -150,7 +168,7 @@ export function createApi(options = {}) {
         method: 'POST',
         headers: { 'content-type': contentType },
         body: file,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        timeoutMs: UPLOAD_TIMEOUT_MS,
       });
     },
 
@@ -174,7 +192,7 @@ export function createApi(options = {}) {
         method: 'PUT',
         headers: { 'content-type': 'image/png' },
         body: blob,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        timeoutMs: UPLOAD_TIMEOUT_MS,
       });
     },
 
@@ -194,7 +212,7 @@ export function createApi(options = {}) {
         method: 'PUT',
         headers: { 'content-type': contentType },
         body,
-        signal: AbortSignal.timeout(UPLOAD_TIMEOUT_MS),
+        timeoutMs: UPLOAD_TIMEOUT_MS,
       });
     },
 
@@ -227,10 +245,12 @@ export function createApi(options = {}) {
       return json(`/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
     },
 
+    /** @returns {Promise<OutfitsResponse>} */
     getTodayOutfits() {
       return json('/api/outfits/today');
     },
 
+    /** @param {number} limit @returns {Promise<OutfitsResponse>} */
     listOutfits(limit) {
       return json(`/api/outfits?limit=${encodeURIComponent(limit)}`);
     },
@@ -238,14 +258,21 @@ export function createApi(options = {}) {
     // One posting for the three edits a card can make, so the name is the wide
     // one. The path stays `/swap`: it is private, and a second name for it would
     // only be a second thing to keep in step.
+    /**
+     * @param {string} id
+     * @param {{ fromId: string | null, toId: string | null, reason: string }} edit
+     * @returns {Promise<EditPieceResponse>}
+     */
     editPiece(id, edit) {
       return json(`/api/outfits/${encodeURIComponent(id)}/swap`, { method: 'POST', ...jsonBody(edit) });
     },
 
+    /** @param {string} id @returns {Promise<RemoveOutfitResponse>} */
     removeOutfit(id) {
       return json(`/api/outfits/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
 
+    /** @param {WearRequest} entry @returns {Promise<unknown>} */
     wear(entry) {
       return json('/api/wear', { method: 'POST', ...jsonBody(entry) });
     },
