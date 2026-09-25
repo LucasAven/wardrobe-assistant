@@ -46,7 +46,14 @@ export const profileKey = ['profile'] as const;
 export const outfitsKey = ['outfits'] as const;
 export const todayKey = ['outfits', 'today'] as const;
 export const historyKey = (limit: number) => ['outfits', 'list', limit] as const;
-export const weatherKey = (lat: number, lon: number) => ['weather', lat, lon] as const;
+/**
+ * Rounded into the key. `askPosition` hands back a float, and two readings taken
+ * seconds apart differ around the sixth decimal, so the raw value built a new
+ * entry on every ask and never once hit the one before it. Two decimals is
+ * roughly a kilometre, and the forecast does not change across one.
+ */
+export const weatherKey = (lat: number, lon: number) =>
+  ['weather', Math.round(lat * 100) / 100, Math.round(lon * 100) / 100] as const;
 export const gapsKey = ['gaps'] as const;
 
 /**

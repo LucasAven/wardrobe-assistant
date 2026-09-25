@@ -46,6 +46,9 @@ function Weather() {
 
   const at = located;
   const forecast = useQuery({
+    // A hook cannot be skipped, so a position that is not known yet takes a key
+    // of its own that nothing ever fetches. It is not kept, because the client
+    // no longer holds every key it builds for the life of the page.
     queryKey: at === null ? ['weather', 'none'] : weatherKey(at.lat, at.lon),
     enabled: at !== null,
     queryFn: async () => (at === null ? null : readWeather(await api.getWeather(at.lat, at.lon))),
