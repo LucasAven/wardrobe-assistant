@@ -92,8 +92,17 @@ export type ScreenChrome = {
 export function useScreenChrome({ title, meta = '', back = null, refresh = null }: ScreenChrome) {
   const shell = useShell();
   const latestRefresh = useRef(refresh);
-  latestRefresh.current = refresh;
   const hasRefresh = refresh !== null;
+
+  /**
+   * Kept current after every render rather than during one. The handler below
+   * is registered once per screen and would otherwise close over the first
+   * `refresh` it was given, and depending on `refresh` itself would re-register
+   * on every render, because every screen passes a fresh arrow.
+   */
+  useEffect(() => {
+    latestRefresh.current = refresh;
+  });
 
   useLayoutEffect(() => {
     shell.setTitle(title, meta);

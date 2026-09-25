@@ -27,7 +27,6 @@ import type {
   GarmentView,
   HonoredRequest,
   OutfitPiece,
-  OutfitView,
   OwnerRequest,
   RuleView,
   SavedOutfit,

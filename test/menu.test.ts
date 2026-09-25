@@ -11,7 +11,6 @@ import {
   MILD_ERRANDS,
   SUMMER_DAY,
   WARDROBE,
-  WET_FORMAL,
   WINTER_DAY,
   daysBefore,
   garmentById,

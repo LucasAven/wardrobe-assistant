@@ -36,7 +36,7 @@ import {
 import { useArmedTap } from '../lib/armed.js';
 import { imagePath } from '../lib/photo.js';
 import { api, dropOutfit, garmentsQuery, writeOutfit } from '../lib/queries.js';
-import type { Garment, Outfit, OutfitGarment } from '../lib/queries.js';
+import type { Outfit, OutfitGarment } from '../lib/queries.js';
 import { useShell } from '../lib/shell.js';
 import { markWorn, useWorn } from '../lib/worn.js';
 import { errorMessage, useWrite } from '../lib/write.js';

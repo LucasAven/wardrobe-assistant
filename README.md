@@ -87,7 +87,7 @@ Then set the two secrets it prints at the end, copy `.env.example` to `.dev.vars
 for local development, and:
 
 ```bash
-npx wrangler deploy
+npm run deploy      # builds the web app first, then deploys
 ```
 
 **One manual step the CLI cannot do.** Turn on Images for your account in the
@@ -100,11 +100,18 @@ sign in with the password you just set.
 ## Day to day
 
 ```bash
-npm test           # 438 vitest tests and 84 selftests. No network, no key needed
-npm run typecheck
+npm test           # 442 vitest tests and 84 selftests. No network, no key needed
+npm run typecheck  # the worker and the web app, which have separate tsconfigs
+npm run lint
 npm run db:migrate # applies any new migration to the local database
-npx wrangler dev   # local, though the Images binding wants --remote
+npm run dev        # local, though the Images binding wants --remote
 ```
+
+`npm run dev` runs `vite build --watch` next to `wrangler dev`, because the
+Worker now serves build output rather than source. Wrangler flags pass straight
+through, so `npm run dev -- --port 8788` picks the port. Run `wrangler deploy`
+on its own and it ships whatever was last built, or fails on a fresh clone where
+`dist/` does not exist yet, which is why `npm run deploy` exists.
 
 The database is defined by `src/db/migrations/*.sql`, applied in filename order
 and each one exactly once. `scripts/migrate.sh` records what it applied in a
@@ -127,11 +134,18 @@ src/domain/     the engine. Pure, no network, no database, no model.
   certify.ts      the only thing that can mint a valid outfit
 src/worker/     Cloudflare Worker. Routes, storage, auth, and the MCP server.
 src/db/         D1 migrations, in order. The schema is their sum.
-public/         the web app. No build step.
+client/         the web app. React, bundled by vite.
+  screens/        one file per screen, plus the shared frame and the outfit card
+  lib/            the query cache, the api client, the router, and the pure logic
+  public/         the two files index.html links by absolute path: manifest, icon
+dist/client/    the build output the Worker serves. Generated, gitignored.
 ```
 
-`public/` is plain ES modules the browser loads exactly as written, so there is
-no bundler, no framework, and nothing to keep in step with a build.
+`client/` is React and TypeScript through vite, except for `client/lib/*.js`,
+which stays plain ES modules on purpose: `test/ui.selftest.mjs` imports those
+fifteen files under plain node with no transform, so moving one breaks loudly.
+`assets.directory` in `wrangler.jsonc` points at `dist/client`, so that path and
+`outDir` in `vite.config.ts` have to move together.
 
 `DOMAIN.md` covers the records underneath all of that: the slots, the garment
 fields, the body profile, and why the storage is split the way it is.

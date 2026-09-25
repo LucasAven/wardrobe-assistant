@@ -145,7 +145,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
 
   const working = homeStep === null ? null : HOME_STEP_LABEL[homeStep];
 
-  async function useHere() {
+  async function saveHere() {
     if (homeStep !== null) return;
     setHomeStep('asking');
 
@@ -283,7 +283,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
               <p className="card__line">
                 Until this is set, Claude has to be told the temperature on every plan you ask for.
               </p>
-              <button className="btn btn--small" type="button" disabled={working !== null} onClick={() => void useHere()}>
+              <button className="btn btn--small" type="button" disabled={working !== null} onClick={() => void saveHere()}>
                 {working ?? 'Use where I am now'}
               </button>
             </>
@@ -291,7 +291,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
             <>
               <p className="card__line">Claude reads the weather here by itself.</p>
               <p className="card__line">{positionLine(stored.home)}</p>
-              <button className="btn btn--small" type="button" disabled={working !== null} onClick={() => void useHere()}>
+              <button className="btn btn--small" type="button" disabled={working !== null} onClick={() => void saveHere()}>
                 {working ?? 'Update it'}
               </button>
               <button

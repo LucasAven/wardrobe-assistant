@@ -1,0 +1,26 @@
+# The four commands that have to pass before a branch is worth reading. They were
+# only ever run by hand, which is how a branch could go green locally and still
+# arrive with a type error or a bundle that does not build.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      # The Worker serves build output, so a build that fails is a deploy that
+      # fails. Nothing else in this job would notice.
+      - run: npm run build

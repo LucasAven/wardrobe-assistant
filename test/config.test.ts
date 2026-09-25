@@ -27,10 +27,9 @@ class FakeDb {
   public readonly inserted: Row[] = [];
 
   prepare(sql: string) {
-    const self = this;
     const make = (args: unknown[]) => ({
       bind: (...next: unknown[]) => make(next),
-      first: async () => self.serve(sql, args),
+      first: async () => this.serve(sql, args),
       all: async () => ({ results: [] }),
       run: async () => ({ success: true }),
     });

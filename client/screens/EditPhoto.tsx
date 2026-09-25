@@ -311,6 +311,11 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
     return () => {
       live = false;
     };
+    // The id and nothing else. `found` is rebuilt whenever anything about the
+    // garment changes, and a re-decode of the same photo on, say, a retag would
+    // throw away an erase the owner has not saved yet. `reloads` is what the
+    // two writes that really do replace the photo bump.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [found?.id, reloads]);
 
   useEffect(

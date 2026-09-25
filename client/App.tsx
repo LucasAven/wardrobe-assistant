@@ -134,6 +134,10 @@ export function App() {
    * screen says so itself.
    */
   useEffect(() => {
+    // The toast is the external system here, not derived state: React Query
+    // has no query-level `onError` to hang this on, so watching the query is
+    // the only place left to say it from.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (garments.error instanceof Error && garments.data === undefined) toast(garments.error.message, 'error');
   }, [garments.error, garments.data, toast]);
 

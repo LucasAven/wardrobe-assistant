@@ -138,7 +138,7 @@ function bySlotThenName(a: HeldBack, b: HeldBack): number {
 /** The seam where ranking goes if the wardrobe reaches ~200 garments. Currently sorts by recency. */
 export function rankSlot(
   entries: readonly MenuEntry[],
-  constraints: Constraints,
+  _constraints: Constraints,
 ): readonly MenuEntry[] {
   return [...entries].sort(byRecencyThenId);
 }

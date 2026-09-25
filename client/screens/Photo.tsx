@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { retryPath } from '../lib/photo.js';
 import { probeSession } from '../lib/queries.js';
@@ -32,10 +32,13 @@ export function Photo({
 }) {
   const [failed, setFailed] = useState(false);
   const [retryAt, setRetryAt] = useState(0);
-  const lastSrc = useRef(src);
+  // A new photo starts clean, whatever the one before it did. Held in state
+  // rather than in a ref, because a render React throws away leaves a ref
+  // already advanced and the next attempt then sees no change at all.
+  const [lastSrc, setLastSrc] = useState(src);
 
-  if (lastSrc.current !== src) {
-    lastSrc.current = src;
+  if (lastSrc !== src) {
+    setLastSrc(src);
     setFailed(false);
     setRetryAt(0);
   }

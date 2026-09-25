@@ -211,6 +211,9 @@ const EVERY_OUTCOME = ['', 'formality', 'season', 'season|formality'] as const;
  * the type breaks the build here, because `EVERY_OUTCOME` above would stop
  * being the whole output space.
  */
+// Load-bearing as a type, which is the whole point: the value exists so the
+// line below can read its members back and fail the build when `Waived` grows.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const EVERY_WAIVED = ['season', 'formality', 'cooldown'] as const;
 const EVERY_CODE_LISTED: Covers<Waived, (typeof EVERY_WAIVED)[number]> = true;
 
