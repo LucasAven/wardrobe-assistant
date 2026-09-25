@@ -20,8 +20,8 @@ for (const child of children) {
   child.on('exit', stopAll);
   // `spawn` reports a failure to start through `error`, and an `error` event
   // with no listener throws. That killed this process before `stopAll` could
-  // run and left the other child alive, which is the one failure mode the
-  // promise above cannot see coming.
+  // run and left the other child alive, which is the one case the `exit`
+  // listener never sees, because a child that never started never exits.
   child.on('error', (error) => {
     console.error(error);
     stopAll(1);

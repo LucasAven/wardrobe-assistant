@@ -266,21 +266,33 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
   );
 
   /**
+   * The photo's own URL is what this depends on, not the garment.
+   *
+   * `found` is rebuilt whenever anything about the garment changes, so
+   * depending on it would re-decode on a retag and throw away an erase the
+   * owner has not saved yet. The URL carries `photoVersion`, so it changes when
+   * and only when the stored photo does, which is the question being asked.
+   */
+  const photoPath = found === null ? undefined : imagePath(found);
+
+  /**
    * Decoded from the bytes rather than drawn from an `<img>`, which would mark
    * the canvas as tainted and make `toBlob` throw at the one moment that
    * matters. `/img/*` is same origin behind the session cookie, so the
    * credentials ride along and nothing needs `crossOrigin`.
    */
   useEffect(() => {
-    if (found === null) return;
+    // `undefined` is no garment, which the render answers on its own further
+    // down. `null` is a garment with no photo stored, which is this screen's
+    // problem to report.
+    if (photoPath === undefined) return;
     let live = true;
 
     void (async () => {
       try {
-        const path = imagePath(found);
-        if (path === null) throw new Error('There is no photo stored for this garment.');
+        if (photoPath === null) throw new Error('There is no photo stored for this garment.');
 
-        const response = await fetch(path, { credentials: 'same-origin' });
+        const response = await fetch(photoPath, { credentials: 'same-origin' });
         // The one request in the app that does not go through `api.js`, so the
         // 401 it can get has to be handed to the login prompt by hand. Without
         // this the editor offered a Try again that could never succeed.
@@ -311,12 +323,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
     return () => {
       live = false;
     };
-    // The id and nothing else. `found` is rebuilt whenever anything about the
-    // garment changes, and a re-decode of the same photo on, say, a retag would
-    // throw away an erase the owner has not saved yet. `reloads` is what the
-    // two writes that really do replace the photo bump.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [found?.id, reloads]);
+  }, [photoPath, reloads]);
 
   useEffect(
     () => () => {

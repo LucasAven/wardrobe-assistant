@@ -10,7 +10,7 @@ import { api, garmentsKey, garmentsQuery, queryClient, removeGarment, upsertGarm
 import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
-import { useRefreshFailure, useScreenChrome, useShell } from '../lib/shell.js';
+import { useRefreshFailure, useScreenChrome, useScreenToast, useShell } from '../lib/shell.js';
 import { ANCHORS, FIELDS, FIELD_BY_NAME, isAsked, isRelevant } from '../lib/vocab.js';
 import type { Field as FieldSpec } from '../lib/vocab.js';
 import { useWrite } from '../lib/write.js';
@@ -234,7 +234,9 @@ function ReviewCard({
   onRemoved: () => void;
   onSkip: () => void;
 }) {
-  const { toast } = useShell();
+  // The retag reports back from a mutation callback, which runs whether or not
+  // this card is still mounted, so the message follows the screen.
+  const say = useScreenToast();
   // A failed save keeps the edits on screen: the draft only lives here, so
   // dropping it after an error would throw the corrections away.
   const [draft, setDraft] = useState<Draft>(() => ({ ...garment }));
@@ -265,7 +267,7 @@ function ReviewCard({
       upsertGarment(updated);
       // The row is back to placeholders, so there is nothing to check here
       // until Claude has looked at the photo again. Move on and say so.
-      toast('Back in Claude’s queue. Ask it to tag the untagged garments.');
+      say('Back in Claude’s queue. Ask it to tag the untagged garments.');
       onRetagged();
     },
   });
@@ -375,8 +377,10 @@ function ReviewCard({
  * one into the wardrobe entry from inside its own `queryFn`. That made the
  * wardrobe a function of this screen's fetch, which is how a failed wardrobe
  * read plus a visit here left the app believing it owned three garments. The
- * predicate is the same one the tab badge counts with, so deriving it here
- * makes the badge and the "N left" meta one number rather than two that agree.
+ * predicate is the same one the tab badge counts with, so the two cannot drift
+ * the way a second list could. They are not the same number: the meta also
+ * hides the rows put aside this visit, so a skipped garment still counts toward
+ * the badge, which is right, because the server still calls it unreviewed.
  *
  * `passed` is the skip cursor. Indexing into the list is what let a save renumber
  * the rows under the user and step over the next garment, so nothing indexes:

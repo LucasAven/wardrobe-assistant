@@ -142,8 +142,9 @@ dist/client/    the build output the Worker serves. Generated, gitignored.
 ```
 
 `client/` is React and TypeScript through vite, except for `client/lib/*.js`,
-which stays plain ES modules on purpose: `test/ui.selftest.mjs` imports those
-fifteen files under plain node with no transform, so moving one breaks loudly.
+which stays plain ES modules on purpose: `test/ui.selftest.mjs` imports fifteen
+of those sixteen files under plain node with no transform, so moving one of the
+fifteen breaks loudly. `thumb.js` is the one it does not import.
 `assets.directory` in `wrangler.jsonc` points at `dist/client`, so that path and
 `outDir` in `vite.config.ts` have to move together.
 

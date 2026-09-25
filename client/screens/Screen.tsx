@@ -1,8 +1,11 @@
 import type { ReactNode } from 'react';
 
 /**
- * The frame every screen draws inside. It was written out by hand in six files,
- * and three of them kept a private `Body` that was the same two elements.
+ * The frame every screen draws inside. It was written out by hand in all seven
+ * of them, and three kept a private `Body` that was the same two elements.
+ *
+ * `App` still writes its own for the "Opening." placeholder, which has no
+ * `screen__body` and so is not this.
  */
 export function Screen({ children, bodyClass = '' }: { children: ReactNode; bodyClass?: string }) {
   return (
