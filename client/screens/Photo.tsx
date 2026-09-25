@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { retryPath } from '../lib/photo.js';
+import { probeSession } from '../lib/queries.js';
 
 /**
  * `/img/*` is behind the session too, so an expired cookie turns every photo
@@ -53,7 +54,12 @@ export function Photo({
         alt={alt}
         loading={lazy ? 'lazy' : undefined}
         decoding="async"
-        onError={() => setFailed(true)}
+        onError={() => {
+          setFailed(true);
+          // The frame can offer a retry, but a retry against an expired cookie
+          // fails the same way forever, so something has to go and find out.
+          probeSession();
+        }}
         onLoad={() => setFailed(false)}
       />
       {children}

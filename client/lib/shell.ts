@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useRef } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef } from 'react';
 
 export type ShellHooks = {
   toast: (message: string, kind?: string) => void;
@@ -13,6 +13,36 @@ export function useShell(): ShellHooks {
   const shell = useContext(ShellContext);
   if (shell === null) throw new Error('A screen rendered outside the shell.');
   return shell;
+}
+
+/**
+ * A message that is dropped once the screen that asked for it has gone.
+ *
+ * A mutation runs its callbacks from the mutation rather than from the
+ * component, so a write started on the profile and finished after the owner
+ * moved on popped "Home saved." over Today. What the write does to the cache
+ * still runs either way, because that is true wherever the owner is standing.
+ *
+ * Only for the messages a write sends on success. A write that fails is worth
+ * knowing about wherever the owner ended up, so the error toast stays global.
+ */
+export function useScreenToast() {
+  const { toast } = useShell();
+  const live = useRef(true);
+
+  useEffect(() => {
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+
+  return useCallback(
+    (message: string, kind?: string) => {
+      if (live.current) toast(message, kind);
+    },
+    [toast],
+  );
 }
 
 /**

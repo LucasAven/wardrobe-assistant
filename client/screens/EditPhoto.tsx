@@ -18,6 +18,7 @@ import {
   rotatedSize,
   sourcePoint,
 } from '../lib/photoedit.js';
+import { authGate } from '../lib/authGate.js';
 import { normalizeForUpload, targetSize } from '../lib/normalize.js';
 import { Empty, Screen, TryAgain } from './Screen.js';
 import { imagePath, uploadContentType } from '../lib/photo.js';
@@ -25,7 +26,7 @@ import { api, garmentsQuery, upsertGarment } from '../lib/queries.js';
 import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
-import { useScreenChrome, useShell } from '../lib/shell.js';
+import { useScreenChrome, useScreenToast, useShell } from '../lib/shell.js';
 import { errorMessage, useWrite } from '../lib/write.js';
 
 const OUTLINE_DASH = [16, 12];
@@ -73,6 +74,9 @@ type Session = {
 
 export function EditPhoto({ route }: { route: { id: string | null } }) {
   const { toast } = useShell();
+  // The two photo replacements can land after the owner has left the editor.
+  // The new row still belongs in the cache there; the message does not.
+  const say = useScreenToast();
   useScreenChrome({ title: 'Fix the photo', back: routeHash('review', route.id) });
 
   const garments = useQuery(garmentsQuery);
@@ -277,6 +281,13 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
         if (path === null) throw new Error('There is no photo stored for this garment.');
 
         const response = await fetch(path, { credentials: 'same-origin' });
+        // The one request in the app that does not go through `api.js`, so the
+        // 401 it can get has to be handed to the login prompt by hand. Without
+        // this the editor offered a Try again that could never succeed.
+        if (response.status === 401) {
+          void authGate.open();
+          throw new Error('The session ended. Log in again.');
+        }
         if (!response.ok) throw new Error('The photo could not be read.');
 
         const next = await createImageBitmap(await response.blob());
@@ -465,7 +476,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
     work.current.crop = null;
     setPhoto({ state: 'loading' });
     setReloads((at) => at + 1);
-    toast(note);
+    say(note);
   }
 
   const resetCutout = useWrite({

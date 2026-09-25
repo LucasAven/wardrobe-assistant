@@ -135,3 +135,37 @@ export function dropOutfit(id: string) {
     rows === undefined ? undefined : rows.filter((row) => row.id !== id),
   );
 }
+
+/** Long enough that a phone with no connection does not probe on every broken tile. */
+const PROBE_COOLDOWN_MS = 30000;
+let probing = false;
+let probedAt = 0;
+
+/**
+ * Ask one authenticated question, because an `<img>` that failed says nothing
+ * else.
+ *
+ * `/img/*` is behind the session too, so an expired cookie turns every photo in
+ * the app into a broken frame, and a broken frame looks exactly like a photo
+ * whose blob was never stored. Nothing else in the app has to fail for that to
+ * happen: the wardrobe and the profile are cached for the session, so an owner
+ * who opens the app and browses the grid issues no request that could find the
+ * 401 and open the login prompt.
+ *
+ * One probe at a time for the whole app, because a grid of forty broken tiles
+ * must not send forty. A 401 opens the prompt through the same path any other
+ * request would take, and any other answer means the photo itself is the
+ * problem and the frame's own retry is the right thing to offer.
+ */
+export function probeSession() {
+  const now = Date.now();
+  if (probing || now - probedAt < PROBE_COOLDOWN_MS) return;
+  probing = true;
+  probedAt = now;
+  void api
+    .getProfile()
+    .catch(() => undefined)
+    .finally(() => {
+      probing = false;
+    });
+}

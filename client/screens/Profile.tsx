@@ -22,7 +22,7 @@ import { askPosition, positionLine } from '../lib/geo.js';
 import { api, profileKey, profileQuery, queryClient } from '../lib/queries.js';
 import type { ProfileData } from '../lib/queries.js';
 import { go } from '../lib/route.js';
-import { useScreenChrome, useShell } from '../lib/shell.js';
+import { useScreenChrome, useScreenToast, useShell } from '../lib/shell.js';
 import { useWrite } from '../lib/write.js';
 
 /** The two waits behind one tap, so the button says which one it is in. */
@@ -121,10 +121,14 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
   const left = unanswered(answers).length;
   const complete = isComplete(answers);
   const type = BODY_TYPES.find((entry) => entry.value === chosen) ?? null;
+  // A home write can finish after the owner has moved on, and the cache write
+  // still has to happen there while the message does not.
+  const say = useScreenToast();
+
   /** Both home writes answer the whole profile, so the card redraws from the reply. */
   function applyHome(body: unknown, done: string) {
     queryClient.setQueryData(profileKey, readProfile(body));
-    toast(done);
+    say(done);
   }
 
   const saveHome = useWrite({
@@ -172,7 +176,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
         return;
       }
       setOverride(next.suggestedType === next.profile?.bodyType ? null : (next.profile?.bodyType ?? null));
-      toast('Profile saved.');
+      say('Profile saved.');
     },
   });
 
