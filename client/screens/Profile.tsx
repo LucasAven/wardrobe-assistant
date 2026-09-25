@@ -17,6 +17,7 @@ import {
   unanswered,
 } from '../lib/body.js';
 import type { ChipOption, MirrorQuestion } from '../lib/body.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { askPosition, positionLine } from '../lib/geo.js';
 import { api, profileKey, profileQuery, queryClient } from '../lib/queries.js';
 import type { ProfileData } from '../lib/queries.js';
@@ -75,14 +76,6 @@ function ChipChoice({
         </label>
       ))}
     </div>
-  );
-}
-
-function Body({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="screen">
-      <section className="screen__body">{children}</section>
-    </main>
   );
 }
 
@@ -184,7 +177,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
   });
 
   return (
-    <Body>
+    <Screen>
       <section className="card">
         <h2 className="card__title">Look in a mirror first</h2>
         <ol className="protocol">
@@ -332,7 +325,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
           {submit.isPending ? 'Saving' : saveLabel}
         </button>
       </div>
-    </Body>
+    </Screen>
   );
 }
 
@@ -342,24 +335,17 @@ export function Profile() {
 
   if (profile.isPending) {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">Loading your profile.</p>
-        </div>
-      </Body>
+      <Screen>
+        <Empty text="Loading your profile." />
+      </Screen>
     );
   }
 
   if (profile.isError) {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">{profile.error.message}</p>
-          <button className="btn btn--primary" type="button" onClick={() => void profile.refetch()}>
-            Try again
-          </button>
-        </div>
-      </Body>
+      <Screen>
+        <Empty text={profile.error.message} action={<TryAgain onRetry={() => void profile.refetch()} />} />
+      </Screen>
     );
   }
 

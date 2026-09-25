@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { OutfitSet } from './OutfitSet.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { groupBySet, readOutfits, savedLine } from '../lib/outfits.js';
 import { api, historyKey, outfitListOptions } from '../lib/queries.js';
 import type { Outfit } from '../lib/queries.js';
 import { go } from '../lib/route.js';
-import { useScreenChrome } from '../lib/shell.js';
+import { useRefreshFailure, useScreenChrome } from '../lib/shell.js';
 import { useWorn } from '../lib/worn.js';
 
 /** Enough to scroll a couple of weeks back on a phone without paging. */
@@ -104,6 +105,8 @@ export function Outfits() {
     ...outfitListOptions,
   });
 
+  useRefreshFailure(history);
+
   const outfits = history.data ?? [];
   useScreenChrome({
     title: 'Outfits',
@@ -114,43 +117,30 @@ export function Outfits() {
   const sets: Group[] = history.data === undefined ? [] : groupBySet(outfits);
 
   return (
-    <main className="screen">
-      <section className="screen__body">
-        {history.isPending && (
-          <div className="empty">
-            <p className="empty__text">Reading what Claude saved.</p>
-          </div>
-        )}
+    <Screen>
+      {history.isPending && <Empty text="Reading what Claude saved." />}
 
-        {history.isError && (
-          <div className="empty">
-            <p className="empty__text">{history.error.message}</p>
-            <button className="btn btn--primary" type="button" onClick={() => void history.refetch()}>
-              Try again
-            </button>
-          </div>
-        )}
+      {/* Only where there is nothing behind it, so a failed Refresh keeps the
+          history on screen and says so in a line instead. */}
+      {history.isError && history.data === undefined && (
+        <Empty text={history.error.message} action={<TryAgain onRetry={() => void history.refetch()} />} />
+      )}
 
-        {history.isSuccess && outfits.length === 0 && (
-          <section className="card">
-            <h2 className="card__title">Nothing saved yet.</h2>
-            <p className="card__line">
-              Every outfit Claude saves stays here. Ask on your phone, and the first one shows up after that.
-            </p>
-            <button className="btn btn--wide" type="button" onClick={() => go('#/today')}>
-              Back to today
-            </button>
-          </section>
-        )}
+      {history.isSuccess && outfits.length === 0 && (
+        <section className="card">
+          <h2 className="card__title">Nothing saved yet.</h2>
+          <p className="card__line">
+            Every outfit Claude saves stays here. Ask on your phone, and the first one shows up after that.
+          </p>
+          <button className="btn btn--wide" type="button" onClick={() => go('#/today')}>
+            Back to today
+          </button>
+        </section>
+      )}
 
-        {sets.map((set) => (
-          <Entry
-            set={set}
-            openFirst={set.setId === sets[0]?.setId}
-            key={set.setId}
-          />
-        ))}
-      </section>
-    </main>
+      {sets.map((set) => (
+        <Entry set={set} openFirst={set.setId === sets[0]?.setId} key={set.setId} />
+      ))}
+    </Screen>
   );
 }

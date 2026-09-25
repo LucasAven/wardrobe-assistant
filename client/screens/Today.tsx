@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { OutfitSet } from './OutfitSet.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { askPosition } from '../lib/geo.js';
 import { readOutfits, savedClock, todayView } from '../lib/outfits.js';
 import { forgetPref } from '../lib/prefs.js';
 import { api, outfitListOptions, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
 import { go } from '../lib/route.js';
-import { useScreenChrome } from '../lib/shell.js';
+import { useRefreshFailure, useScreenChrome } from '../lib/shell.js';
 import { readWeather, weatherLine } from '../lib/weather.js';
 
 /** What a missing position costs this screen, said once per cause. */
@@ -100,73 +101,67 @@ export function Today() {
   // The profile is a nudge on this screen, not a gate. A failed read stays quiet.
   const profile = useQuery(profileQuery);
 
+  useRefreshFailure(today);
+
   const view = today.data === undefined ? null : todayView(today.data);
 
   return (
-    <main className="screen">
-      <section className="screen__body">
-        <div className="banner">
-          {profile.data?.profile == null && profile.isSuccess && (
-            <>
-              <p className="card__line">The book needs your body type before Claude can style you.</p>
-              <button className="btn btn--primary btn--wide" type="button" onClick={() => go('#/profile')}>
-                Set up the profile
-              </button>
-            </>
-          )}
-        </div>
+    <Screen>
+      <div className="banner">
+        {profile.data?.profile == null && profile.isSuccess && (
+          <>
+            <p className="card__line">The book needs your body type before Claude can style you.</p>
+            <button className="btn btn--primary btn--wide" type="button" onClick={() => go('#/profile')}>
+              Set up the profile
+            </button>
+          </>
+        )}
+      </div>
 
-        <Weather />
+      <Weather />
 
-        <div className="stack">
-          {today.isPending && (
-            <div className="empty">
-              <p className="empty__text">Looking for the outfit Claude saved.</p>
-            </div>
-          )}
+      <div className="stack">
+        {today.isPending && <Empty text="Looking for the outfit Claude saved." />}
 
-          {today.isError && (
-            <div className="empty">
-              <p className="empty__text">{today.error.message}</p>
-              <button className="btn btn--primary" type="button" onClick={() => void today.refetch()}>
-                Try again
-              </button>
-            </div>
-          )}
+        {/* Only where there is nothing behind it. A Refresh that fails keeps
+            what it drew and says so in a line, because an error block stacked
+            over the outfits reads as both at once. */}
+        {today.isError && today.data === undefined && (
+          <Empty text={today.error.message} action={<TryAgain onRetry={() => void today.refetch()} />} />
+        )}
 
-          {view !== null && view.kind !== 'sets' && (
-            <section className="card">
-              <h2 className="card__title">{view.title}</h2>
-              <p className="card__line">{view.detail}</p>
-              <button className="btn btn--wide" type="button" onClick={() => void today.refetch()}>
-                Check again
-              </button>
-            </section>
-          )}
+        {view !== null && view.kind !== 'sets' && (
+          <section className="card">
+            <h2 className="card__title">{view.title}</h2>
+            <p className="card__line">{view.detail}</p>
+            <button className="btn btn--wide" type="button" onClick={() => void today.refetch()}>
+              Check again
+            </button>
+          </section>
+        )}
 
-          {/* One card for an outfit saved on its own, one pager for a set of
-              options, and the sets decide which of the two. The screen hands
-              every group over the same way, so it never asks how many outfits
-              are in one. */}
-          {view !== null &&
-            view.kind === 'sets' &&
-            view.sets.map((set) => {
-              // The time the first option landed, which is when the set was
-              // composed. The rest were saved in the same turn, seconds behind.
-              const clock = savedClock(set.outfits[0]?.createdAt);
-              return (
-                <OutfitSet
-                  outfits={set.outfits}
-                  caption="Today"
-                  meta={clock === '' ? '' : `saved ${clock}`}
-                  // The ids, not the set, so removing one option rebuilds the
-                  // pager rather than leaving it on "Option 3 of 2".
-                  key={set.outfits.map((outfit) => outfit.id).join()}
-                />
-              );
-            })}
-        </div>
-      </section>
-    </main>
+        {/* One card for an outfit saved on its own, one pager for a set of
+            options, and the sets decide which of the two. The screen hands
+            every group over the same way, so it never asks how many outfits
+            are in one. */}
+        {view !== null &&
+          view.kind === 'sets' &&
+          view.sets.map((set) => {
+            // The time the first option landed, which is when the set was
+            // composed. The rest were saved in the same turn, seconds behind.
+            const clock = savedClock(set.outfits[0]?.createdAt);
+            return (
+              <OutfitSet
+                outfits={set.outfits}
+                caption="Today"
+                meta={clock === '' ? '' : `saved ${clock}`}
+                // The ids, not the set, so removing one option rebuilds the
+                // pager rather than leaving it on "Option 3 of 2".
+                key={set.outfits.map((outfit) => outfit.id).join()}
+              />
+            );
+          })}
+      </div>
+    </Screen>
   );
 }

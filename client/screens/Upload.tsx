@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Screen } from './Screen.js';
 import { uploadStatus } from '../lib/garments.js';
 import { createLimiter } from '../lib/limiter.js';
 import { normalizeForUpload } from '../lib/normalize.js';
@@ -145,84 +146,82 @@ export function Upload() {
   const showReview = shots.length > 0 && left === 0 && done > 0;
 
   return (
-    <main className="screen">
-      <section className="screen__body">
-        <label className="switch" htmlFor="cutout">
+    <Screen>
+      <label className="switch" htmlFor="cutout">
+        <input
+          className="switch__input"
+          type="checkbox"
+          id="cutout"
+          checked={cutout}
+          onChange={(event) => setCutout(event.target.checked)}
+        />
+        <span className="switch__body">
+          <span className="switch__label">Already cut out in Photos</span>
+          <span className="switch__hint">Keeps the subject you lifted instead of removing the background again.</span>
+        </span>
+      </label>
+
+      <ul className="shots">
+        {shots.map((shot) => (
+          <li
+            className="shot"
+            key={shot.id}
+            data-state={shot.state}
+            data-tagged={shot.tagged === null ? undefined : shot.tagged ? 'yes' : 'no'}
+          >
+            <div className="shot__thumb">
+              <img className="shot__img" alt="" decoding="async" src={shot.thumb ?? undefined} />
+            </div>
+            <div className="shot__body">
+              <p className="shot__name">{shot.name}</p>
+              <p className="shot__status">{shot.status}</p>
+              <p className="shot__name" hidden={shot.note === null}>
+                {shot.note}
+              </p>
+            </div>
+            <button className="btn btn--small" type="button" hidden={shot.state !== 'failed'} onClick={() => start(shot.id)}>
+              Retry
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <div className="uploadbar">
+        <p className="batch__summary">{summary}</p>
+        <button className="btn btn--primary" type="button" hidden={!showReview} onClick={() => go('#/review')}>
+          {done === 1 ? 'Review 1 garment' : `Review ${done} garments`}
+        </button>
+        <div className="picker">
+          <label className="btn btn--big" htmlFor="pick-library">
+            Choose photos
+          </label>
           <input
-            className="switch__input"
-            type="checkbox"
-            id="cutout"
-            checked={cutout}
-            onChange={(event) => setCutout(event.target.checked)}
+            className="picker__input"
+            type="file"
+            accept="image/*"
+            id="pick-library"
+            multiple
+            onChange={(event) => {
+              if (event.target.files !== null && event.target.files.length > 0) add([...event.target.files]);
+              event.target.value = '';
+            }}
           />
-          <span className="switch__body">
-            <span className="switch__label">Already cut out in Photos</span>
-            <span className="switch__hint">Keeps the subject you lifted instead of removing the background again.</span>
-          </span>
-        </label>
-
-        <ul className="shots">
-          {shots.map((shot) => (
-            <li
-              className="shot"
-              key={shot.id}
-              data-state={shot.state}
-              data-tagged={shot.tagged === null ? undefined : shot.tagged ? 'yes' : 'no'}
-            >
-              <div className="shot__thumb">
-                <img className="shot__img" alt="" decoding="async" src={shot.thumb ?? undefined} />
-              </div>
-              <div className="shot__body">
-                <p className="shot__name">{shot.name}</p>
-                <p className="shot__status">{shot.status}</p>
-                <p className="shot__name" hidden={shot.note === null}>
-                  {shot.note}
-                </p>
-              </div>
-              <button className="btn btn--small" type="button" hidden={shot.state !== 'failed'} onClick={() => start(shot.id)}>
-                Retry
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <div className="uploadbar">
-          <p className="batch__summary">{summary}</p>
-          <button className="btn btn--primary" type="button" hidden={!showReview} onClick={() => go('#/review')}>
-            {done === 1 ? 'Review 1 garment' : `Review ${done} garments`}
-          </button>
-          <div className="picker">
-            <label className="btn btn--big" htmlFor="pick-library">
-              Choose photos
-            </label>
-            <input
-              className="picker__input"
-              type="file"
-              accept="image/*"
-              id="pick-library"
-              multiple
-              onChange={(event) => {
-                if (event.target.files !== null && event.target.files.length > 0) add([...event.target.files]);
-                event.target.value = '';
-              }}
-            />
-            <label className="btn btn--big btn--ghost" htmlFor="pick-camera">
-              Take a photo
-            </label>
-            <input
-              className="picker__input"
-              type="file"
-              accept="image/*"
-              id="pick-camera"
-              capture="environment"
-              onChange={(event) => {
-                if (event.target.files !== null && event.target.files.length > 0) add([...event.target.files]);
-                event.target.value = '';
-              }}
-            />
-          </div>
+          <label className="btn btn--big btn--ghost" htmlFor="pick-camera">
+            Take a photo
+          </label>
+          <input
+            className="picker__input"
+            type="file"
+            accept="image/*"
+            id="pick-camera"
+            capture="environment"
+            onChange={(event) => {
+              if (event.target.files !== null && event.target.files.length > 0) add([...event.target.files]);
+              event.target.value = '';
+            }}
+          />
         </div>
-      </section>
-    </main>
+      </div>
+    </Screen>
   );
 }

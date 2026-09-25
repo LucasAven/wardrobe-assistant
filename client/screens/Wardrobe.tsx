@@ -3,11 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Photo } from './Photo.js';
 import { countTagStates, tagState } from '../lib/garments.js';
 import { imagePath } from '../lib/photo.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { api, gapsKey, garmentsQuery } from '../lib/queries.js';
 import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
-import { useScreenChrome } from '../lib/shell.js';
+import { useRefreshFailure, useScreenChrome } from '../lib/shell.js';
 import { SLOTS } from '../lib/vocab.js';
 
 type Gap = { id: string; because: string; slots: readonly string[]; needs: string | null };
@@ -103,6 +104,8 @@ export function Wardrobe() {
     queryFn: () => api.listGaps(),
   });
 
+  useRefreshFailure(garments);
+
   const rows = garments.data ?? [];
   useScreenChrome({
     title: 'Wardrobe',
@@ -115,26 +118,19 @@ export function Wardrobe() {
 
   if (garments.isPending) {
     return (
-      <main className="screen">
-        <section className="screen__body">
-          <p className="empty__text">Loading.</p>
-        </section>
-      </main>
+      <Screen>
+        <p className="empty__text">Loading.</p>
+      </Screen>
     );
   }
 
-  if (garments.isError) {
+  // Only with nothing behind it. A Refresh that fails keeps the wardrobe on
+  // screen and says so in a line, the way the other reads do.
+  if (garments.isError && garments.data === undefined) {
     return (
-      <main className="screen">
-        <section className="screen__body">
-          <div className="empty">
-            <p className="empty__text">{garments.error.message}</p>
-            <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
-              Try again
-            </button>
-          </div>
-        </section>
-      </main>
+      <Screen>
+        <Empty text={garments.error.message} action={<TryAgain onRetry={() => void garments.refetch()} />} />
+      </Screen>
     );
   }
 
@@ -151,52 +147,50 @@ export function Wardrobe() {
   const found = (gaps.data?.gaps ?? []).filter(readable);
 
   return (
-    <main className="screen">
-      <section className="screen__body">
-        <div className="banner">
-          {untagged > 0 && (
-            <div className="note">
-              <p className="note__text">
-                {untagged === 1
-                  ? '1 garment has no tags. Ask Claude to tag it through the connector.'
-                  : `${untagged} garments have no tags. Ask Claude to tag them through the connector.`}
-              </p>
-              <button className="btn btn--small btn--ghost" type="button" onClick={() => go('#/review')}>
-                {untagged === 1 ? 'Tag it by hand' : 'Tag them by hand'}
-              </button>
-            </div>
-          )}
-          {unconfirmed > 0 && (
-            <button className="btn btn--primary btn--wide" type="button" onClick={() => go('#/review')}>
-              {unconfirmed === 1 ? '1 garment to confirm' : `${unconfirmed} garments to confirm`}
+    <Screen>
+      <div className="banner">
+        {untagged > 0 && (
+          <div className="note">
+            <p className="note__text">
+              {untagged === 1
+                ? '1 garment has no tags. Ask Claude to tag it through the connector.'
+                : `${untagged} garments have no tags. Ask Claude to tag them through the connector.`}
+            </p>
+            <button className="btn btn--small btn--ghost" type="button" onClick={() => go('#/review')}>
+              {untagged === 1 ? 'Tag it by hand' : 'Tag them by hand'}
             </button>
-          )}
-        </div>
+          </div>
+        )}
+        {unconfirmed > 0 && (
+          <button className="btn btn--primary btn--wide" type="button" onClick={() => go('#/review')}>
+            {unconfirmed === 1 ? '1 garment to confirm' : `${unconfirmed} garments to confirm`}
+          </button>
+        )}
+      </div>
 
-        <div className="filters">
-          {chips.map((chip) => (
-            <button
-              className="filter"
-              type="button"
-              key={chip.value}
-              aria-pressed={chip.value === slot}
-              onClick={() => setSlot(chip.value)}
-            >
-              {chip.label}
-            </button>
-          ))}
-        </div>
+      <div className="filters">
+        {chips.map((chip) => (
+          <button
+            className="filter"
+            type="button"
+            key={chip.value}
+            aria-pressed={chip.value === slot}
+            onClick={() => setSlot(chip.value)}
+          >
+            {chip.label}
+          </button>
+        ))}
+      </div>
 
-        <div className="grid">
-          {shown.length === 0 ? (
-            <p className="empty__text">{slot === 'all' ? 'No garments yet.' : `Nothing in ${slot}.`}</p>
-          ) : (
-            shown.map((garment) => <Tile garment={garment} key={garment.id} />)
-          )}
-        </div>
+      <div className="grid">
+        {shown.length === 0 ? (
+          <p className="empty__text">{slot === 'all' ? 'No garments yet.' : `Nothing in ${slot}.`}</p>
+        ) : (
+          shown.map((garment) => <Tile garment={garment} key={garment.id} />)
+        )}
+      </div>
 
-        <div className="gaps">{gaps.isSuccess && <Gaps found={found} />}</div>
-      </section>
-    </main>
+      <div className="gaps">{gaps.isSuccess && <Gaps found={found} />}</div>
+    </Screen>
   );
 }

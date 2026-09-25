@@ -19,6 +19,7 @@ import {
   sourcePoint,
 } from '../lib/photoedit.js';
 import { normalizeForUpload, targetSize } from '../lib/normalize.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { imagePath, uploadContentType } from '../lib/photo.js';
 import { api, garmentsQuery, upsertGarment } from '../lib/queries.js';
 import type { Garment } from '../lib/queries.js';
@@ -69,14 +70,6 @@ type Session = {
   quarterTurns: number;
   crop: Rect | null;
 };
-
-function Body({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="screen">
-      <section className="screen__body">{children}</section>
-    </main>
-  );
-}
 
 export function EditPhoto({ route }: { route: { id: string | null } }) {
   const { toast } = useShell();
@@ -514,24 +507,17 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
 
   if (garments.isPending || (photo.state === 'loading' && found !== null)) {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">Loading the photo.</p>
-        </div>
-      </Body>
+      <Screen>
+        <Empty text="Loading the photo." />
+      </Screen>
     );
   }
 
-  if (garments.isError) {
+  if (garments.isError && garments.data === undefined) {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">{garments.error.message}</p>
-          <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
-            Try again
-          </button>
-        </div>
-      </Body>
+      <Screen>
+        <Empty text={garments.error.message} action={<TryAgain onRetry={() => void garments.refetch()} />} />
+      </Screen>
     );
   }
 
@@ -540,38 +526,34 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
   // on the wardrobe screen has been deleted.
   if (found === null) {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">That garment is not in the wardrobe any more.</p>
-        </div>
-      </Body>
+      <Screen>
+        <Empty text="That garment is not in the wardrobe any more." />
+      </Screen>
     );
   }
 
   if (photo.state === 'failed') {
     return (
-      <Body>
-        <div className="empty">
-          <p className="empty__text">{photo.message}</p>
-          <button
-            className="btn btn--primary"
-            type="button"
-            onClick={() => {
-              setPhoto({ state: 'loading' });
-              setReloads((at) => at + 1);
-            }}
-          >
-            Try again
-          </button>
-        </div>
-      </Body>
+      <Screen>
+        <Empty
+          text={photo.message}
+          action={
+            <TryAgain
+              onRetry={() => {
+                setPhoto({ state: 'loading' });
+                setReloads((at) => at + 1);
+              }}
+            />
+          }
+        />
+      </Screen>
     );
   }
 
   const cropping = mode === 'crop';
 
   return (
-    <Body>
+    <Screen>
       <p className="editor__hint">{cropping ? CROP_HINT : ERASE_HINT}</p>
 
       {/* Above the photo, because the sticky bar covers a plain row placed under it. */}
@@ -723,7 +705,7 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
           />
         </div>
       </div>
-    </Body>
+    </Screen>
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Photo } from './Photo.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
 import { useArmedTap } from '../lib/armed.js';
 import { tagState } from '../lib/garments.js';
 import { buildPatch, confirmPatch, formatColors, parseColors } from '../lib/patch.js';
@@ -9,7 +10,7 @@ import { api, garmentsKey, garmentsQuery, queryClient, removeGarment, upsertGarm
 import type { Garment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { routeHash } from '../lib/router.js';
-import { useScreenChrome, useShell } from '../lib/shell.js';
+import { useRefreshFailure, useScreenChrome, useShell } from '../lib/shell.js';
 import { ANCHORS, FIELDS, FIELD_BY_NAME, isAsked, isRelevant } from '../lib/vocab.js';
 import type { Field as FieldSpec } from '../lib/vocab.js';
 import { useWrite } from '../lib/write.js';
@@ -367,14 +368,6 @@ function ReviewCard({
   );
 }
 
-function Body({ children }: { children: React.ReactNode }) {
-  return (
-    <main className="screen">
-      <section className="screen__body screen__body--review">{children}</section>
-    </main>
-  );
-}
-
 /**
  * The queue is the wardrobe filtered, not a list of its own.
  *
@@ -396,6 +389,7 @@ export function Review({ route }: { route: { id: string | null } }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   const garments = useQuery(garmentsQuery);
+  useRefreshFailure(garments);
 
   /**
    * The wardrobe is cached for the session, so without this the screen would
@@ -433,37 +427,49 @@ export function Review({ route }: { route: { id: string | null } }) {
     else pass(id);
   }
 
+  const body = 'screen__body--review';
+
   if (garments.isPending) {
-    return <Body>{message(single ? 'Loading the garment.' : 'Loading the queue.')}</Body>;
-  }
-  if (garments.isError) {
     return (
-      <Body>
-        {message(garments.error.message, (
-          <button className="btn btn--primary" type="button" onClick={() => void garments.refetch()}>
-            Try again
-          </button>
-        ))}
-      </Body>
+      <Screen bodyClass={body}>
+        <Empty text={single ? 'Loading the garment.' : 'Loading the queue.'} />
+      </Screen>
+    );
+  }
+  // Only with nothing behind it, so a failed refetch keeps the queue on screen.
+  if (garments.isError && garments.data === undefined) {
+    return (
+      <Screen bodyClass={body}>
+        <Empty text={garments.error.message} action={<TryAgain onRetry={() => void garments.refetch()} />} />
+      </Screen>
     );
   }
 
-  if (single && garment === null) return <Body>{message('That garment is not in the wardrobe any more.')}</Body>;
+  if (single && garment === null) {
+    return (
+      <Screen bodyClass={body}>
+        <Empty text="That garment is not in the wardrobe any more." />
+      </Screen>
+    );
+  }
 
   if (garment === null) {
     return (
-      <Body>
-        {message('Nothing left to review.', (
-          <button className="btn btn--primary" type="button" onClick={() => go('#/wardrobe')}>
-            Open the wardrobe
-          </button>
-        ))}
-      </Body>
+      <Screen bodyClass={body}>
+        <Empty
+          text="Nothing left to review."
+          action={
+            <button className="btn btn--primary" type="button" onClick={() => go('#/wardrobe')}>
+              Open the wardrobe
+            </button>
+          }
+        />
+      </Screen>
     );
   }
 
   return (
-    <Body>
+    <Screen bodyClass={body}>
       <ReviewCard
         key={garment.id}
         garment={garment}
@@ -478,15 +484,7 @@ export function Review({ route }: { route: { id: string | null } }) {
         onRemoved={() => done(garment.id)}
         onSkip={() => pass(garment.id)}
       />
-    </Body>
+    </Screen>
   );
 }
 
-function message(text: string, action: React.ReactNode = null) {
-  return (
-    <div className="empty">
-      <p className="empty__text">{text}</p>
-      {action}
-    </div>
-  );
-}

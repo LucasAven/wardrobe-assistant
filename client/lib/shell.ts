@@ -15,6 +15,33 @@ export function useShell(): ShellHooks {
   return shell;
 }
 
+/**
+ * A read that fails once it has already answered keeps what it drew, and the
+ * failure is said in a line rather than in a block over the top of it.
+ *
+ * React Query keeps `data` through an error, so a screen that gates its error
+ * block on `isError` alone renders the error and the content together after a
+ * failed Refresh. The old app could not do that: its refresh cleared the body
+ * first. The first read failing is still the screen's own empty state, because
+ * there is nothing behind it to keep.
+ */
+export function useRefreshFailure(read: {
+  isError: boolean;
+  error: Error | null;
+  errorUpdatedAt: number;
+  data: unknown;
+}) {
+  const { toast } = useShell();
+  // Zero until a read that already had an answer fails, so each distinct
+  // failure says so once and a re-render does not repeat it.
+  const failedAt = read.isError && read.data !== undefined ? read.errorUpdatedAt : 0;
+  const message = read.error === null ? '' : read.error.message;
+
+  useEffect(() => {
+    if (failedAt !== 0) toast(message, 'error');
+  }, [failedAt, message, toast]);
+}
+
 export type ScreenChrome = {
   title: string;
   meta?: string;
