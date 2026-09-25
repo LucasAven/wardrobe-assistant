@@ -99,7 +99,14 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
   const [mode, setModeState] = useState<Mode>('erase');
   const [canUndo, setCanUndo] = useState(false);
   const [canStartOver, setCanStartOver] = useState(false);
-  const [asking, setAsking] = useState(false);
+  /**
+   * Set before the first await of a write, not after it. `busy` below is a
+   * render value, so a guard that reads it stops being true the moment the
+   * handler awaits, and "Replace photo" is a label for a file input and cannot
+   * carry `disabled`. Without this the owner can tap Save while the new photo
+   * is still being re-encoded and start a second write on the same stored file.
+   */
+  const [preparing, setPreparing] = useState(false);
   const [photo, setPhoto] = useState<{ state: 'loading' | 'ready' } | { state: 'failed'; message: string }>({
     state: 'loading',
   });
@@ -471,9 +478,6 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
   const resetCutout = useWrite({
     mutationFn: (id: string) => api.resetCutout(id),
     onSuccess: (updated) => reloaded(updated, 'Back to what Images makes of the photo.'),
-    // On the hook rather than on the call, because a second write while this
-    // one is in flight would drop a per-call callback and leave Asking on.
-    onSettled: () => setAsking(false),
   });
 
   const replace = useWrite({
@@ -483,22 +487,29 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
   });
 
   /** One at a time, because all of them rewrite the same stored photo. */
-  const busy = saveEdit.isPending || resetCutout.isPending || replace.isPending;
+  const busy = preparing || saveEdit.isPending || resetCutout.isPending || replace.isPending;
 
   async function replacePhoto(file: File) {
-    // The label this hangs off cannot be disabled, so this is the only thing
-    // keeping a pick during a save from starting a second write on the photo.
     if (busy || found === null) return;
+    setPreparing(true);
 
-    const { body } = await normalizeForUpload(file);
-    const contentType = uploadContentType(body);
-    if (contentType === null) {
-      toast('This file is not an image the app can read.', 'error');
-      return;
+    try {
+      const { body } = await normalizeForUpload(file);
+      const contentType = uploadContentType(body);
+      if (contentType === null) {
+        toast('This file is not an image the app can read.', 'error');
+        return;
+      }
+
+      toast('Uploading the new photo.');
+      replace.mutate({ id: found.id, body, contentType });
+    } catch (error) {
+      toast(errorMessage(error), 'error');
+    } finally {
+      // The write that follows carries its own pending flag, so this only has
+      // to cover the re-encode that happens before it.
+      setPreparing(false);
     }
-
-    toast('Uploading the new photo.');
-    replace.mutate({ id: found.id, body, contentType });
   }
 
   if (garments.isPending || (photo.state === 'loading' && found !== null)) {
@@ -684,20 +695,17 @@ export function EditPhoto({ route }: { route: { id: string | null } }) {
               saveEdit.mutate(found.id);
             }}
           >
-            {busy ? 'Saving' : 'Save'}
+            {saveEdit.isPending ? 'Saving' : 'Save'}
           </button>
         </div>
         <div className="picker">
           <button
             className="btn btn--small btn--ghost"
             type="button"
-            disabled={asking || busy}
-            onClick={() => {
-              setAsking(true);
-              resetCutout.mutate(found.id);
-            }}
+            disabled={busy}
+            onClick={() => resetCutout.mutate(found.id)}
           >
-            {asking ? 'Asking' : 'Ask Images again'}
+            {resetCutout.isPending ? 'Asking' : 'Ask Images again'}
           </button>
           <label className="btn btn--small btn--ghost" htmlFor="replace-photo">
             Replace photo
