@@ -19,7 +19,7 @@ import {
 import type { ChipOption, MirrorQuestion } from '../lib/body.js';
 import { Empty, Screen, TryAgain } from './Screen.js';
 import { askPosition, positionLine } from '../lib/geo.js';
-import { api, profileKey, profileQuery, queryClient } from '../lib/queries.js';
+import { api, profileQuery, writeProfile } from '../lib/queries.js';
 import type { ProfileData } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome, useScreenToast, useShell } from '../lib/shell.js';
@@ -127,7 +127,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
 
   /** Both home writes answer the whole profile, so the card redraws from the reply. */
   function applyHome(body: unknown, done: string) {
-    queryClient.setQueryData(profileKey, readProfile(body));
+    writeProfile(readProfile(body));
     say(done);
   }
 
@@ -168,7 +168,7 @@ function ProfileForm({ stored }: { stored: ProfileData }) {
     onSuccess: (body) => {
       const first = stored.profile === null;
       const next = readProfile(body);
-      queryClient.setQueryData(profileKey, next);
+      writeProfile(next);
       // A saved profile is the only thing standing between the user and the
       // screen they came for, so the first save walks them there.
       if (first) {

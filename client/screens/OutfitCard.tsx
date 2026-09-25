@@ -543,6 +543,12 @@ export function OutfitCard({
   const [target, setTarget] = useState<Target | null>(null);
   const wornSession = useWorn();
 
+  // The test the wear button already made, read once: an outfit that was worn
+  // is the record of a day, so the server refuses to change one and the card
+  // offers no tap.
+  const worn = outfit.worn || wornSession.has(outfit.id);
+  const open = addableSlots(outfit, worn);
+
   // Resolved every render from the outfit the cache holds now. An outfit
   // replaced under an open picker can no longer wear the tapped piece, and
   // there is nothing to change about a garment the outfit does not hold, so
@@ -554,7 +560,14 @@ export function OutfitCard({
           (garment: OutfitGarment) => garment.id === target.garmentId,
         ) ?? null;
 
-  if (target !== null && (target.garmentId === null || tapped !== null)) {
+  // An add has no garment to go stale, so it asks the other question: is the
+  // slot it was opened for still one this outfit can take. Otherwise a refetch
+  // that filled the slot leaves the picker up, and Save spends a round trip to
+  // be told the slot is taken.
+  const picking =
+    target !== null && (target.garmentId === null ? open.includes(target.slot) : tapped !== null);
+
+  if (picking && target !== null) {
     return (
       <section className="outfit">
         <Picker
@@ -568,15 +581,10 @@ export function OutfitCard({
 
   const pieces = orderPieces(outfit.pieces);
   const { cited, missed, broke } = splitRules(outfit);
-  // The test the wear button already made, read once: an outfit that was worn
-  // is the record of a day, so the server refuses to change one and the card
-  // offers no tap.
-  const worn = outfit.worn || wornSession.has(outfit.id);
   // A narrower question than `worn`, and the one the remove control needs: an
   // outfit worn before migration 009, or through a log_wear that left the id
   // out, is worn off the day and the garments and no row claims it.
   const wearNamed = outfit.wearNamed || wornSession.has(outfit.id);
-  const open = addableSlots(outfit, worn);
   const request = outfit.ownerRequest;
 
   return (

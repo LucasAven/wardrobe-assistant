@@ -129,9 +129,11 @@ export function App() {
   const garments = useQuery(garmentsQuery);
   /**
    * The badge reads the wardrobe, and a screen that does not read it has no
-   * other way to say the read failed, so the shell says it once. Only the first
-   * failure: a later one belongs to whichever screen asked again, and that
-   * screen says so itself.
+   * other way to say the read failed, so the shell says it. Only while nothing
+   * has ever been read: once there is a list, a later failure belongs to
+   * whichever screen asked again, and that screen says so itself. Tapping Try
+   * again while still offline does toast each time, which is the answer to a
+   * tap rather than a repeat of the same news.
    */
   useEffect(() => {
     // The toast is App's own state, so the cache-level `onError` on
@@ -160,7 +162,9 @@ export function App() {
       .ensureQueryData(profileQuery)
       .catch(() => null)
       .then((data) => {
-        if (live) go(data?.profile == null ? '#/profile' : '#/today');
+        // Replaces the landing entry rather than pushing past it, so Back from
+        // the first screen leaves the app instead of bouncing off the boot.
+        if (live) go(data?.profile == null ? '#/profile' : '#/today', true);
       });
     return () => {
       live = false;

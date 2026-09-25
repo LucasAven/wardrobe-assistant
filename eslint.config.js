@@ -8,9 +8,15 @@ import tseslint from 'typescript-eslint';
  *
  * `react-hooks` is why this file exists. The React port's review found a hook
  * below an early return, a `setState` during a render, and several deliberate
- * gaps in a dependency array, and all three are what these rules catch. A gap
- * that is on purpose now has to say so in a disable comment with a reason next
- * to it, which is the documentation it was missing.
+ * gaps in a dependency array, and all three are what these rules catch.
+ *
+ * `lint` passes `--max-warnings 0`, because `exhaustive-deps` is a warning in
+ * the recommended set and a warning nothing fails on is a rule nobody reads. So
+ * a gap that is on purpose has to say so in a disable comment with a reason.
+ *
+ * These rules see what they can trace. `set-state-in-effect` catches the toast
+ * in `App.tsx` and not the same shape in `shell.ts`, where the setter arrives
+ * through context, so a clean run is not a proof that the pattern is absent.
  *
  * `client/lib/*.js` is linted for the same hook and correctness rules as
  * everything else, but it is still not type-checked: `tsconfig.client.json`

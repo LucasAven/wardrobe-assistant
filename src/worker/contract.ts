@@ -205,9 +205,12 @@ export interface Correction {
  * What the web app reads. `OutfitView` plus the state only a stored outfit has.
  *
  * This is the largest shape that crosses the wire, and it lives here for the
- * reason the file says: written down once, so neither side invents it. The
- * client re-parses it through `readOutfit` rather than trusting it, and the
- * parse is written against this.
+ * reason the file says: written down once, so neither side invents it.
+ *
+ * The client reshapes it through `readOutfit`, which drops rows it cannot draw
+ * and turns the nullable text into strings. That is not a full parse: the
+ * garments inside a piece are checked for being objects and no further, so this
+ * type is what the Worker promises rather than what the client has verified.
  */
 export interface SavedOutfit extends OutfitView {
   /**

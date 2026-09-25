@@ -56,10 +56,17 @@ export const historyKey = (limit: number) => ['outfits', 'list', limit] as const
  * seconds apart differ around the sixth decimal, so the raw value built a new
  * entry on every ask and never once hit the one before it. Two decimals is
  * roughly a kilometre, and the forecast does not change across one.
+ *
+ * The rounding alone only makes the entry findable. `WEATHER_FRESH_MS` is what
+ * makes finding it worth anything, since Today unmounts on every tab change and
+ * the reading would otherwise be stale on arrival every time.
  */
 export const weatherKey = (lat: number, lon: number) =>
   ['weather', Math.round(lat * 100) / 100, Math.round(lon * 100) / 100] as const;
 export const gapsKey = ['gaps'] as const;
+
+/** Weather does not move fast enough to ask again inside one round of the tabs. */
+export const WEATHER_FRESH_MS = 10 * 60 * 1000;
 
 /**
  * `gcTime: Infinity` only where a screen is reopened often enough to want its
@@ -115,6 +122,12 @@ function editGarments(edit: (rows: Garment[]) => Garment[]) {
   }
   void queryClient.cancelQueries({ queryKey: garmentsKey });
   queryClient.setQueryData(garmentsKey, edit(rows));
+  // The cancel above reverts a refetch that was already running, and the write
+  // then clears the invalidation flag along with it, so a screen that asked for
+  // a fresh list on mount can have its question withdrawn by its own first
+  // write. Marked stale again, without starting a fetch, so the next reader
+  // asks rather than trusting a list this patched by hand.
+  void queryClient.invalidateQueries({ queryKey: garmentsKey, refetchType: 'none' });
 }
 
 export function upsertGarment(garment: Garment) {
@@ -122,6 +135,18 @@ export function upsertGarment(garment: Garment) {
     const at = rows.findIndex((row) => row.id === garment.id);
     return at < 0 ? [garment, ...rows] : rows.map((row) => (row.id === garment.id ? garment : row));
   });
+}
+
+/**
+ * The other session-cached read, written with the same care.
+ *
+ * Every profile write answers with the whole profile, so there is nothing to
+ * patch and nothing to reconcile afterwards. The cancel is still needed: the
+ * Try again button can leave a read in flight, and it would land on top.
+ */
+export function writeProfile(next: ProfileData) {
+  void queryClient.cancelQueries({ queryKey: profileKey });
+  queryClient.setQueryData(profileKey, next);
 }
 
 export function removeGarment(id: string) {

@@ -119,7 +119,7 @@ export function Wardrobe() {
   if (garments.isPending) {
     return (
       <Screen>
-        <p className="empty__text">Loading.</p>
+        <Empty text="Loading." />
       </Screen>
     );
   }

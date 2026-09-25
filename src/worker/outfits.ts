@@ -32,6 +32,10 @@ import type {
   SavedOutfit,
   Waiver,
 } from './contract';
+import { getProfile } from './profile';
+import { getGarment, listGarments } from './repo';
+import type { LoggedWear } from './routes/wear';
+import { day, recentWear } from './routes/wear';
 
 /**
  * The shapes the web app reads live in `./contract`, which is the file both
@@ -39,10 +43,6 @@ import type {
  * where they are built and where every worker caller already looks for them.
  */
 export type { Correction, HonoredRequest, OutfitPiece, OwnerRequest, SavedOutfit, Waiver };
-import { getProfile } from './profile';
-import { getGarment, listGarments } from './repo';
-import type { LoggedWear } from './routes/wear';
-import { day, recentWear } from './routes/wear';
 
 /** Base to shoes, then accessories. The order an outfit is read in. */
 const PIECE_ORDER: readonly Slot[] = ['base', 'top', 'mid', 'outer', 'bottom', 'shoes', 'accessory'];

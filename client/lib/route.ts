@@ -30,9 +30,22 @@ window.addEventListener('hashchange', read);
  * asks to go where it already is and no `hashchange` fires, but nothing ever
  * asked: the tabs are anchors, and each `go()` in the app names a different
  * screen from the one it runs on.
+ *
+ * `replace` is for the one hop the owner did not ask for: the boot read
+ * choosing which screen to open on. Pushing that leaves the empty hash behind
+ * it in the history, and since the empty hash is what says the app is still
+ * booting, Back would land on it, start the boot again and push the same entry
+ * back on. On Android that is the gesture that normally leaves the app.
+ *
+ * `replaceState` fires no `hashchange`, so the read is done here.
  */
-export function go(hash: string) {
-  location.hash = hash;
+export function go(hash: string, replace = false) {
+  if (!replace) {
+    location.hash = hash;
+    return;
+  }
+  history.replaceState(null, '', hash);
+  read();
 }
 
 export function subscribeRoute(listener: () => void) {

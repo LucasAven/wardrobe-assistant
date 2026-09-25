@@ -7,7 +7,7 @@
     "build": "vite build",
     "deploy": "npm run build && wrangler deploy",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.client.json",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "test": "vitest run && node test/ui.selftest.mjs",
     "db:migrate": "./scripts/migrate.sh --local",
     "db:migrate:remote": "./scripts/migrate.sh --remote"

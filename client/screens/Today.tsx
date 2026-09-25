@@ -5,7 +5,7 @@ import { Empty, Screen, TryAgain } from './Screen.js';
 import { askPosition } from '../lib/geo.js';
 import { readOutfits, savedClock, todayView } from '../lib/outfits.js';
 import { forgetPref } from '../lib/prefs.js';
-import { api, outfitListOptions, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
+import { WEATHER_FRESH_MS, api, outfitListOptions, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useRefreshFailure, useScreenChrome } from '../lib/shell.js';
 import { readWeather, weatherLine } from '../lib/weather.js';
@@ -52,6 +52,7 @@ function Weather() {
     queryKey: at === null ? ['weather', 'none'] : weatherKey(at.lat, at.lon),
     enabled: at !== null,
     queryFn: async () => (at === null ? null : readWeather(await api.getWeather(at.lat, at.lon))),
+    staleTime: WEATHER_FRESH_MS,
   });
 
   const reading = forecast.data ?? null;

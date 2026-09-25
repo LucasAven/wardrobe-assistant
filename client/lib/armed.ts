@@ -28,7 +28,11 @@ export function useArmedTap({ ms, onArm, onFire }: { ms: number; onArm: () => vo
       onArm();
       return;
     }
+    // Re-armed rather than left armed. A retry after a failed write should
+    // still be one tap, but an armed delete with no timer behind it sits there
+    // for the rest of the session waiting for a stray tap.
     clearTimeout(timer.current ?? undefined);
+    timer.current = setTimeout(() => setArmed(false), ms);
     onFire();
   }
 
