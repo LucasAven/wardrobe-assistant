@@ -1,6 +1,6 @@
 import { parseRoute } from './router.js';
 
-export type Route = { name: string; id: string | null; landing: boolean; nonce: number };
+export type Route = { name: string; id: string | null; landing: boolean };
 
 /**
  * The hash the app is opened on, before anything has decided where to send the
@@ -13,30 +13,26 @@ function onLandingHash() {
   return location.hash === '' || location.hash === '#' || location.hash === '#/';
 }
 
-let snapshot: Route = { ...parseRoute(location.hash), landing: onLandingHash(), nonce: 0 };
+let snapshot: Route = { ...parseRoute(location.hash), landing: onLandingHash() };
 const listeners = new Set<() => void>();
 
-function read(bump: boolean) {
+function read() {
   const next = parseRoute(location.hash);
-  snapshot = {
-    name: next.name,
-    id: next.id,
-    landing: onLandingHash(),
-    nonce: bump ? snapshot.nonce + 1 : snapshot.nonce,
-  };
+  snapshot = { name: next.name, id: next.id, landing: onLandingHash() };
   for (const listener of listeners) listener();
 }
 
-window.addEventListener('hashchange', () => read(false));
+window.addEventListener('hashchange', read);
 
 /**
- * The hash the app is already on fires no `hashchange`, and a screen asking to
- * go where it already is means reload me. The nonce is what the screen is keyed
- * on, so bumping it remounts.
+ * Every caller asks for a hash other than the one it is on, so this is a plain
+ * assignment. It used to carry a nonce for the reload-me case, where a screen
+ * asks to go where it already is and no `hashchange` fires, but nothing ever
+ * asked: the tabs are anchors, and each `go()` in the app names a different
+ * screen from the one it runs on.
  */
 export function go(hash: string) {
-  if (location.hash === hash) read(true);
-  else location.hash = hash;
+  location.hash = hash;
 }
 
 export function subscribeRoute(listener: () => void) {

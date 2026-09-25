@@ -18,6 +18,10 @@ export function AuthOverlay() {
     try {
       await api.login(password);
       setPassword('');
+      // Cleared here as well as on the way in. The gate can only close on a
+      // success today, so nothing stale can survive it, but that is a fact
+      // about one caller rather than about this form.
+      setMessage(null);
       authGate.close();
     } catch (error) {
       setMessage(errorMessage(error));

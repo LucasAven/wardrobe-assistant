@@ -7,6 +7,7 @@ import { api, upsertGarment } from '../lib/queries.js';
 import { go } from '../lib/route.js';
 import { useScreenChrome } from '../lib/shell.js';
 import { createThumbnail } from '../lib/thumb.js';
+import { errorMessage } from '../lib/write.js';
 
 const UPLOAD_CONCURRENCY = 3;
 const THUMBNAIL_CONCURRENCY = 2;
@@ -52,6 +53,11 @@ export function Upload() {
 
   useEffect(() => {
     const rows = work.current;
+    // Lowered on the way in, not only raised on the way out. A second mount of
+    // the same component (StrictMode, which this app does not use today) would
+    // otherwise start with the flag still up and release every thumbnail it
+    // decoded, with nothing on screen to say why.
+    released.current = false;
     return () => {
       released.current = true;
       for (const row of rows.values()) row.release?.();
@@ -93,7 +99,7 @@ export function Upload() {
               ...(status.note === null ? {} : { note: status.note }),
             });
           },
-          (error: Error) => patch(id, { state: 'failed', status: error.message }),
+          (error: unknown) => patch(id, { state: 'failed', status: errorMessage(error) }),
         );
     },
     [limiters, patch],

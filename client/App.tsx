@@ -200,7 +200,7 @@ export function App() {
             </div>
           </main>
         ) : (
-          <Screen key={`${route.name}/${route.id ?? ''}/${route.nonce}`} route={route} />
+          <Screen key={`${route.name}/${route.id ?? ''}`} route={route} />
         )}
 
         <nav className="tabbar">

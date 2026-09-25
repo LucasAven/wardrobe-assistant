@@ -395,7 +395,6 @@ function Picker({
   const offered = options.filter((garment) => !alreadyOn.has(garment.id) && !claimed(garment));
   const canSave = chosen !== null && reason.trim() !== '';
 
-
   return (
     <div className="swap">
       <h3 className="section__title">
@@ -412,7 +411,7 @@ function Picker({
             name="Nothing here"
             garment={null}
             cautions={[]}
-            pressed={chosen?.id === null && chosen !== null}
+            pressed={chosen?.id === null}
             onPick={() => setChosen({ id: null })}
           />
         )}

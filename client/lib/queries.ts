@@ -45,6 +45,11 @@ export const profileKey = ['profile'] as const;
  */
 export const outfitsKey = ['outfits'] as const;
 export const todayKey = ['outfits', 'today'] as const;
+/**
+ * The limit is in the key because the answer depends on it. One caller asks for
+ * one number today, and folding that number in here would mean a second caller
+ * asking for more silently reading the shorter list back out of the cache.
+ */
 export const historyKey = (limit: number) => ['outfits', 'list', limit] as const;
 /**
  * Rounded into the key. `askPosition` hands back a float, and two readings taken
