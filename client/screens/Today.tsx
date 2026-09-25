@@ -1,0 +1,171 @@
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { OutfitSet } from './OutfitSet.js';
+import { Empty, Screen, TryAgain } from './Screen.js';
+import { askPosition } from '../lib/geo.js';
+import { readOutfits, savedClock, todayView } from '../lib/outfits.js';
+import { forgetPref } from '../lib/prefs.js';
+import { WEATHER_FRESH_MS, api, outfitListOptions, profileQuery, todayKey, weatherKey } from '../lib/queries.js';
+import { go } from '../lib/route.js';
+import { useRefreshFailure, useScreenChrome } from '../lib/shell.js';
+import { readWeather, weatherLine } from '../lib/weather.js';
+
+/** What a missing position costs this screen, said once per cause. */
+const NO_POSITION: Record<string, string> = {
+  denied: 'Location is off for this app, so there is no weather to show.',
+  unsupported: 'This browser cannot give a location, so there is no weather to show.',
+  timeout: 'Finding you took too long, so there is no weather to show.',
+  unknown: 'Your location did not come back, so there is no weather to show.',
+};
+
+type Position = { lat: number; lon: number };
+
+function Weather() {
+  const [located, setLocated] = useState<Position | null>(null);
+  const [note, setNote] = useState('Getting the weather where you are.');
+  /** Bumped by the button, which is the only thing that asks a second time. */
+  const [asks, setAsks] = useState(0);
+
+  /** Asked once on mount, and never waited on. */
+  useEffect(() => {
+    let live = true;
+    void askPosition().then((result) => {
+      if (!live) return;
+      if (result.found) {
+        setLocated({ lat: result.lat, lon: result.lon });
+        setNote('Reading the weather where you are.');
+      } else {
+        setLocated(null);
+        setNote(NO_POSITION[result.cause] ?? NO_POSITION['unknown'] ?? '');
+      }
+    });
+    return () => {
+      live = false;
+    };
+  }, [asks]);
+
+  const at = located;
+  const forecast = useQuery({
+    // A hook cannot be skipped, so a position that is not known yet takes a key
+    // of its own that nothing ever fetches. It is not kept, because the client
+    // no longer holds every key it builds for the life of the page.
+    queryKey: at === null ? ['weather', 'none'] : weatherKey(at.lat, at.lon),
+    enabled: at !== null,
+    queryFn: async () => (at === null ? null : readWeather(await api.getWeather(at.lat, at.lon))),
+    staleTime: WEATHER_FRESH_MS,
+  });
+
+  const reading = forecast.data ?? null;
+
+  return (
+    <section className="card">
+      <h2 className="card__title">Weather</h2>
+      <div className="card__body">
+        {reading !== null ? (
+          <>
+            <p className="card__weather">{weatherLine(reading)}</p>
+            <p className="card__line">From where you are.</p>
+          </>
+        ) : (
+          <>
+            {/* Nothing downstream reads the weather any more, so a failed read
+                costs this card a line of text and nothing else. */}
+            <p className="card__line">{forecast.isError ? 'The weather did not come back.' : note}</p>
+            {located === null && (
+              <button
+                className="btn btn--small btn--ghost"
+                type="button"
+                onClick={() => {
+                  forgetPref('location');
+                  setNote('Asking for your location.');
+                  setAsks((at) => at + 1);
+                }}
+              >
+                Use my location
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function Today() {
+  // Read inside the fetch, not on render. The cache then holds the outfit
+  // objects the cards are handed, so an edit written back to it reaches them
+  // and a re-render does not build a second set of them.
+  const today = useQuery({
+    queryKey: todayKey,
+    queryFn: async () => readOutfits(await api.getTodayOutfits()),
+    ...outfitListOptions,
+  });
+  useScreenChrome({ title: 'Today', refresh: () => void today.refetch() });
+
+  // The profile is a nudge on this screen, not a gate. A failed read stays quiet.
+  const profile = useQuery(profileQuery);
+
+  useRefreshFailure(today);
+
+  const view = today.data === undefined ? null : todayView(today.data);
+
+  return (
+    <Screen>
+      <div className="banner">
+        {profile.data?.profile == null && profile.isSuccess && (
+          <>
+            <p className="card__line">The book needs your body type before Claude can style you.</p>
+            <button className="btn btn--primary btn--wide" type="button" onClick={() => go('#/profile')}>
+              Set up the profile
+            </button>
+          </>
+        )}
+      </div>
+
+      <Weather />
+
+      <div className="stack">
+        {today.isPending && <Empty text="Looking for the outfit Claude saved." />}
+
+        {/* Only where there is nothing behind it. A Refresh that fails keeps
+            what it drew and says so in a line, because an error block stacked
+            over the outfits reads as both at once. */}
+        {today.isError && today.data === undefined && (
+          <Empty text={today.error.message} action={<TryAgain onRetry={() => void today.refetch()} />} />
+        )}
+
+        {view !== null && view.kind !== 'sets' && (
+          <section className="card">
+            <h2 className="card__title">{view.title}</h2>
+            <p className="card__line">{view.detail}</p>
+            <button className="btn btn--wide" type="button" onClick={() => void today.refetch()}>
+              Check again
+            </button>
+          </section>
+        )}
+
+        {/* One card for an outfit saved on its own, one pager for a set of
+            options, and the sets decide which of the two. The screen hands
+            every group over the same way, so it never asks how many outfits
+            are in one. */}
+        {view !== null &&
+          view.kind === 'sets' &&
+          view.sets.map((set) => {
+            // The time the first option landed, which is when the set was
+            // composed. The rest were saved in the same turn, seconds behind.
+            const clock = savedClock(set.outfits[0]?.createdAt);
+            return (
+              <OutfitSet
+                outfits={set.outfits}
+                caption="Today"
+                meta={clock === '' ? '' : `saved ${clock}`}
+                // The ids, not the set, so removing one option rebuilds the
+                // pager rather than leaving it on "Option 3 of 2".
+                key={set.outfits.map((outfit) => outfit.id).join()}
+              />
+            );
+          })}
+      </div>
+    </Screen>
+  );
+}

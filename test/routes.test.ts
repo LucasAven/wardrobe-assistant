@@ -18,13 +18,12 @@ class FakeDb {
   public garments: Row[] = [];
 
   prepare(sql: string) {
-    const self = this;
     const make = (args: unknown[]) => ({
       bind: (...next: unknown[]) => make(next),
-      first: async () => self.exec(sql, args)[0] ?? null,
-      all: async () => ({ results: self.exec(sql, args) }),
+      first: async () => this.exec(sql, args)[0] ?? null,
+      all: async () => ({ results: this.exec(sql, args) }),
       run: async () => {
-        self.exec(sql, args);
+        this.exec(sql, args);
         return { success: true };
       },
     });

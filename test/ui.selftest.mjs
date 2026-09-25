@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { ApiError, AuthError, NetworkError, createApi } from '../public/lib/api.js';
+import { ApiError, AuthError, NetworkError, createApi } from '../client/lib/api.js';
 import {
   BODY_TYPES,
   BODY_TYPE_BY_VALUE,
@@ -14,18 +14,18 @@ import {
   readProfile,
   sameObservations,
   unanswered,
-} from '../public/lib/body.js';
+} from '../client/lib/body.js';
 import {
   countTagStates,
   isUntagged,
   tagState,
   taggingPending,
   uploadStatus,
-} from '../public/lib/garments.js';
-import { askPosition, positionLine } from '../public/lib/geo.js';
-import { createLimiter } from '../public/lib/limiter.js';
-import { normalizeForUpload, normalizedType, targetSize } from '../public/lib/normalize.js';
-import { CAUTION_WORDS, addableSlots, cautionsFor, pieceLabel } from '../public/lib/outfitcard.js';
+} from '../client/lib/garments.js';
+import { askPosition, positionLine } from '../client/lib/geo.js';
+import { createLimiter } from '../client/lib/limiter.js';
+import { normalizeForUpload, normalizedType, targetSize } from '../client/lib/normalize.js';
+import { CAUTION_WORDS, addableSlots, cautionsFor, pieceLabel } from '../client/lib/outfitcard.js';
 import {
   NOTHING_SAVED,
   bookTally,
@@ -40,9 +40,9 @@ import {
   savedLine,
   splitRules,
   todayView,
-} from '../public/lib/outfits.js';
-import { buildPatch, confirmPatch, formatColors, parseColors } from '../public/lib/patch.js';
-import { imagePath, retryPath, uploadContentType } from '../public/lib/photo.js';
+} from '../client/lib/outfits.js';
+import { buildPatch, confirmPatch, formatColors, parseColors } from '../client/lib/patch.js';
+import { imagePath, retryPath, uploadContentType } from '../client/lib/photo.js';
 import {
   canvasPoint,
   clampCrop,
@@ -51,11 +51,11 @@ import {
   rotateCrop,
   rotatedSize,
   sourcePoint,
-} from '../public/lib/screens/editphoto.js';
-import { forgetPref, readChoice, readPref, writePref } from '../public/lib/prefs.js';
-import { parseRoute, routeHash } from '../public/lib/router.js';
-import { FIELDS, isAsked, isRelevant, relevantFields } from '../public/lib/vocab.js';
-import { readWeather, weatherLine } from '../public/lib/weather.js';
+} from '../client/lib/photoedit.js';
+import { forgetPref, readChoice, readPref, writePref } from '../client/lib/prefs.js';
+import { parseRoute, routeHash } from '../client/lib/router.js';
+import { FIELDS, isAsked, isRelevant, relevantFields } from '../client/lib/vocab.js';
+import { readWeather, weatherLine } from '../client/lib/weather.js';
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -1241,7 +1241,7 @@ test('every garment in a saved outfit reaches the wear log once', () => {
 
 test('nothing saved for today is a sentence, not a blank screen', () => {
   for (const body of [{ outfits: [] }, {}, null, { outfits: [{ pieces: [] }] }, { outfits: null }]) {
-    const view = todayView(body);
+    const view = todayView(readOutfits(body));
     assert.equal(view.kind, 'empty');
     assert.equal(view.title, NOTHING_SAVED.title);
     assert.ok(view.title.length > 0, 'a blank screen is the one outcome worth avoiding');
@@ -1256,7 +1256,7 @@ test('today shows every outfit saved today, with the sets kept together', () => 
   ];
   const alone = { ...SAVED, id: 'b1', planId: 'plan-b', createdAt: '2026-09-03T19:40:00' };
 
-  const view = todayView({ outfits: [alone, ...options] });
+  const view = todayView(readOutfits({ outfits: [alone, ...options] }));
   assert.equal(view.kind, 'sets');
   assert.deepEqual(
     view.sets.map((set) => set.outfits.map((outfit) => outfit.id)),
@@ -1265,7 +1265,7 @@ test('today shows every outfit saved today, with the sets kept together', () => 
   );
   assert.equal(view.sets[1].outfits[0].pieces.length, 4, 'and every outfit in one is the card it was');
 
-  const one = todayView({ outfits: [SAVED] });
+  const one = todayView(readOutfits({ outfits: [SAVED] }));
   assert.equal(one.kind, 'sets', 'a single outfit is a set of one, so neither screen asks which it got');
   assert.deepEqual(one.sets.map((set) => set.outfits.length), [1]);
 });
